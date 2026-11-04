@@ -11,7 +11,7 @@ function makeSpreadsheet(sheets, owner) {
   };
 }
 
-function load({ user = '', props = {}, active = {}, byId = {}, now = new Date('2026-11-05T09:00:00+09:00'), owner } = {}) {
+function load({ strict = false, user = '', props = {}, active = {}, byId = {}, now = new Date('2026-11-05T09:00:00+09:00'), owner } = {}) {
   const store = {}, calls = { openById: 0 };
   const cache = {
     get: k => (k in store ? store[k] : null),
@@ -44,7 +44,12 @@ function load({ user = '', props = {}, active = {}, byId = {}, now = new Date('2
     }
   };
   vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'gas', 'Base.gs'), 'utf8'), ctx);
+  let src = fs.readFileSync(path.join(__dirname, '..', 'gas', 'Base.gs'), 'utf8');
+  if (strict) {
+    if (!src.includes('var STRICT_SCOPE = false;')) throw new Error('STRICT_SCOPE が見つからない');
+    src = src.replace('var STRICT_SCOPE = false;', 'var STRICT_SCOPE = true;');
+  }
+  vm.runInContext(src, ctx);
   return { Base: ctx.Base, ctx, store, calls, props };
 }
 module.exports = { load };

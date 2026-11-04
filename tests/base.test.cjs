@@ -81,8 +81,21 @@ t('役割：児童・名前なし児童はおためし・教師ドメイン・�
   assert.strictEqual(load({ user: '', active: sheets }).Base.me().role, 'none');
 });
 
-t('担当：学級・学年全体・全校・載っていない教師・所有者', () => {
+t('担当（既定）：教師ドメインは全学級、別ドメインは担当だけ、児童は不可', () => {
   const { Base } = load({ active: { roster: NEW_ROSTER, teachers: TEACHERS }, owner: 'owner@edu.nishi.or.jp' });
+  assert.strictEqual(Base.canSeeClass('na@edu.nishi.or.jp', 3, 2), true);
+  assert.strictEqual(Base.canSeeClass('nobody@edu.nishi.or.jp', 3, 1), true);
+  assert.strictEqual(Base.canSeeClass('12345678@kyoiku.edu.nishi.or.jp', 3, 1), false);
+  assert.strictEqual(Base.canSeeClass('shien@example.jp', 1, 1), true);
+  const t2 = load({ active: { teachers: [['メール', '学年', '組'], ['sub@example.jp', 3, 1]] } }).Base;
+  assert.strictEqual(t2.canSeeClass('sub@example.jp', 3, 1), true);
+  assert.strictEqual(t2.canSeeClass('sub@example.jp', 3, 2), false);
+  assert.strictEqual(t2.canSeeClass('other@example.jp', 3, 1), false);
+});
+
+t('担当（STRICT_SCOPE=true）：学級・学年全体・全校・載っていない教師・所有者', () => {
+  const env = load({ active: { roster: NEW_ROSTER, teachers: TEACHERS }, owner: 'owner@edu.nishi.or.jp', strict: true });
+  const Base = env.Base;
   assert.strictEqual(Base.canSeeClass('na@edu.nishi.or.jp', 3, '1組'), true);
   assert.strictEqual(Base.canSeeClass('na@edu.nishi.or.jp', 3, 2), false);
   assert.strictEqual(Base.canSeeClass('na@edu.nishi.or.jp', 4, 3), true);

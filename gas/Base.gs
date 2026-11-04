@@ -21,6 +21,7 @@ var Base = (function () {
    */
   var TEACHER_DOMAIN = 'edu.nishi.or.jp';
   var CHILD_DOMAIN = 'kyoiku.edu.nishi.or.jp';
+  var STRICT_SCOPE = false;   // true にすると、教師ドメインの人も teachers シートの担当の学級だけを見られる
 
   var SHEET = { ROSTER: 'roster', TEACHERS: 'teachers' };
   var TTL = 6 * 60 * 60;          // 名簿の保存時間（秒）。CacheService の上限
@@ -222,15 +223,17 @@ var Base = (function () {
   }
 
   /**
-   * その教師がその学級を見てよいか。
-   * - ハブ・アプリのスプレッドシートの所有者は全学級
-   * - teachers シートの担当（学年0＝全校、組''＝その学年の全学級）
-   * - シートに無い教師ドメインの人は、どの学級も見られない（児童名つきの記録を守る）
+   * その教師がその学級を児童名つきで見てよいか。
+   * - スプレッドシートの所有者：全学級
+   * - 教師ドメインの人：全学級（決定 2026-11-05：今の算数TA と同じ。担当を書かなくても困らない）
+   * - それ以外（支援員など別ドメイン）：teachers シートの担当だけ（学年0＝全校、組''＝その学年の全学級）
+   * 担当で絞る運用に変える時は、STRICT_SCOPE を true にする（教師ドメインの人も担当だけになる）。
    */
   function canSeeClass(mail, grade, cls) {
     mail = String(mail || '').trim().toLowerCase();
     if (!mail) return false;
     if (isOwner(mail)) return true;
+    if (!STRICT_SCOPE && isTeacherDomain(mail)) return true;
     var t = teacher(mail);
     if (!t) return false;
     var g = Number(grade), c = normCls(cls);
