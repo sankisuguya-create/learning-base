@@ -1,0 +1,5 @@
+{
+  "name": "learning-base",
+  "private": true,
+  "scripts": { "test": "node tests/base.test.cjs" }
+}
