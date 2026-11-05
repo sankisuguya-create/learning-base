@@ -140,6 +140,17 @@ t('setHub：URL から ID を取り出し、開けなければ止める', () => 
   assert.throws(() => env.Base.setHub('abc'), /URLかID/);
 });
 
+t('エディタ用の関数は所有者だけ（画面から呼ばれてもハブを付け替えられない）', () => {
+  const id = '1AbCdEfGhIjKlMnOpQrStUvWxYz012345';
+  const kid = load({ user: '12345678@kyoiku.edu.nishi.or.jp', byId: { [id]: { roster: NEW_ROSTER } } });
+  assert.throws(() => kid.ctx.baseSetHub(id), /所有者/);
+  assert.throws(() => kid.ctx.baseClearCache(), /所有者/);
+  assert.strictEqual(kid.props.HUB_ID, undefined);
+  const own = load({ user: 'owner@edu.nishi.or.jp', byId: { [id]: { roster: NEW_ROSTER } } });
+  own.ctx.baseSetHub(id);
+  assert.strictEqual(own.props.HUB_ID, id);
+});
+
 t('組の正規化', () => {
   const { Base } = load();
   assert.strictEqual(Base.normCls('１組'), '1');

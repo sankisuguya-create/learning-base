@@ -11,7 +11,7 @@ function makeSpreadsheet(sheets, owner) {
   };
 }
 
-function load({ strict = false, user = '', props = {}, active = {}, byId = {}, now = new Date('2026-11-05T09:00:00+09:00'), owner } = {}) {
+function load({ strict = false, owner_user = null, user = '', props = {}, active = {}, byId = {}, now = new Date('2026-11-05T09:00:00+09:00'), owner } = {}) {
   const store = {}, calls = { openById: 0 };
   const cache = {
     get: k => (k in store ? store[k] : null),
@@ -26,7 +26,7 @@ function load({ strict = false, user = '', props = {}, active = {}, byId = {}, n
   }
   const ctx = {
     Date: FakeDate,
-    Session: { getActiveUser: () => ({ getEmail: () => user }), getScriptTimeZone: () => 'Asia/Tokyo' },
+    Session: { getActiveUser: () => ({ getEmail: () => user }), getEffectiveUser: () => ({ getEmail: () => owner_user || 'owner@edu.nishi.or.jp' }), getScriptTimeZone: () => 'Asia/Tokyo' },
     Utilities: {
       formatDate: (d, tz, fmt) => {
         const s = new RealDate(d.getTime() + 9 * 3600 * 1000);   // JST 固定

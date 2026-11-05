@@ -302,7 +302,17 @@ var Base = (function () {
   };
 })();
 
+/**
+ * エディタから実行する関数は、名前が _ で終わらないので画面（google.script.run）からも呼べてしまう。
+ * 所有者がエディタで実行した時だけ動かす（児童・他の教師がハブを付け替えられないように）。
+ * 「自分として実行」のウェブアプリでは、開いた人（getActiveUser）と所有者（getEffectiveUser）が違う。
+ */
+function baseOwnerOnly_() {
+  var a = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  var e = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!a || a !== e) throw new Error('この関数は、スプレッドシートの所有者が Apps Script のエディタから実行してください');
+}
 /** エディタから実行：ハブを設定する（引数の代わりに下の行を書き換えて実行してもよい） */
-function baseSetHub(urlOrId) { return Base.setHub(urlOrId); }
+function baseSetHub(urlOrId) { baseOwnerOnly_(); return Base.setHub(urlOrId); }
 /** エディタから実行：名簿・担当の保存分を消す */
-function baseClearCache() { Base.clearCache(); }
+function baseClearCache() { baseOwnerOnly_(); Base.clearCache(); }
