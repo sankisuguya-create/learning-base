@@ -139,7 +139,9 @@ t('版の欄が不正・ハブが未設定なら、理由を出して止まる',
 t('lbSetup：所有者だけ。自動実行（夜・朝・4/1・毎時）を1回だけ置き、各アプリの準備を呼ぶ', () => {
   const S = school();
   assert.throws(() => run(S, '11111111@kyoiku.edu.nishi.or.jp').lbSetup(), /所有者/);
+  S.triggers.push('nightlyAggregateAll', 'rolloverRosterAll', 'resetDailyAll');   // 前の形（算数TA をまとめた GAS）の自動実行
   const msg = run(S).lbSetup(); run(S).lbSetup();
+  assert.match(msg, /前の形の自動実行を消しました：nightlyAggregateAll・rolloverRosterAll・resetDailyAll/);
   assert.strictEqual(JSON.stringify(S.triggers.slice().sort()), JSON.stringify(['lbDaily', 'lbHourly', 'lbNightly', 'lbRollover']));
   assert.match(msg, /tamath：/);
 });

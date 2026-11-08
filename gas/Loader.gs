@@ -49,11 +49,17 @@ function lbHourly() {
 function lbSetup() {
   lbOwnerOnly_();
   lbNeed_();
-  var want = { lbNightly: 23, lbRollover: 2, lbDaily: 3 }, have = {};
-  ScriptApp.getProjectTriggers().forEach(function (t) { have[t.getHandlerFunction()] = true; });
+  var want = { lbNightly: 23, lbRollover: 2, lbDaily: 3 }, have = {}, removed = [];
+  var mine = { lbNightly: 1, lbRollover: 1, lbDaily: 1, lbHourly: 1, continueAll: 1 };
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    var fn = t.getHandlerFunction();
+    // 前の形（アプリの GAS を直接貼っていた時）の自動実行は、呼ぶ関数がもう無いので消す
+    if (!mine[fn]) { ScriptApp.deleteTrigger(t); removed.push(fn); return; }
+    have[fn] = true;
+  });
   for (var fn in want) if (!have[fn]) ScriptApp.newTrigger(fn).timeBased().atHour(want[fn]).everyDays(1).create();
   if (!have.lbHourly) ScriptApp.newTrigger('lbHourly').timeBased().everyHours(1).create();
-  var msg = '学習BASE の準備ができました（版 ' + LB_.ver + '）\n' + LbPlatform.setup();
+  var msg = '学習BASE の準備ができました（版 ' + LB_.ver + '）\n' + (removed.length ? '前の形の自動実行を消しました：' + removed.join('・') + '\n' : '') + LbPlatform.setup();
   console.log(msg);
   return msg;
 }
