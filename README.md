@@ -70,10 +70,25 @@
 - 名前の置き換えの規則は `-` リポジトリ `principles/learning-app-foundation.md` §8。**記号は乱数で振り、計算では求めない**（名前・年齢・ID などから導けない）。
   そのため記号表はハブに保存して使い続ける。保存した記号表（`existing`）を渡すと、転入しても他の人の記号は変わらない
 
+## 学習BASE の入口（段階B）
+
+| ファイル | 役割 |
+|---|---|
+| `catalog/pages.json` | ページの目録（教科・学年・単元・題・読み・種類・読み込み先）。**Claude が足す。教師は編集しない** |
+| `gas/Pages.gs`（`LbPages`） | 児童に見せるページ・いまの学習の判定（学年・公開・期間・最大3件）と、学級の設定の保存（ハブの `class_pages`・`now_learning`） |
+| `gas/Home.gs`（`LbHome`） | 画面から呼ぶ窓口 `homeBoot`・`homeSetPublish`・`homeResetPublish`・`homeSetNow`。教師は担当の学級だけ変えられる |
+| `web/home.js`・`web/home.css` | 画面（jsDelivr から読み込む）。学習BASE → 教科 → ページ。教師は同じ画面で先生モード（✓ みせる／✕ かくす、★ いまの学習）と、代わりに取り組む児童を選べる |
+| `web/pages.js` | `gas/Pages.gs` の写し（`npm run build` が作る）。判定の規則を画面とサーバーで1つにする |
+| `web/demo.html` | 見本（GAS なし）。`?role=child3`・`child1`・`teacher`・`guest` |
+
+- 教科は色で見分けない（教科は13あり、色で区別できるのは4つまで。color-coding スキル）。絵と名前で見分け、色は「いまの学習」を目立たせることにだけ使う
+- 文字：1・2年はひらがな、3年は題の上に読み、教科名は4年までふりがな
+
 ## 検査
 
 ```
-npm test     # 全部（base・pseudo・learning）
+npm test     # 全部（写しの一致・base・pseudo・learning・pages）
+npm run ui   # 画面（Playwright：エラー・中国語フォント・入れ子のボタン・先生モードの保存）
 ```
 
 GAS を模擬して Base.gs を動かす（年度の境目・ドメインの完全一致・旧新の名簿形式・担当の範囲・大きな名簿の保存）。

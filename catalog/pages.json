@@ -1,0 +1,229 @@
+{
+ "version": 1,
+ "pages": [
+  {
+   "id": "tamath-tasu",
+   "subject": "sansu",
+   "grades": [
+    2
+   ],
+   "unit": "たし算",
+   "title": "たし算 タイムアタック",
+   "ruby": "たしざん タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "tasu"
+   },
+   "order": 10
+  },
+  {
+   "id": "tamath-hiku",
+   "subject": "sansu",
+   "grades": [
+    2
+   ],
+   "unit": "ひき算",
+   "title": "ひき算 タイムアタック",
+   "ruby": "ひきざん タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "hiku"
+   },
+   "order": 20
+  },
+  {
+   "id": "tamath-kuku",
+   "subject": "sansu",
+   "grades": [
+    3
+   ],
+   "unit": "かけ算",
+   "title": "九九 タイムアタック",
+   "ruby": "くく タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "kuku"
+   },
+   "order": 10
+  },
+  {
+   "id": "tamath-divmod",
+   "subject": "sansu",
+   "grades": [
+    3
+   ],
+   "unit": "わり算",
+   "title": "あまりのあるわり算",
+   "ruby": "あまりのあるわりざん",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "divmod"
+   },
+   "order": 20
+  },
+  {
+   "id": "tamath-length",
+   "subject": "sansu",
+   "grades": [
+    3
+   ],
+   "unit": "長さ",
+   "title": "長さ タイムアタック",
+   "ruby": "ながさ タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "length"
+   },
+   "order": 30
+  },
+  {
+   "id": "tamath-weight",
+   "subject": "sansu",
+   "grades": [
+    3
+   ],
+   "unit": "重さ",
+   "title": "重さ タイムアタック",
+   "ruby": "おもさ タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "weight"
+   },
+   "order": 40
+  },
+  {
+   "id": "tamath-bignum",
+   "subject": "sansu",
+   "grades": [
+    3
+   ],
+   "unit": "大きな数",
+   "title": "大きな数 タイムアタック",
+   "ruby": "おおきなかず タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "bignum"
+   },
+   "order": 50
+  },
+  {
+   "id": "tamath-decimal",
+   "subject": "sansu",
+   "grades": [
+    3
+   ],
+   "unit": "小数",
+   "title": "小数 タイムアタック",
+   "ruby": "しょうすう タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "decimal"
+   },
+   "order": 60
+  },
+  {
+   "id": "tamath-circle",
+   "subject": "sansu",
+   "grades": [
+    3
+   ],
+   "unit": "円と球",
+   "title": "円と球 タイムアタック",
+   "ruby": "えんときゅう タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "circle"
+   },
+   "order": 70
+  },
+  {
+   "id": "tamath-kakehissan",
+   "subject": "sansu",
+   "grades": [
+    3
+   ],
+   "unit": "かけ算の筆算",
+   "title": "かけ算の筆算 タイムアタック",
+   "ruby": "かけざんのひっさん タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "kakehissan"
+   },
+   "order": 80
+  },
+  {
+   "id": "tamath-bai",
+   "subject": "sansu",
+   "grades": [
+    3
+   ],
+   "unit": "何倍でしょう",
+   "title": "何倍でしょう タイムアタック",
+   "ruby": "なんばいでしょう タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "bai"
+   },
+   "order": 90
+  },
+  {
+   "id": "tamath-volume",
+   "subject": "sansu",
+   "grades": [
+    5
+   ],
+   "unit": "体積",
+   "title": "体積 タイムアタック",
+   "ruby": "たいせき タイムアタック",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "volume"
+   },
+   "order": 10
+  },
+  {
+   "id": "kanzi",
+   "subject": "kokugo",
+   "grades": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "unit": "漢字",
+   "title": "漢字の森",
+   "ruby": "かんじのもり",
+   "kind": "app",
+   "app": "kanzi",
+   "order": 10
+  },
+  {
+   "id": "toi-board",
+   "subject": "sogo",
+   "grades": [
+    3
+   ],
+   "unit": "西宮博",
+   "title": "といボード",
+   "ruby": "といボード",
+   "kind": "app",
+   "app": "toi-board",
+   "order": 10,
+   "defaultOn": false
+  }
+ ]
+}

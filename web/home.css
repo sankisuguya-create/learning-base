@@ -1,0 +1,77 @@
+/* 学習BASE のホーム。色は color-coding スキルの既定トークン。教科は色ではなく絵と名前で見分ける */
+.lb{
+  --ink:#1A1A1A; --ink-sub:#616870; --ink-link:#0F5EA8; --ink-alert:#C0330A;
+  --fill-a:#D7E8F8; --fill-b:#FBE3B4; --solid-on:#0F5EA8;
+  --bg:#FFFFFF; --line:#C9CED4; --card:#F6F8FA;
+  --radius:14px;
+  font-family:"BIZ UDPGothic","Yu Gothic UI","Yu Gothic","Meiryo","Noto Sans CJK JP","Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","IPAexGothic","IPAGothic",sans-serif;
+  color:var(--ink); background:var(--bg); font-size:18px; line-height:1.5;
+  max-width:1100px; margin:0 auto; padding:12px 16px 40px;
+  -webkit-tap-highlight-color:transparent;
+}
+.lb *{box-sizing:border-box}
+.lb button{font:inherit;color:inherit}
+.lb-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-height:48px}
+.lb-brand{font-size:22px;font-weight:700;margin:0}
+.lb-who{color:var(--ink-sub);font-size:16px}
+.lb-spacer{flex:1}
+.lb-h{font-size:18px;font-weight:700;margin:22px 0 10px;color:var(--ink-sub);letter-spacing:.04em}
+.lb-rb rt{font-size:.5em;color:var(--ink-sub);font-weight:400}
+.lb-reading{display:block;font-size:13px;font-weight:400;line-height:1.2;opacity:.85}
+
+/* いまの学習：画面でいちばん強い塗り（主要な操作は画面に1種類） */
+.lb-now{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.lb-nowcard{display:flex;align-items:center;gap:14px;min-height:96px;padding:14px 18px;border:0;border-radius:var(--radius);
+  background:var(--solid-on);color:#fff;text-align:left;cursor:pointer;position:relative}
+.lb .lb-nowcard,.lb .lb-nowcard .lb-ico,.lb .lb-nowcard .lb-rb rt{color:#fff}
+.lb-nowcard .lb-sub{font-size:14px;opacity:.9}
+.lb-nowcard .lb-title{font-size:22px;font-weight:700;line-height:1.3}
+.lb-nowcard .lb-go{margin-left:auto;font-size:16px;font-weight:700;white-space:nowrap}
+.lb-nownone{color:var(--ink-sub);padding:8px 0}
+
+/* 教科：淡い塗りのタイル。見分けは絵と名前 */
+.lb-subjects{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.lb-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:120px;padding:12px;
+  border:2px solid transparent;border-radius:var(--radius);background:var(--fill-a);cursor:pointer}
+.lb-tile .lb-name{font-size:20px;font-weight:700}
+.lb-tile .lb-count{font-size:14px;color:var(--ink-sub)}
+.lb-ico{width:44px;height:44px;flex:none;color:var(--ink)}
+
+/* 教科の中 */
+.lb-back{display:inline-flex;align-items:center;gap:6px;min-height:52px;padding:0 18px;border:2px solid var(--line);border-radius:999px;background:#fff;cursor:pointer;font-weight:700}
+.lb-shead{display:flex;align-items:center;gap:12px;margin:14px 0 4px}
+.lb-shead h2{margin:0;font-size:24px}
+.lb-unit{margin:18px 0 8px;font-size:16px;color:var(--ink-sub);font-weight:700;border-bottom:1px solid var(--line);padding-bottom:4px}
+.lb-pages{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.lb-cell{position:relative;display:flex}
+.lb-page{flex:1;display:flex;align-items:center;gap:12px;min-height:72px;padding:12px 16px;border:2px solid var(--line);border-radius:var(--radius);
+  background:#fff;text-align:left;cursor:pointer;position:relative}
+.lb-page .lb-title{font-size:19px;font-weight:700;line-height:1.3}
+.lb-kind{font-size:13px;color:var(--ink-sub)}
+.lb-btn-ico{width:28px;height:28px;flex:none;color:var(--ink-link)}
+
+.lb button:focus-visible{outline:4px solid var(--ink-link);outline-offset:3px}
+.lb-tile:active,.lb-page:active,.lb-nowcard:active{transform:scale(.98)}
+@media (prefers-reduced-motion:reduce){.lb-tile:active,.lb-page:active,.lb-nowcard:active{transform:none}}
+
+/* 先生：上の帯と、カードの上の切り替え */
+.lb-tbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px;margin:10px 0 0;border-radius:var(--radius);background:var(--fill-b)}
+.lb-tbar label{font-size:15px;color:var(--ink)}
+.lb-tbar select{font:inherit;font-size:16px;min-height:44px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.lb-toggle{min-height:44px;padding:0 14px;border:2px solid var(--ink);border-radius:999px;background:#fff;cursor:pointer;font-size:15px;font-weight:700}
+.lb-toggle[aria-pressed="true"]{background:var(--ink);color:#fff}
+.lb-tstatus{font-size:14px;color:var(--ink)}
+.lb-link{border:0;background:none;color:var(--ink-link);text-decoration:underline;cursor:pointer;font-size:15px;padding:8px 4px}
+.lb-as{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:10px 0 0;border:2px solid var(--ink-alert);border-radius:var(--radius);font-size:16px}
+.lb-as strong{color:var(--ink-alert)}
+.lb-chips{position:absolute;top:8px;right:8px;display:flex;gap:6px}
+.lb-cell .lb-page{padding-right:16px}
+.lb-edit .lb-cell .lb-page{padding-top:52px}
+.lb-chip{min-width:44px;min-height:36px;padding:0 10px;border:2px solid var(--ink);border-radius:999px;background:#fff;color:var(--ink);font-size:14px;font-weight:700;cursor:pointer}
+.lb-chip.off{border-style:dashed;color:var(--ink-alert);border-color:var(--ink-alert)}
+.lb-chip.star{border-color:var(--ink-link);color:var(--ink-link)}
+.lb-chip.star.on{background:var(--solid-on);color:#fff;border-color:var(--solid-on)}
+.lb-page.is-off,.lb-tile.is-off{opacity:.55}
+.lb-msg{padding:24px;font-size:20px;text-align:center;color:var(--ink-sub)}
+.lb-toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:999px;font-size:15px}
+@media (max-width:520px){.lb{font-size:17px}.lb-nowcard .lb-title{font-size:20px}}
