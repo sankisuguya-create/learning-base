@@ -95,6 +95,7 @@ t('学習BASE の画面からの呼び出し：決めた関数だけ（児童は
   const S = school();
   const b = run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'boot', [{}]);
   assert.strictEqual(b.role, 'child'); assert.strictEqual(b.classKey, '3-1');
+  assert.strictEqual(b.pagesUrl, `https://cdn.jsdelivr.net/gh/sankisuguya-create/learning-base@${VER}/catalog/pages.json`);
   assert.throws(() => run(S).lbCall('home', 'nope', []), /呼べない関数/);
   assert.throws(() => run(S).lbCall('Base', 'setHub', ['x']), /呼べない関数/);
 });

@@ -6,14 +6,15 @@
  * 中で必ず「誰が開いたか」と「その学級を扱ってよいか」を確かめる。
  */
 var LbHome = (function () {
-  // ページの目録の置き場（公開リポジトリ）。版はスクリプトのプロパティ PAGES_VER で切り替える（コミットかタグ）
+  // ページの目録の置き場（公開リポジトリ）。版は読み込み係と同じ版（ハブの platform シートの 版）。
+  // スクリプトのプロパティ PAGES_VER があればそれを使う（目録だけ先に変えたい時）。@main は使わない（jsDelivr が古い中身を返すことがある）
   var PAGES_REPO = 'sankisuguya-create/learning-base';
   var PAGES_PATH = 'catalog/pages.json';
-  var PAGES_VER_DEFAULT = 'main';
 
   function today() { return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'); }
   function pagesUrl() {
-    var v = String(PropertiesService.getScriptProperties().getProperty('PAGES_VER') || PAGES_VER_DEFAULT);
+    var v = String(PropertiesService.getScriptProperties().getProperty('PAGES_VER') || (typeof LB_LOADER !== 'undefined' ? LB_LOADER.ver() : '') || '');
+    if (!v) throw new Error('ページの目録の版が決まりません（読み込み係の版も PAGES_VER もない）');
     return 'https://cdn.jsdelivr.net/gh/' + PAGES_REPO + '@' + v + '/' + PAGES_PATH;
   }
 

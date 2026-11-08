@@ -97,7 +97,7 @@ function homeEnv(user, rosterRows) {
   };
   const ctx = loadPure(['Pages.gs', 'Home.gs'], { Base: fake,
     Utilities: { formatDate: () => '2026-11-10' },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) } });
+    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) }, LB_LOADER: { ver: () => 'abc1234' } });
   return { ctx, hub };
 }
 const ROSTER = [{ lid: 'La', grade: 3, cls: '1', no: 1, name: 'あ' }, { lid: 'Lb', grade: 3, cls: '2', no: 1, name: 'い' },
@@ -107,7 +107,7 @@ t('窓口：児童は自分の学級の設定だけ。目録の置き場（固�
   const { ctx } = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);
   const b = ctx.homeBoot({ classKey: '4-1' });                              // 他の学級を指定しても自分の学級
   assert.strictEqual(b.role, 'child'); assert.strictEqual(b.classKey, '3-1');
-  assert.ok(b.pagesUrl.startsWith('https://cdn.jsdelivr.net/gh/sankisuguya-create/learning-base@'));
+  assert.strictEqual(b.pagesUrl, 'https://cdn.jsdelivr.net/gh/sankisuguya-create/learning-base@abc1234/catalog/pages.json', '読み込み係と同じ版');
   assert.strictEqual(b.members, undefined, '児童に名簿は渡さない');
   assert.throws(() => ctx.homeSetPublish('3-1', 'kanzi', false), /先生だけ/);
   assert.throws(() => ctx.homeSetNow('3-1', [{ page: 'kanzi' }]), /先生だけ/);
