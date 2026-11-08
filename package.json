@@ -1,5 +1,7 @@
 {
   "name": "learning-base",
   "private": true,
-  "scripts": { "test": "node tests/base.test.cjs" }
+  "scripts": {
+    "test": "node tests/base.test.cjs && node tests/pseudo.test.cjs && node tests/learning.test.cjs"
+  }
 }

@@ -15,6 +15,8 @@ function load({ strict = false, owner_user = null, user = '', props = {}, active
   const store = {}, calls = { openById: 0 };
   const cache = {
     get: k => (k in store ? store[k] : null),
+    put: (k, v) => { store[k] = String(v); },
+    remove: k => { delete store[k]; },
     getAll: ks => { const o = {}; ks.forEach(k => { if (k in store) o[k] = store[k]; }); return o; },
     putAll: m => { Object.assign(store, m); },
     removeAll: ks => ks.forEach(k => delete store[k])
@@ -50,6 +52,6 @@ function load({ strict = false, owner_user = null, user = '', props = {}, active
     src = src.replace('var STRICT_SCOPE = false;', 'var STRICT_SCOPE = true;');
   }
   vm.runInContext(src, ctx);
-  return { Base: ctx.Base, ctx, store, calls, props };
+  return { Base: ctx.Base, ctx, store, calls, props, byId };
 }
 module.exports = { load };

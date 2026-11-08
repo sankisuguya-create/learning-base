@@ -151,6 +151,20 @@ t('エディタ用の関数は所有者だけ（画面から呼ばれてもハ�
   assert.strictEqual(own.props.HUB_ID, id);
 });
 
+t('名簿にない人：保存分を使わずに1回だけ読み直す（転入生）。10分以内は読み直さない', () => {
+  const id = 'HUBxxxxxxxxxxxxxxxxxxxxx';
+  const rows = NEW_ROSTER.map(r => r.slice());
+  const env = load({ props: { HUB_ID: id }, byId: { [id]: { roster: rows } } });
+  assert.strictEqual(env.Base.child('55555555@kyoiku.edu.nishi.or.jp'), null);   // まだいない
+  const opened = env.calls.openById;
+  rows.push(['55555555@kyoiku.edu.nishi.or.jp', 3, 1, 9, '転入', '花']);         // 名簿に足す
+  assert.strictEqual(env.Base.child('55555555@kyoiku.edu.nishi.or.jp'), null, '10分以内は読み直さない');
+  assert.strictEqual(env.calls.openById, opened);
+  delete env.store['base:roster-reload'];                                        // 10分たった
+  assert.strictEqual(env.Base.child('55555555@kyoiku.edu.nishi.or.jp').name, '転入 花');
+  assert.strictEqual(env.Base.child('12345678@kyoiku.edu.nishi.or.jp').name, '田中 はなこ', '名簿にいる人は保存分から');
+});
+
 t('組の正規化', () => {
   const { Base } = load();
   assert.strictEqual(Base.normCls('１組'), '1');

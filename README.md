@@ -48,10 +48,23 @@
 名簿と担当は6時間保存する（`CacheService`。大きな名簿は3万字ずつに分ける）。
 直したらすぐ反映させたい時は `baseClearCache()` を実行する。
 
+## 学習の記録（段階A）
+
+| ファイル | 名前 | 役割 |
+|---|---|---|
+| `gas/Catalog.gs` | `LbCatalog` | アプリが宣言する技能の目録（技能のキー・到達の基準・誤答の型・受け取れる指示）。ハブの `catalog` シートに書く |
+| `gas/LbSession.gs` | `LbSession` | 1回の取り組みを1行で記録する（全問を JSON で1セルに＋技能ごとの統計）。アプリの `sessions_<年度>` シートに書く |
+| `gas/Facts.gs` | `LbFacts` | 全アプリのセッションを「児童×技能×週」に集計する（毎晩、新しい行だけ読む）。状態（未着手・練習中・到達）を目録の基準で判定する |
+| `gas/Pseudo.gs` | `LbPseudo` | 名前を記号に置き換える・戻す（Gemini・NotebookLM に渡す前） |
+
+- GAS には組み込みの `Session` があるので、名前はすべて `Lb` で始める
+- アプリが書くのは「出題と画面」と「目録」だけ。記録・集計・状態の判定は共通の部品が行う
+- 名前の置き換えの規則は `-` リポジトリ `principles/learning-app-foundation.md` §8。記号は「種＋id」から決まり、名簿の並びと無関係。今年度の記号表（`existing`）を渡すと、転入しても他の人の記号は変わらない
+
 ## 検査
 
 ```
-node tests/base.test.cjs
+npm test     # 全部（base・pseudo・learning）
 ```
 
 GAS を模擬して Base.gs を動かす（年度の境目・ドメインの完全一致・旧新の名簿形式・担当の範囲・大きな名簿の保存）。

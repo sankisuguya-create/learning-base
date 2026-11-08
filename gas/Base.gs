@@ -27,6 +27,7 @@ var Base = (function () {
   var TTL = 6 * 60 * 60;          // 名簿の保存時間（秒）。CacheService の上限
   var CHUNK = 30 * 1000;          // CacheService の1件は100KBまで。日本語は1字3バイトなので3万字で切る
   var PREFIX = 'base:';
+  var RELOAD_SEC = 600;           // 名簿にない人が開いた時に名簿を読み直す間隔の下限（秒）
 
   /** 名簿の見出し。左が正規名、右が受け付ける別名（今の算数TAハブの英語見出しも読む） */
   var ROSTER_HEAD = {
@@ -162,11 +163,23 @@ var Base = (function () {
     return out;
   }
 
-  /** 名簿にあって名前のある児童。無ければ null */
+  /**
+   * 名簿にあって名前のある児童。無ければ null。
+   * 今年度の名簿で見つからない時は、保存分を使わずにハブの名簿を読み直す（転入生を足した日に6時間待たせない）。
+   * 読み直しは10分に1回まで（名簿にない人が何度開いても、ハブを読みに行き続けない）。
+   */
   function child(mail, year) {
     mail = String(mail || '').trim().toLowerCase();
     if (!mail) return null;
-    var rows = roster(year);
+    var hit = find(roster(year), mail);
+    if (hit || (year != null && year !== fy())) return hit;
+    var c = CacheService.getScriptCache();
+    if (c.get(PREFIX + 'roster-reload')) return null;
+    c.put(PREFIX + 'roster-reload', '1', RELOAD_SEC);
+    dropCache('roster:' + fy());
+    return find(roster(), mail);
+  }
+  function find(rows, mail) {
     for (var i = 0; i < rows.length; i++) if (rows[i].mail === mail && rows[i].name) return rows[i];
     return null;
   }
@@ -283,11 +296,13 @@ var Base = (function () {
   function clearCache() {
     var c = CacheService.getScriptCache(), cur = fy(), keys = ['teachers'];
     for (var y = cur - 6; y <= cur; y++) keys.push('roster:' + y);
-    keys.forEach(function (k) {
-      var n = Number(c.get(PREFIX + k)) || 0, del = [PREFIX + k];
-      for (var i = 0; i < n; i++) del.push(PREFIX + k + ':' + i);
-      c.removeAll(del);
-    });
+    keys.forEach(dropCache);
+    c.remove(PREFIX + 'roster-reload');
+  }
+  function dropCache(k) {
+    var c = CacheService.getScriptCache(), n = Number(c.get(PREFIX + k)) || 0, del = [PREFIX + k];
+    for (var i = 0; i < n; i++) del.push(PREFIX + k + ':' + i);
+    c.removeAll(del);
   }
 
   return {
