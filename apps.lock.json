@@ -1,0 +1,11 @@
+{
+  "_": "学習BASE に載せるアプリと、その版（コミット）。tools/bundle.cjs がこの版のファイルを取り込んで dist/ を作る。アプリを更新する時はここの commit を書き換えて npm run bundle",
+  "tamath": {
+    "repo": "sankisuguya-create/arithmetic-timeattack",
+    "commit": "c3c14d24cd77fe981c0c38c2cc6c4ef98072ccde",
+    "server": ["dist/multi/Core.gs", "dist/multi/AllUnits.gs"],
+    "files": { "index": "dist/multi/index.html", "teacher": "dist/multi/teacher.html", "coop_shared": "dist/multi/coop_shared.html" },
+    "exports": { "doGet": "doGet", "apiCall": "apiCall", "setup": "setup", "nightly": "nightlyAggregateAll", "daily": "resetDailyAll", "rollover": "rolloverRosterAll", "continueAll": "continueAll" },
+    "locals": { "LB_APP_QUERY": "app=tamath" }
+  }
+}

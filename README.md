@@ -5,6 +5,44 @@
 
 **このリポジトリは公開。名簿・記録・児童名など個人情報を置かない。**
 
+## 学習BASE を動かす（GAS に貼るのは `gas/Loader.gs` の1枚だけ）
+
+読み込み係（`Loader.gs`）が、共通部品・各アプリのサーバー側のコード（`dist/server.js`）と画面のファイル（`dist/html.json`）を
+jsDelivr から版で固定して取ってきて実行する。**更新はハブの platform シートの「版」を書き換えるだけ**（貼り直し・新しいバージョンでのデプロイは要らない）。
+
+### 設置（1回だけ・校務PC）
+
+1. スプレッドシートを作り（または算数TA をまとめた今の GAS を使い）、「拡張機能 → Apps Script」で `gas/Loader.gs` の中身を `コード.gs` に貼る。他のファイルは消してよい
+2. プロジェクトの設定 → スクリプト プロパティ → `HUB_ID` にハブのスプレッドシートの ID
+3. ハブに `platform` シートを作る：A1「版」・B1 にコミット番号（Claude が伝える）。A2「指紋」・B2 は任意（`dist/manifest.json` の `server`。入れると jsDelivr の中身を照合し、違えば実行しない）
+4. エディタで `lbSetup` を実行（承認・自動実行の設置。実行ログに結果）
+5. デプロイ → 新しいデプロイ → ウェブアプリ（次のユーザーとして実行：自分、アクセス：ドメイン内の全員）
+
+### 更新
+
+- ハブの platform シートの「版」を新しいコミット番号に書き換える。反映は最大5分（すぐ反映するにはエディタで `lbReload`）
+- 戻す時は前の番号に書き換える
+- 状態はエディタで `lbStatus`（実行ログ）
+
+### 取ってくる順（実測 2026-11-09）
+
+一時保存（約120ms）→ jsDelivr（約1.4秒・版を変えた直後の1回）→ ハブの `platform_code` シートの写し（jsDelivr が止まった時）。
+1時間ごとに一時保存を温め直す（`lbHourly`）。
+
+### URL
+
+| URL | 開くもの |
+|---|---|
+| `…/exec` | 学習BASE のホーム |
+| `…/exec?app=tamath&unit=kuku` | 算数タイムアタック（`?unit=kuku` だけでも開く） |
+| `…/exec?page=<id>` | 教材・授業ページ（準備中） |
+
+### アプリを載せる・更新する（Claude の作業）
+
+- `apps.lock.json` にアプリのリポジトリ・コミット・サーバー側のファイル・画面のファイルを書き、`npm run bundle` で `dist/` を作る
+- アプリのサーバー側のコードは関数の中に包んで実行する（アプリの `doGet` などが読み込み係の入口を上書きしないように）。
+  包んだ中で動くための口（`LB_FILES`・`LB_APP_QUERY`・`LB_RESOLVE_`・`LB_PLATFORM_TRIGGERS`）を、アプリ側が使う（算数TA の Core.gs の「学習BASE の中で動く時」）
+
 ## gas/Base.gs（段階1）
 
 各アプリの GAS に、このファイルを `Base.gs` としてそのまま貼る。名前はすべて `Base.` の下にあり、アプリの大域名とぶつからない。
@@ -87,7 +125,8 @@
 ## 検査
 
 ```
-npm test     # 全部（写しの一致・base・pseudo・learning・pages）
+npm run bundle  # 画面用の写しと dist/ を作る
+npm test     # 全部（写し・dist の一致・base・pseudo・learning・pages・platform）
 npm run ui   # 画面（Playwright：エラー・中国語フォント・入れ子のボタン・先生モードの保存）
 ```
 

@@ -1,0 +1,12 @@
+{
+ "server": "aef8695a6691c51326ea7ee51e0fa9751da04f137c2acdd32b1549740b4888e3",
+ "html": "7ba2d00fb22f9770fd11417584c1853442ab6e01f02356f511d0eba8163f74fd",
+ "serverChars": 346144,
+ "htmlChars": 512413,
+ "apps": {
+  "tamath": {
+   "repo": "sankisuguya-create/arithmetic-timeattack",
+   "commit": "c3c14d24cd77fe981c0c38c2cc6c4ef98072ccde"
+  }
+ }
+}
