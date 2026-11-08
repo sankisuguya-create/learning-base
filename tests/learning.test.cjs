@@ -5,7 +5,8 @@ const { makeSS } = require('./sheet-mock.cjs');
 let n = 0; const t = (name, fn) => { fn(); n++; console.log('ok', name); };
 
 const fakeBase = { fyOf: d => { const x = new Date(new Date(d).getTime() + 9 * 3600e3); return x.getUTCMonth() >= 3 ? x.getUTCFullYear() : x.getUTCFullYear() - 1; },
-  child: mail => (mail.startsWith('1') ? { mail, grade: 3, cls: '1', no: Number(mail[1]) } : null) };
+  child: mail => (mail.startsWith('1') ? { lid: 'L' + mail.slice(0, 2), mail, grade: 3, cls: '1', no: Number(mail[1]) } : null),
+  learner: lid => (lid === 'Ltennyu' ? { lid, mail: '', grade: 3, cls: '1', no: 30, provisional: true } : null) };
 const ctx = loadPure(['Catalog.gs', 'LbSession.gs', 'Facts.gs'], {
   Base: fakeBase, LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) } });
 const { LbCatalog, LbSession, LbFacts } = ctx;
@@ -65,14 +66,15 @@ t('セッション：技能ごとに件数・正答・対数時間（最初の�
 t('セッション：検査（目録にない技能・ok の型・mail）', () => {
   assert.strictEqual(J(LbSession.validate(S1, CAT)), '[]');
   const e = LbSession.validate({ mail: 'x', app: 'tamath', activity: 'a', items: [{ ok: 1, skill: 'nope' }] }, CAT).join('\n');
-  ['mail がありません', '.ok は true / false', '目録にない: nope'].forEach(w => assert.ok(e.includes(w), w));
+  ['本人（lid か mail）がありません', '.ok は true / false', '目録にない: nope'].forEach(w => assert.ok(e.includes(w), w));
 });
 t('セッション：行にして戻すと同じ。全問が残り、所属は記録時点の値', () => {
-  const row = LbSession.toRow(S1, { grade: 3, cls: '1', no: 5 });
+  const row = LbSession.toRow(S1, { lid: 'L15', mail: S1.mail, grade: 3, cls: '1', no: 5 });
   assert.strictEqual(row.length, LbSession.HEAD.length);
   const back = LbSession.fromRow(row);
   assert.strictEqual(back.items.length, 3);
   assert.strictEqual(back.no, 5);
+  assert.strictEqual(back.lid, 'L15');
   assert.strictEqual(back.skills['math/mul/kuku/8'].ok, 1);
 });
 t('セッション：問題が多すぎてセルに入らない時は、問題の欄を空にして技能別の統計は残す', () => {
@@ -82,6 +84,15 @@ t('セッション：問題が多すぎてセルに入らない時は、問題�
   assert.strictEqual(back.extra.truncated, 2000);
   assert.strictEqual(back.skills['math/mul/kuku/7'].n, 2000);
 });
+t('メールの無い転入生：学習者IDで記録し、操作した教師を残す', () => {
+  const ss = makeSS('app');
+  const r = LbSession.write(ss, Object.assign({}, S1, { mail: undefined, lid: 'Ltennyu' }), { by: 'na@edu.nishi.or.jp' });
+  assert.strictEqual(r.ok, true);
+  const back = LbSession.fromRow(ss.sheets.sessions_2026.v[1]);
+  assert.strictEqual(back.lid, 'Ltennyu'); assert.strictEqual(back.mail, ''); assert.strictEqual(back.by, 'na@edu.nishi.or.jp');
+  assert.strictEqual(LbSession.write(ss, Object.assign({}, S1, { mail: undefined, lid: 'Lnobody' })).reason, 'guest');
+});
+
 t('セッション：名簿にない人（おためし）は書かない。年度のシートに書き、上限を越えたら次のシートへ', () => {
   const ss = makeSS('app');
   assert.strictEqual(LbSession.write(ss, Object.assign({}, S1, { mail: '9@kyoiku.edu.nishi.or.jp' })).reason, 'guest');
@@ -106,8 +117,8 @@ t('週：日本時間の月曜で区切る（日曜23時台は前の週、月曜
 });
 t('集計：セッションを足す・まとめる・統計・状態', () => {
   const acc = {};
-  LbFacts.addSession(acc, LbSession.fromRow(LbSession.toRow(S1, { grade: 3, cls: '1', no: 5 })));
-  LbFacts.addSession(acc, LbSession.fromRow(LbSession.toRow(Object.assign({}, S1, { ts: new Date('2026-11-10T10:00:00+09:00') }), { grade: 3, cls: '1', no: 5 })));
+  LbFacts.addSession(acc, LbSession.fromRow(LbSession.toRow(S1, { lid: 'L15', grade: 3, cls: '1', no: 5 })));
+  LbFacts.addSession(acc, LbSession.fromRow(LbSession.toRow(Object.assign({}, S1, { ts: new Date('2026-11-10T10:00:00+09:00') }), { lid: 'L15', grade: 3, cls: '1', no: 5 })));
   const k7 = Object.keys(acc).find(k => k.endsWith('math/mul/kuku/7'));
   assert.strictEqual(acc[k7].n, 4); assert.strictEqual(acc[k7].sess, 2); assert.strictEqual(acc[k7].mis.adj, 2);
   const st = LbFacts.stats(acc[k7]);
@@ -121,7 +132,7 @@ t('集計：セッションを足す・まとめる・統計・状態', () => {
   assert.strictEqual(LbFacts.state({ n: 3, ok: 3, tn: 3, sl: 3 * Math.log(1500), sl2: 0 }, LbCatalog.mastery(CAT, 'math/mul/kuku/8')), '練習中', '件数の基準（minN=4 に届かない）');
   const back = LbFacts.fromRows(LbFacts.toRows(acc));
   assert.strictEqual(J(LbFacts.toRows(back)), J(LbFacts.toRows(acc)), '行にして戻すと同じ');
-  const win = LbFacts.recent(acc, S1.mail, 'tamath', 'math/mul/kuku/7', '2026-11-09', 4);
+  const win = LbFacts.recent(acc, 'L15', 'tamath', 'math/mul/kuku/7', '2026-11-09', 4);
   assert.strictEqual(LbFacts.combine(win).n, 4);
 });
 t('取り込み：新しいセッションだけを足す（2回目に同じものを足さない）・作り直しで同じ結果', () => {
@@ -147,7 +158,7 @@ t('取り込み：新しいセッションだけを足す（2回目に同じも�
   const reads = app.sheets.sessions_2026.reads;
   LbSession.write(app, S1, { catalog: CAT });
   LbFacts.ingest(hub, src, { fy: 2026 });
-  assert.strictEqual(app.sheets.sessions_2026.reads - reads, 2, '頭の10列と技能別の列だけ');
+  assert.strictEqual(app.sheets.sessions_2026.reads - reads, 2, '問題の欄より前の列と技能別の列だけ');
 });
 t('取り込み：時間切れなら途中でやめ、続きは次の実行で読む（二重に足さない）', () => {
   const hub = makeSS('hub'), app = makeSS('app');

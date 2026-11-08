@@ -4,11 +4,11 @@
  * 正本は learning-base。アプリは集計の計算を書かない。セッションを書けば、ここが毎晩まとめる。
  *
  * 集計の行（ハブの facts_<年度>）：
- *   週（月曜の日付）| メール | 学年 | 組 | 番号 | アプリ | 技能 | 件数 | 正答 | 時間のある件数 | 対数時間の和 | 二乗和 | 誤答の型 | セッション数
+ *   週（月曜の日付）| 学習者ID | 学年 | 組 | 番号 | アプリ | 技能 | 件数 | 正答 | 時間のある件数 | 対数時間の和 | 二乗和 | 誤答の型 | セッション数
  * 状態（未着手・練習中・到達）は、目録の基準で、直近の数週をまとめて判定する（state）。
  */
 var LbFacts = (function () {
-  var HEAD = ['week', 'mail', 'grade', 'cls', 'no', 'app', 'skill', 'n', 'ok', 'tn', 'sl', 'sl2', 'mis', 'sess'];
+  var HEAD = ['week', 'lid', 'grade', 'cls', 'no', 'app', 'skill', 'n', 'ok', 'tn', 'sl', 'sl2', 'mis', 'sess'];
   var CURSOR_SHEET = 'facts_cursor', CURSOR_HEAD = ['app', 'sheet', 'row', 'updated'];
   var BATCH = 5000, BUDGET_MS = 240 * 1000;
   var DAY = 86400000;
@@ -31,9 +31,9 @@ var LbFacts = (function () {
     return m.getUTCFullYear() + '-' + pad(m.getUTCMonth() + 1) + '-' + pad(m.getUTCDate());
   }
 
-  function key(week, mail, app, skill) { return week + '|' + mail + '|' + app + '|' + skill; }
+  function key(week, lid, app, skill) { return week + '|' + lid + '|' + app + '|' + skill; }
   function blank(week, s, app, skill) {
-    return { week: week, mail: s.mail, grade: s.grade, cls: s.cls, no: s.no, app: app, skill: skill, n: 0, ok: 0, tn: 0, sl: 0, sl2: 0, mis: {}, sess: 0 };
+    return { week: week, lid: s.lid, grade: s.grade, cls: s.cls, no: s.no, app: app, skill: skill, n: 0, ok: 0, tn: 0, sl: 0, sl2: 0, mis: {}, sess: 0 };
   }
   function addInto(f, st) {
     f.n += st.n || 0; f.ok += st.ok || 0; f.tn += st.tn || 0;
@@ -45,9 +45,9 @@ var LbFacts = (function () {
   /** セッション（LbSession.fromRow の形）を集計に足す。acc は { キー: 行 } */
   function addSession(acc, s) {
     var week = weekOf(s.ts);
-    if (!week || !s.mail) return acc;
+    if (!week || !s.lid) return acc;            // 学習者IDの無い行（おためしを書いた行）は集計しない
     for (var skill in (s.skills || {})) {
-      var k = key(week, s.mail, s.app, skill);
+      var k = key(week, s.lid, s.app, skill);
       var f = acc[k] || (acc[k] = blank(week, s, s.app, skill));
       addInto(f, s.skills[skill]);
       f.sess++;
@@ -68,7 +68,7 @@ var LbFacts = (function () {
   function toRows(acc) {
     return Object.keys(acc).sort().map(function (k) {
       var f = acc[k];
-      return [f.week, f.mail, f.grade, f.cls, f.no, f.app, f.skill, f.n, f.ok, f.tn, f.sl, f.sl2, JSON.stringify(f.mis), f.sess];
+      return [f.week, f.lid, f.grade, f.cls, f.no, f.app, f.skill, f.n, f.ok, f.tn, f.sl, f.sl2, JSON.stringify(f.mis), f.sess];
     });
   }
   function fromRows(rows) {
@@ -77,7 +77,7 @@ var LbFacts = (function () {
       if (!r[0] || !r[1]) return;
       var week = r[0] instanceof Date ? weekOf(r[0]) : String(r[0]);
       var mis = {}; try { mis = JSON.parse(String(r[12] || '{}')); } catch (e) {}
-      acc[key(week, r[1], r[5], r[6])] = { week: week, mail: String(r[1]), grade: Number(r[2]) || 0, cls: String(r[3]), no: Number(r[4]) || 0,
+      acc[key(week, r[1], r[5], r[6])] = { week: week, lid: String(r[1]), grade: Number(r[2]) || 0, cls: String(r[3]), no: Number(r[4]) || 0,
         app: String(r[5]), skill: String(r[6]), n: +r[7] || 0, ok: +r[8] || 0, tn: +r[9] || 0, sl: +r[10] || 0, sl2: +r[11] || 0, mis: mis, sess: +r[13] || 0 };
     });
     return acc;
@@ -99,11 +99,11 @@ var LbFacts = (function () {
   }
 
   /** その児童・技能の、endWeek を含む直近 weeks 週の行 */
-  function recent(acc, mail, app, skill, endWeek, weeks) {
+  function recent(acc, lid, app, skill, endWeek, weeks) {
     var from = addWeeks(endWeek, -(weeks - 1)), out = [];
     for (var k in acc) {
       var f = acc[k];
-      if (f.mail === mail && f.app === app && f.skill === skill && f.week >= from && f.week <= endWeek) out.push(f);
+      if (f.lid === lid && f.app === app && f.skill === skill && f.week >= from && f.week <= endWeek) out.push(f);
     }
     return out;
   }
@@ -140,12 +140,12 @@ var LbFacts = (function () {
         while (from <= last) {
           if (Date.now() - start > budget) { more = true; break; }
           var n = Math.min(BATCH, last - from + 1);
-          var head = sh.getRange(from, 1, n, 10).getValues();                       // 問題の欄（11列目）は読まない
+          var nh = LbSession.COL.items;                                              // 問題の欄は読まない
+          var head = sh.getRange(from, 1, n, nh).getValues();
           var sk = sh.getRange(from, LbSession.COL.skills + 1, n, 1).getValues();
           for (var i = 0; i < n; i++) {
-            var r = head[i].concat(['', sk[i][0], '']);
-            var s = LbSession.fromRow(r);
-            if (s.mail && s.mail.indexOf('@') >= 0) addSession(add, s);
+            var s = LbSession.fromRow(head[i].concat(['', sk[i][0], '']));
+            if (s.lid) addSession(add, s);
           }
           read += n; from += n; cur[ck] = from - 1; touched[ck] = true;
         }

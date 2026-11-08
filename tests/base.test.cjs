@@ -2,6 +2,7 @@
 const assert = require('assert');
 const { load } = require('./gas-mock.cjs');
 let n = 0;
+const J = x => JSON.stringify(x);
 const same = (a, b) => assert.strictEqual(JSON.stringify(a), JSON.stringify(b));   // vm の別世界の配列も比べられるように
 function t(name, fn) { fn(); n++; console.log('ok', name); }
 
@@ -11,6 +12,9 @@ const NEW_ROSTER = [
   ['22222222@kyoiku.edu.nishi.or.jp', 3, '2組', 1, '佐藤', '空', 'さとう', 'そら'],
   ['33333333@kyoiku.edu.nishi.or.jp', 3, '１', 2, '', '', '', ''],          // 名前なし
 ];
+// 他の検査が名簿に学習者IDを書き足すので、まっさらな写しを先に取っておく
+const PRISTINE_DATA = JSON.stringify(NEW_ROSTER);
+const PRISTINE = () => JSON.parse(PRISTINE_DATA);
 const OLD_ROSTER = [
   ['email', '学年', '組', '番号', '氏名'],
   ['12345678@KYOIKU.edu.nishi.or.jp', 3, 1, 5, '田中　はなこ'],
@@ -163,6 +167,58 @@ t('名簿にない人：保存分を使わずに1回だけ読み直す（転入�
   delete env.store['base:roster-reload'];                                        // 10分たった
   assert.strictEqual(env.Base.child('55555555@kyoiku.edu.nishi.or.jp').name, '転入 花');
   assert.strictEqual(env.Base.child('12345678@kyoiku.edu.nishi.or.jp').name, '田中 はなこ', '名簿にいる人は保存分から');
+});
+
+t('学習者ID：列が無ければ作って書き足す。乱数で、名前・メール・番号から導けない（同じ名簿でも作るたびに違う）', () => {
+  const id = 'HUBxxxxxxxxxxxxxxxxxxxxx';
+  const rows1 = PRISTINE(), rows2 = PRISTINE();
+  const a = load({ props: { HUB_ID: id }, byId: { [id]: { roster: rows1 } } }).Base.roster();
+  const b = load({ props: { HUB_ID: id }, byId: { [id]: { roster: rows2 } } }).Base.roster();
+  assert.strictEqual(rows1[0][8], '学習者ID', '見出しを足す');
+  a.forEach(r => assert.ok(/^L[a-z2-9]{10}$/.test(r.lid) && !/[01oli]/.test(r.lid.slice(1)), r.lid));
+  assert.strictEqual(new Set(a.map(r => r.lid)).size, a.length);
+  assert.notStrictEqual(J(a.map(r => r.lid)), J(b.map(r => r.lid)), '同じ名簿でも ID は毎回違う（情報から導けない）');
+  a.forEach(r => { assert.ok(!r.lid.includes(r.mail.split('@')[0])); });
+  assert.strictEqual(rows1[1][8], a[0].lid, '名簿のシートに書き戻す');
+});
+
+t('学習者ID：前の年度の名簿に同じメールがあれば引き継ぐ。書き足した後は変わらない', () => {
+  const id = 'HUBxxxxxxxxxxxxxxxxxxxxx';
+  const prev = [['メール', '学年', '組', '番号', '姓', '名', '学習者ID'], ['12345678@kyoiku.edu.nishi.or.jp', 2, 1, 5, '田中', 'はなこ', 'Lprevious22']];
+  const rows = PRISTINE();
+  const env = load({ props: { HUB_ID: id }, byId: { [id]: { roster: rows, roster_2025: prev } } });
+  assert.strictEqual(env.Base.child('12345678@kyoiku.edu.nishi.or.jp').lid, 'Lprevious22');
+  const again = load({ props: { HUB_ID: id }, byId: { [id]: { roster: rows } } }).Base.roster();
+  assert.strictEqual(again[0].lid, 'Lprevious22', '2回目は書き足さない（同じ ID のまま）');
+});
+
+t('メールの無い転入生：名前と学年があれば名簿に載り、学習者IDが付く。後でメールを足しても同じ ID', () => {
+  const id = 'HUBxxxxxxxxxxxxxxxxxxxxx';
+  const rows = PRISTINE().concat([['', 3, 1, 30, '転入', '太郎', 'てんにゅう', 'たろう']]);
+  const env = load({ props: { HUB_ID: id }, byId: { [id]: { roster: rows } } });
+  const r = env.Base.roster().find(x => x.name === '転入 太郎');
+  assert.ok(r && r.provisional && r.lid && r.mail === '');
+  assert.strictEqual(env.Base.learner(r.lid).name, '転入 太郎');
+  assert.strictEqual(env.Base.child(''), null, 'メールの無い児童はメールでは引けない');
+  assert.ok(env.Base.members(3, 1).some(x => x.lid === r.lid), '学級の一覧に出る');
+  rows[rows.length - 1][0] = '77777777@kyoiku.edu.nishi.or.jp';                 // 1か月後にメールが付く
+  const later = load({ props: { HUB_ID: id }, byId: { [id]: { roster: rows } } }).Base;
+  assert.strictEqual(later.child('77777777@kyoiku.edu.nishi.or.jp').lid, r.lid, '記録がつながる');
+});
+
+t('代わりに取り組む：教師が担当の学級の児童だけ。児童・担当外は止める', () => {
+  const id = 'HUBxxxxxxxxxxxxxxxxxxxxx';
+  const rows = PRISTINE().concat([['', 3, 1, 30, '転入', '太郎']]);
+  const teachers = [['メール', '学年', '組'], ['sub@example.jp', 3, 2]];
+  const t1 = load({ user: 'na@edu.nishi.or.jp', props: { HUB_ID: id }, byId: { [id]: { roster: rows, teachers } } });
+  const kid = t1.Base.roster().find(x => x.name === '転入 太郎');
+  const r = t1.Base.actAs(kid.lid);
+  assert.strictEqual(r.learner.lid, kid.lid); assert.strictEqual(r.by, 'na@edu.nishi.or.jp');
+  const sub = load({ user: 'sub@example.jp', props: { HUB_ID: id }, byId: { [id]: { roster: rows, teachers } } });
+  assert.throws(() => sub.Base.actAs(kid.lid), /担当していない/);
+  const child = load({ user: '12345678@kyoiku.edu.nishi.or.jp', props: { HUB_ID: id }, byId: { [id]: { roster: rows, teachers } } });
+  assert.throws(() => child.Base.actAs(kid.lid), /教師だけ/);
+  assert.throws(() => t1.Base.actAs('Lnobody'), /名簿にいない/);
 });
 
 t('組の正規化', () => {

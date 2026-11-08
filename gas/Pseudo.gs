@@ -4,11 +4,11 @@
  * 正本は learning-base。設計：`-` リポジトリ principles/learning-app-foundation.md §8
  * 画面も保存も持たない（純粋な計算だけ）。確認画面と書き出しはハブが持つ。
  *
- *   var t = LbPseudo.table(people, { seed: '2026-xxxx' });
+ *   var t = LbPseudo.table(people, { existing: 保存した記号表 });   // 初めては existing なし
  *   var r = LbPseudo.replace(text, t);   // { text, hits, skipped1, warn }
  *   LbPseudo.restore(r.text, t);          // 記号を名前に戻す（1人に決まる記号だけ）
  *
- * people: [{ id, sei, mei, seiKana, meiKana }]（id はメールなど。児童も教師も入れる）
+ * people: [{ id, sei, mei, seiKana, meiKana }]（id は学習者ID。教師はメール。児童も教師も入れる）
  *
  * 規則（決定 2026-11）
  * - 1人につき 姓・名・姓名 × 漢字／ひらがな／カタカナ（姓名は空白あり・なし）。あだ名は対象外
@@ -65,31 +65,34 @@ var LbPseudo = (function () {
 
   /* ---------- 記号表 ---------- */
 
-  /** 文字列の指紋（32ビット）。種＋id から各人の記号の候補を決める */
-  function hash(str) {
-    var h = 2166136261, s = String(str);
-    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-    h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15;
-    return h >>> 0;
-  }
   function pool(len) {
     var p = [];
     if (len === 2) LETTERS.forEach(function (l) { DIGITS.forEach(function (d) { p.push(l + d); }); });
     else LETTERS.forEach(function (l) { DIGITS.forEach(function (d) { LETTERS.forEach(function (l2) { p.push(l + d + l2); }); }); });
     return p;
   }
+  /** 0 以上 1 未満の乱数。GAS では UUID（暗号論的な乱数）から作る */
+  function defaultRandom() {
+    if (typeof Utilities !== 'undefined' && Utilities.getUuid) {
+      var hex = Utilities.getUuid().replace(/-/g, '');
+      return parseInt(hex.slice(0, 12), 16) / 281474976710656;
+    }
+    return Math.random();
+  }
 
   /**
    * 記号表を作る。
-   * - 各人の記号は「種＋id」の指紋から決める。名簿の並び・人数・出席番号とは無関係
-   * - opts.existing（{ id: 記号 }、ハブに保存した今年度の記号表）があれば、その記号をそのまま使う。
-   *   転入した人には、まだ使っていない記号を振る（年度の途中で他の人の記号が変わらない）
+   * - 記号は乱数で振る。名前・年齢・メール・ID・出席番号など、外の人が知りうる情報からは導けない
+   *   （計算で求める方式にしない。種を知られても、ID と記号の対応を再現できない）
+   * - そのため記号表は保存して使い続ける：opts.existing（{ id: 記号 }、ハブに保存した今年度の記号表）を渡すと、
+   *   その記号をそのまま使い、まだ記号の無い人（転入生）にだけ空いている記号を振る
+   * - id は学習者ID（メールではない。メールの無い転入生にも付き、後でメールが付いても変わらない）
    * - 記号の長さ：人数が 90 人以下なら2文字（z8）、それより多ければ3文字（k3m）。existing があればその長さ
-   * 返す：{ people: [{ id, code, name }], variants, codeOf: {id: code}, byCode: {code: name}, seed }
+   * 返す：{ people: [{ id, code, name }], variants, codeOf: {id: code}, byCode: {code: name} }
    */
   function table(people, opts) {
     opts = opts || {};
-    if (!opts.seed) throw new Error('記号表の種（seed）がありません。年度ごとに決めて保存してください');
+    var random = opts.random || defaultRandom;
     var list = (people || []).filter(function (p) { return p && p.id; });
     var existing = opts.existing || {};
     var exCodes = Object.keys(existing).map(function (k) { return existing[k]; });
@@ -98,15 +101,14 @@ var LbPseudo = (function () {
     if (list.length > P.length * 0.9) { len = 3; P = pool(3); }
     var used = {}, codeOf = {};
     list.forEach(function (p) { if (existing[p.id]) { codeOf[p.id] = existing[p.id]; used[existing[p.id]] = true; } });
-    // まだ記号の無い人を指紋の順に並べ、指紋が指す場所から空きを探す（並びの影響を受けない）
-    list.filter(function (p) { return !codeOf[p.id]; })
-      .map(function (p) { return { p: p, h: hash(opts.seed + '|' + p.id) }; })
-      .sort(function (a, b) { return a.h - b.h || (a.p.id < b.p.id ? -1 : 1); })
-      .forEach(function (x) {
-        var k = x.h % P.length;
-        while (used[P[k]]) k = (k + 1) % P.length;
-        codeOf[x.p.id] = P[k]; used[P[k]] = true;
-      });
+    var free = P.filter(function (c) { return !used[c]; });
+    list.forEach(function (p) {
+      if (codeOf[p.id]) return;
+      if (!free.length) throw new Error('記号が足りません');
+      var k = Math.floor(random() * free.length);
+      codeOf[p.id] = free[k];
+      free.splice(k, 1);
+    });
     var byCode = {}, out = [];
     list.forEach(function (p) {
       var name = [p.sei, p.mei].filter(Boolean).join(' ');
@@ -145,7 +147,7 @@ var LbPseudo = (function () {
       if (v.ids.length > 1) { shared++; v.code = '共' + shared; }
       else v.code = codeOf[v.ids[0]];
     });
-    return { people: out, variants: variants, codeOf: codeOf, byCode: byCode, seed: opts.seed };
+    return { people: out, variants: variants, codeOf: codeOf, byCode: byCode };
   }
 
   /* ---------- 置き換え ---------- */

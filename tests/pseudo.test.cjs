@@ -12,33 +12,33 @@ const PEOPLE = [
   { id: 'e', sei: '山﨑', mei: '健太', seiKana: 'やまさき', meiKana: 'けんた' },
   { id: 'T1', sei: '西', mei: '美樹', seiKana: 'にし', meiKana: 'みき' }                 // 教師・1文字の姓
 ];
-const T = LbPseudo.table(PEOPLE, { seed: '2026-test' });
+const T = LbPseudo.table(PEOPLE);
 const code = id => T.codeOf[id];
 
-t('記号表：全員に重ならない記号、紛らわしい文字を使わない、同じ種なら同じ記号', () => {
+t('記号表：全員に重ならない記号、紛らわしい文字を使わない', () => {
   const cs = Object.values(T.codeOf);
   assert.strictEqual(new Set(cs).size, PEOPLE.length);
   cs.forEach(c => assert.ok(/^[a-z][2-9]$/.test(c) && !/[01oli]/.test(c), c));
-  const T2 = LbPseudo.table(PEOPLE.slice().reverse(), { seed: '2026-test' });
-  assert.strictEqual(J(T2.codeOf), J(T.codeOf), '名簿の並びを変えても記号は同じ');
-  const T3 = LbPseudo.table(PEOPLE, { seed: '2027-test' });
-  assert.notStrictEqual(J(T3.codeOf), J(T.codeOf), '種が変われば記号も変わる');
-  assert.throws(() => LbPseudo.table(PEOPLE, {}), /種/);
 });
 
-t('転入：今年度の記号表を引き継ぐと、他の人の記号は変わらず、新しい人に空いている記号が付く', () => {
-  const tb1 = LbPseudo.table(PEOPLE, { seed: 's1' });
+t('記号は情報から導けない：同じ名簿・同じ ID でも、作るたびに違う記号になる', () => {
+  const runs = Array.from({ length: 5 }, () => J(LbPseudo.table(PEOPLE).codeOf));
+  assert.ok(new Set(runs).size > 1, '毎回同じなら、何かから計算している');
+  // ID と記号の間に決まった関係がない（ID の並びに記号の並びがついてこない）
+  const many = Array.from({ length: 60 }, (_, i) => ({ id: 'L' + String(i).padStart(3, '0'), sei: '姓' + i, mei: '名' + i }));
+  const tb = LbPseudo.table(many), seq = many.map(p => tb.codeOf[p.id]);
+  assert.notStrictEqual(J(seq), J(seq.slice().sort()));
+  assert.strictEqual(typeof LbPseudo.table(PEOPLE, { seed: 'x' }).seed, 'undefined', '種は使わない');
+});
+
+t('記号表を引き継ぐ：保存した記号はそのまま、転入生にだけ空いている記号を振る', () => {
+  const tb1 = LbPseudo.table(PEOPLE);
   const joined = PEOPLE.concat([{ id: 'new', sei: '転入', mei: '花' }]);
-  const tb2 = LbPseudo.table(joined, { seed: 's1', existing: tb1.codeOf });
+  const tb2 = LbPseudo.table(joined, { existing: tb1.codeOf });
   PEOPLE.forEach(p => assert.strictEqual(tb2.codeOf[p.id], tb1.codeOf[p.id]));
   assert.ok(tb2.codeOf.new && !Object.values(tb1.codeOf).includes(tb2.codeOf.new));
-});
-
-t('記号は名簿の順と無関係（出席番号順に並べても記号が順に並ばない）', () => {
-  const many = Array.from({ length: 40 }, (_, i) => ({ id: 'k' + i, sei: '姓' + i, mei: '名' + i }));
-  const tb = LbPseudo.table(many, { seed: 's' });
-  const seq = many.map(p => tb.codeOf[p.id]);
-  assert.notStrictEqual(J(seq), J(seq.slice().sort()));
+  const tb3 = LbPseudo.table(PEOPLE.slice().reverse(), { existing: tb1.codeOf });
+  PEOPLE.forEach(p => assert.strictEqual(tb3.codeOf[p.id], tb1.codeOf[p.id], '名簿の並びを変えても同じ'));
 });
 
 t('姓名：漢字・ひらがな・カタカナ・空白あり／なし・混ぜ書き', () => {
@@ -99,7 +99,7 @@ t('名前の無い文・空文字・記号だけの文はそのまま', () => {
 
 t('人数が多い時は3文字の記号（学校全体）', () => {
   const many = Array.from({ length: 300 }, (_, i) => ({ id: 'x' + i, sei: 'あ' + i, mei: 'い' + i }));
-  const tb = LbPseudo.table(many, { seed: 's' });
+  const tb = LbPseudo.table(many);
   const cs = Object.values(tb.codeOf);
   assert.strictEqual(new Set(cs).size, 300);
   cs.forEach(c => assert.ok(/^[a-z][2-9][a-z]$/.test(c), c));

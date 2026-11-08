@@ -31,9 +31,11 @@ var Base = (function () {
 
   /** 名簿の見出し。左が正規名、右が受け付ける別名（今の算数TAハブの英語見出しも読む） */
   var ROSTER_HEAD = {
-    mail: ['メール', 'email', 'mail'], grade: ['学年'], cls: ['組'], no: ['番号'],
+    lid: ['学習者ID', 'lid'], mail: ['メール', 'email', 'mail'], grade: ['学年'], cls: ['組'], no: ['番号'],
     sei: ['姓'], mei: ['名'], seiKana: ['せい'], meiKana: ['めい'], name: ['氏名', '名前']
   };
+  var LID_HEAD = '学習者ID';
+  var LID_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';   // 紛らわしい 0 O o 1 l I i を除く
   var TEACHER_HEAD = {
     mail: ['メール', 'email', 'mail'], sei: ['姓'], mei: ['名'], seiKana: ['せい'], meiKana: ['めい'],
     grade: ['学年'], cls: ['組']
@@ -128,14 +130,73 @@ var Base = (function () {
     var hit = cacheGet(key);
     if (hit) return hit;
     var name = year === cur ? SHEET.ROSTER : SHEET.ROSTER + '_' + year;
-    var s = hub().getSheetByName(name);
+    var ss = hub(), s = ss.getSheetByName(name);
     if (!s) {
       if (year === cur) throw new Error('ハブに名簿のシート「' + SHEET.ROSTER + '」がありません');
       return [];
     }
-    var rows = readRoster(s.getDataRange().getValues());
+    var v = s.getDataRange().getValues();
+    if (year === cur && fillIds(ss, s, v, year)) v = s.getDataRange().getValues();
+    var rows = readRoster(v);
     cachePut(key, rows);
     return rows;
+  }
+
+  /**
+   * 学習者ID：児童ごとの、記録をつなぐための内部の番号。
+   * - 乱数で作る（名前・年齢・メール・出席番号など、外の人が知りうる情報からは導けない）
+   * - メールが割り当てられていない転入生にも付く。後でメールを書き足しても同じ ID のまま（記録がつながる）
+   * - 名簿に「学習者ID」の列が無ければ作り、空の行に書き足す。前の年度の名簿に同じメールがあれば、その ID を引き継ぐ
+   * - 教師は ID を書き換えない（書き換えると、その児童の記録が別人になる）
+   * 返す：書き足したか
+   */
+  function fillIds(ss, sheet, v, year) {
+    if (v.length < 2) return false;
+    var col = headerIndex(v[0], ROSTER_HEAD), need = [];
+    for (var i = 1; i < v.length; i++) if (isChildRow(v[i], col) && !cell(v[i], col.lid)) need.push(i);
+    if (!need.length) return false;
+    var lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    try {
+      v = sheet.getDataRange().getValues();             // ロックの中で読み直す
+      col = headerIndex(v[0], ROSTER_HEAD);
+      if (col.lid < 0) { col.lid = v[0].length; sheet.getRange(1, col.lid + 1).setValue(LID_HEAD); }
+      var used = {}, prev = previousIds(ss, year), wrote = false;
+      for (var j = 1; j < v.length; j++) { var x = cell(v[j], col.lid); if (x) used[x] = true; }
+      for (var k = 1; k < v.length; k++) {
+        if (!isChildRow(v[k], col) || cell(v[k], col.lid)) continue;
+        var mail = cell(v[k], col.mail).toLowerCase(), id = mail && prev[mail] && !used[prev[mail]] ? prev[mail] : newId(used);
+        used[id] = true;
+        sheet.getRange(k + 1, col.lid + 1).setValue(id);
+        wrote = true;
+      }
+      return wrote;
+    } finally { lock.releaseLock(); }
+  }
+  /** 前の年度の名簿（roster_<年度-1>）の メール → 学習者ID */
+  function previousIds(ss, year) {
+    var out = {}, s = ss.getSheetByName(SHEET.ROSTER + '_' + (year - 1));
+    if (!s) return out;
+    var v = s.getDataRange().getValues();
+    if (!v.length) return out;
+    var col = headerIndex(v[0], ROSTER_HEAD);
+    if (col.lid < 0 || col.mail < 0) return out;
+    for (var i = 1; i < v.length; i++) { var m = cell(v[i], col.mail).toLowerCase(), id = cell(v[i], col.lid); if (m && id) out[m] = id; }
+    return out;
+  }
+  function newId(used) {
+    for (var tries = 0; tries < 100; tries++) {
+      var hex = Utilities.getUuid().replace(/-/g, ''), id = 'L';
+      for (var i = 0; i < 10; i++) id += LID_CHARS.charAt(parseInt(hex.substr(i * 2, 2), 16) % LID_CHARS.length);
+      if (!used[id]) return id;
+    }
+    throw new Error('学習者IDを作れません');
+  }
+  /** 児童の行か（見出しの混入・空行ではない）。メールがある行、またはメールが空で名前と学年がある行（転入直後） */
+  function isChildRow(r, col) {
+    var mail = cell(r, col.mail);
+    if (mail) return mail.indexOf('@') >= 0;
+    return !!(cell(r, col.sei) || cell(r, col.mei) || cell(r, col.name)) && Number(cell(r, col.grade)) > 0;
   }
 
   function readRoster(v) {
@@ -144,21 +205,23 @@ var Base = (function () {
     if (col.mail < 0) throw new Error('名簿の見出しに「メール」がありません');
     var out = [], seen = {};
     for (var i = 1; i < v.length; i++) {
+      if (!isChildRow(v[i], col)) continue;
       var mail = cell(v[i], col.mail).toLowerCase();
-      if (!mail || mail.indexOf('@') < 0) continue;
       var sei = cell(v[i], col.sei), mei = cell(v[i], col.mei), full = cell(v[i], col.name);
       if (!sei && !mei && full) {
         var parts = full.split(/[\s　]+/);
         sei = parts[0]; mei = parts.slice(1).join(' ');
       }
       var r = {
-        mail: mail, grade: Number(cell(v[i], col.grade)) || 0, cls: normCls(cell(v[i], col.cls)),
+        lid: cell(v[i], col.lid), mail: mail, provisional: !mail, grade: Number(cell(v[i], col.grade)) || 0, cls: normCls(cell(v[i], col.cls)),
         no: Number(cell(v[i], col.no)) || 0, sei: sei, mei: mei,
         seiKana: cell(v[i], col.seiKana), meiKana: cell(v[i], col.meiKana)
       };
       r.name = (sei + (sei && mei ? ' ' : '') + mei).trim();
-      if (seen[mail] === undefined) { seen[mail] = out.length; out.push(r); }
-      else if (!out[seen[mail]].name && r.name) out[seen[mail]] = r;
+      var dk = mail || ('lid:' + r.lid) || ('row:' + i);   // メールの無い転入生は学習者IDで見分ける
+      if (!mail && !r.lid) dk = 'row:' + i;
+      if (seen[dk] === undefined) { seen[dk] = out.length; out.push(r); }
+      else if (!out[seen[dk]].name && r.name) out[seen[dk]] = r;
     }
     return out;
   }
@@ -180,8 +243,37 @@ var Base = (function () {
     return find(roster(), mail);
   }
   function find(rows, mail) {
-    for (var i = 0; i < rows.length; i++) if (rows[i].mail === mail && rows[i].name) return rows[i];
+    for (var i = 0; i < rows.length; i++) if (rows[i].mail && rows[i].mail === mail && rows[i].name) return rows[i];
     return null;
+  }
+
+  /** 学習者IDで児童を引く（メールの無い転入生も引ける）。名前の無い行・知らない ID は null */
+  function learner(lid, year) {
+    lid = String(lid || '').trim();
+    if (!lid) return null;
+    var rows = roster(year);
+    for (var i = 0; i < rows.length; i++) if (rows[i].lid === lid && rows[i].name) return rows[i];
+    return null;
+  }
+
+  /** 学級の児童（番号順）。教師が「だれが やる？」を選ぶ画面に使う */
+  function members(grade, cls, year) {
+    var g = Number(grade), c = normCls(cls);
+    return roster(year).filter(function (r) { return r.grade === g && r.cls === c && r.name; })
+      .sort(function (a, b) { return a.no - b.no || (a.name < b.name ? -1 : 1); });
+  }
+
+  /**
+   * 教師が児童の代わりに取り組む（メールの無い転入生・端末の故障など）。
+   * 開いた人が教師で、その児童の学級を見てよい時だけ、その児童を返す。記録には操作した教師も残す（by）。
+   */
+  function actAs(lid) {
+    var m = me();
+    if (m.role !== 'teacher') throw new Error('児童の代わりに取り組めるのは教師だけです');
+    var r = learner(lid);
+    if (!r) throw new Error('名簿にいない児童です: ' + lid);
+    if (!canSeeClass(m.email, r.grade, r.cls)) throw new Error('担当していない学級の児童です');
+    return { learner: r, by: m.email };
   }
 
   /** 学級のキー「学年-組」。全アプリでこの形に揃える */
@@ -310,7 +402,7 @@ var Base = (function () {
     hub: hub, hubId: hubId, setHub: setHub,
     fy: fy, fyOf: fyOf,
     email: email, domainOf: domainOf, isTeacherDomain: isTeacherDomain, isChildDomain: isChildDomain, me: me,
-    roster: roster, child: child, classKey: classKey, normCls: normCls,
+    roster: roster, child: child, learner: learner, members: members, actAs: actAs, classKey: classKey, normCls: normCls,
     teachers: teachers, teacher: teacher, canSeeClass: canSeeClass,
     clearCache: clearCache,
     _readRoster: readRoster   // 検査用
