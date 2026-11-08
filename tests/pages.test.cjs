@@ -121,4 +121,22 @@ t('窓口：担当外の学級は変えられない（別ドメインの支援�
   assert.strictEqual(g.role, 'guest'); assert.match(g.message, /とうろく/);
 });
 
+t('教科の色：全教科に淡い地の色があり、school-timetable と同じ値。地の上の文字は読める濃さ', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'web', 'home.css'), 'utf8');
+  const TT = { kokugo: '#FDE8D3', shakai: '#F7E9A8', sansu: '#D7EDF9', rika: '#D9EFD9', seikatsu: '#E9E2F5', sogo: '#E9E2F5', ongaku: '#FBE0EC',
+    zuko: '#E8F2CE', katei: '#F3E3D3', taiiku: '#FBDAD7', dotoku: '#EDE7DC', gaikokugo: '#DEE2F7', other: '#E4E7EA' };   // school-timetable src/css/tokens.css
+  const Lum = h => { const c = [1, 3, 5].map(i => parseInt(h.substr(i, 2), 16) / 255).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const cr = (a, b) => { const x = Lum(a), y = Lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const sub = (css.match(/--ink-sub-on-tint:(#[0-9A-Fa-f]{6})/) || [])[1];
+  LbPages.SUBJECTS.forEach(s => {
+    const m = css.match(new RegExp('--sub-' + s.id + ':(#[0-9A-Fa-f]{6})'));
+    assert.ok(m, s.id + ' の色が無い');
+    assert.strictEqual(m[1].toUpperCase(), TT[s.id], s.id + ' が school-timetable と違う');
+    assert.ok(new RegExp('\\[data-subject=' + s.id + '\\]\\{--tint:var\\(--sub-' + s.id + '\\)\\}').test(css), s.id + ' の当て方が無い');
+    assert.ok(cr('#1A1A1A', m[1]) >= 7, s.id + ' 本文');
+    assert.ok(cr(sub, m[1]) >= 4.5, s.id + ' 補助の文字 ' + cr(sub, m[1]).toFixed(2));
+    assert.ok(cr('#0F5EA8', m[1]) >= 3, s.id + ' 再生の印');
+  });
+});
+
 console.log(`pages ${n} 件 ok`);

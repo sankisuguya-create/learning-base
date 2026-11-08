@@ -106,7 +106,7 @@
     if (h.now.length) {
       html += '<div class="lb-now">' + h.now.map(function (p) {
         var s = subjectInfo(p.subject);
-        return '<button class="lb-nowcard" data-act="open" data-id="' + esc(p.id) + '">' + icon(p.subject) +
+        return '<button class="lb-nowcard" data-act="open" data-id="' + esc(p.id) + '"><span class="lb-badge" data-subject="' + esc(p.subject) + '">' + icon(p.subject) + '</span>' +
           '<span><span class="lb-sub">' + subjectName(s) + '</span><br>' + pageTitle(p) + '</span><span class="lb-go">▶ はじめる</span></button>';
       }).join('') + '</div>';
     } else html += '<div class="lb-nownone">' + (S.boot.role === 'teacher' ? '先生モードで ★ を押すと、ここに出ます（3件まで）' : 'きょうは ありません') + '</div>';
@@ -117,7 +117,7 @@
       subs = all.map(function (s) { var v = h.subjects.filter(function (x) { return x.id === s.id; })[0]; return v || { id: s.id, label: s.label, ruby: s.ruby, low: s.low, count: 0, hidden: true }; });
     }
     html += '<div class="lb-subjects">' + subs.map(function (s) {
-      return '<button class="lb-tile' + (s.hidden ? ' is-off' : '') + '" data-act="subject" data-id="' + esc(s.id) + '">' + icon(s.id) +
+      return '<button class="lb-tile' + (s.hidden ? ' is-off' : '') + '" data-act="subject" data-subject="' + esc(s.id) + '" data-id="' + esc(s.id) + '">' + icon(s.id) +
         '<span class="lb-name">' + subjectName(s) + '</span><span class="lb-count">' + s.count + (S.grade <= 2 ? ' こ' : '件') + '</span></button>';
     }).join('') + '</div>';
     return html;
@@ -126,13 +126,13 @@
   function subjectView() {
     var s = subjectInfo(S.subject);
     var units = S.edit ? LbPagesView.home(S.cat, S.grade, { publish: allOn(), now: [] }, S.boot.today).bySubject[S.subject] : home().bySubject[S.subject];
-    var html = '<div class="lb-shead"><button class="lb-back" data-act="back">← ' + (S.grade <= 2 ? 'もどる' : 'もどる') + '</button>' + icon(S.subject) + '<h2>' + subjectName(s) + '</h2></div>';
+    var html = '<div class="lb-shead" data-subject="' + esc(S.subject) + '"><button class="lb-back" data-act="back">← ' + (S.grade <= 2 ? 'もどる' : 'もどる') + '</button>' + icon(S.subject) + '<h2>' + subjectName(s) + '</h2></div>';
     if (!units || !units.length) return html + '<div class="lb-msg">' + (S.grade <= 2 ? 'いまは ありません' : 'いまは ありません') + '</div>';
     units.forEach(function (u) {
       if (u.unit) html += '<h3 class="lb-unit">' + esc(u.unit) + '</h3>';
       html += '<div class="lb-pages">' + u.pages.map(function (p) {
         // 開くボタンと切り替え（先生モード）は兄弟にする（ボタンの中にボタンは置けない）
-        return '<div class="lb-cell"><button class="lb-page' + (isOn(p) ? '' : ' is-off') + '" data-act="open" data-id="' + esc(p.id) + '">' + PLAY +
+        return '<div class="lb-cell"><button class="lb-page' + (isOn(p) ? '' : ' is-off') + '" data-act="open" data-subject="' + esc(p.subject) + '" data-id="' + esc(p.id) + '">' + PLAY +
           '<span>' + pageTitle(p) + '<br><span class="lb-kind">' + kindLabel(p) + '</span></span></button>' + chips(p) + '</div>';
       }).join('') + '</div>';
     });
