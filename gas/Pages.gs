@@ -83,7 +83,7 @@ var LbPages = (function () {
    * 返す：{ now: [ページ], subjects: [{ id, label, ruby, low, count }], bySubject: { 教科: [{ unit, pages: [ページ] }] } }
    * - その学年のページだけ・公開のページだけ
    * - いまの学習：期間内のもの・公開しているもの・学年が合うものを順に最大3件
-   * - 教科：その学年に公開のページがある教科だけ
+   * - 教科：その学年に公開のページがある教科だけ。ページが1つだけの教科は only にそのページ（タイルから直接開く）
    */
   function home(cat, grade, settings, today) {
     var g = Number(grade);
@@ -101,7 +101,10 @@ var LbPages = (function () {
     });
     var subjects = SUBJECTS.filter(function (s) { return bySubject[s.id]; }).map(function (s) {
       var count = bySubject[s.id].reduce(function (t, u) { return t + u.pages.length; }, 0);
-      return { id: s.id, label: s.label, ruby: s.ruby, low: s.low, count: count };
+      var o = { id: s.id, label: s.label, ruby: s.ruby, low: s.low, count: count };
+      // 見せるページが1つだけの教科は、教科の画面を挟まずにそのページを開く（押す回数を1回減らす）
+      if (count === 1) o.only = bySubject[s.id][0].pages[0];
+      return o;
     });
     return { now: now, subjects: subjects, bySubject: bySubject };
   }

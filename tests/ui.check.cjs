@@ -15,6 +15,11 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
     const doc = await cdp.send('DOM.getDocument'); const q = await cdp.send('DOM.querySelectorAll', { nodeId: doc.root.nodeId, selector: '.lb h1,.lb-name,.lb-title' });
     for (const id of q.nodeIds) { const f = await cdp.send('CSS.getPlatformFontsForNode', { nodeId: id }); f.fonts.forEach(x => { if (CN.test(x.familyName)) fails.push(role + ': 中国語フォント ' + x.familyName); }); }
     if (role === 'child3' && (await p.locator('.lb-nowcard').count()) !== 2) fails.push('child3: いまの学習が2件でない');
+    if (role === 'child3') {   // 国語はページが1つ（漢字の森）：タイルが直接開く
+      const t = p.locator('.lb-tile[data-subject=kokugo]');
+      if ((await t.getAttribute('data-act')) !== 'open' || (await t.getAttribute('data-id')) !== 'kanzi') fails.push('child3: 1つだけの教科のタイルが直接開かない');
+      if ((await p.locator('.lb-tile[data-subject=sansu]').getAttribute('data-act')) !== 'subject') fails.push('child3: 算数のタイルが教科の画面へ行かない');
+    }
     if (role === 'teacher') {
       await p.click('[data-act=edit]'); await p.click('[data-act=subject][data-id=sansu]');
       await p.click('[data-act=pub][data-id=tamath-kuku]'); await p.waitForTimeout(400);

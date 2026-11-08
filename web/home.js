@@ -56,6 +56,8 @@
     if (S.grade === 3 && p.ruby && p.ruby !== p.title) return '<span class="lb-title"><span class="lb-reading">' + esc(p.ruby) + '</span>' + esc(p.title) + '</span>';
     return '<span class="lb-title">' + esc(p.title) + '</span>';
   }
+  /** 教科のタイルに出すページの題（1・2年は読み） */
+  function directTitle(p) { return esc(S.grade <= 2 && p.ruby ? p.ruby : p.title); }
   function kindLabel(p) { return p.kind === 'app' ? (S.grade <= 2 ? 'れんしゅう' : '練習') : (S.grade <= 2 ? 'きょうざい' : '教材'); }
 
   /* ---------- 表示 ---------- */
@@ -117,6 +119,11 @@
       subs = all.map(function (s) { var v = h.subjects.filter(function (x) { return x.id === s.id; })[0]; return v || { id: s.id, label: s.label, ruby: s.ruby, low: s.low, count: 0, hidden: true }; });
     }
     html += '<div class="lb-subjects">' + subs.map(function (s) {
+      // ページが1つだけの教科は、タイルがそのページを直接開く（教科名の下に題と ▶）。先生モードでは切り替えのため教科の画面へ
+      if (s.only && !S.edit) {
+        return '<button class="lb-tile is-direct" data-act="open" data-subject="' + esc(s.id) + '" data-id="' + esc(s.only.id) + '">' + icon(s.id) +
+          '<span class="lb-name">' + subjectName(s) + '</span><span class="lb-direct">▶ ' + directTitle(s.only) + '</span></button>';
+      }
       return '<button class="lb-tile' + (s.hidden ? ' is-off' : '') + '" data-act="subject" data-subject="' + esc(s.id) + '" data-id="' + esc(s.id) + '">' + icon(s.id) +
         '<span class="lb-name">' + subjectName(s) + '</span><span class="lb-count">' + s.count + (S.grade <= 2 ? ' こ' : '件') + '</span></button>';
     }).join('') + '</div>';

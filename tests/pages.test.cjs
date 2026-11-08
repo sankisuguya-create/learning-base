@@ -28,6 +28,17 @@ t('ホーム：その学年の・公開のページだけ。教科は中身の�
   assert.strictEqual(h.subjects.find(s => s.id === 'sansu').count, 9);
   assert.strictEqual(J(LbPages.home(CAT, 5, {}, '2026-11-10').subjects.map(s => s.id)), J(['kokugo', 'sansu']));
 });
+t('ページが1つだけの教科は only にそのページ（タイルから直接開く）。2つ以上なら only なし', () => {
+  const h = LbPages.home(CAT, 3, { publish: {}, now: [] }, '2026-11-10');
+  assert.strictEqual(h.subjects.find(s => s.id === 'kokugo').only.id, 'kanzi');
+  assert.strictEqual(h.subjects.find(s => s.id === 'sansu').only, undefined);
+  const h2 = LbPages.home(CAT, 3, { publish: { 'toi-board': true }, now: [] }, '2026-11-10');
+  assert.strictEqual(h2.subjects.find(s => s.id === 'sogo').only.id, 'toi-board');
+  // 公開を絞って1つになった教科も直接開く
+  const off = {}; CAT.pages.filter(p => p.subject === 'sansu' && p.id !== 'tamath-kuku').forEach(p => { off[p.id] = false; });
+  assert.strictEqual(LbPages.home(CAT, 3, { publish: off, now: [] }, '2026-11-10').subjects.find(s => s.id === 'sansu').only.id, 'tamath-kuku');
+});
+
 t('ホーム：教師の公開の切り替えが効く（非公開にした・既定で非公開のものを公開にした）', () => {
   const h = LbPages.home(CAT, 3, { publish: { 'tamath-kuku': false, 'toi-board': true }, now: [] }, '2026-11-10');
   assert.ok(!h.bySubject.sansu.some(u => u.pages.some(p => p.id === 'tamath-kuku')));
