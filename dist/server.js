@@ -1432,7 +1432,7 @@ function homeSetPublish(classKey, pageId, on) { return LbHome.setPublish(classKe
 function homeResetPublish(classKey) { return LbHome.resetPublish(classKey); }
 function homeSetNow(classKey, list) { return LbHome.setNow(classKey, list); }
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@eb92cd5） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@85bf4b0） =====
 LB_MODULES["tamath"] = (function () {
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
@@ -4670,6 +4670,61 @@ function gradeNorms_(kids) {
   return out;
 }
 
+/* ============================================================
+ *  抜け一覧（教師画面の分析タブの先頭）
+ *
+ *  判断は「どの児童の、どこに理解の抜けがあるか」。集団の図表ではなく、児童ごとに
+ *  最大 GAP_MAX_ 件の「抜け」を言葉で出す。基準は本人の中での比較（学年との比較だと、
+ *  全体に低い子は全部の型が該当して、一覧から何も読めない）。
+ *
+ *  抜けの種類（強い順）
+ *    wrong … 同じ誤概念の誤答を GAP_WRONG_MIN_ 回以上（UNIT.wrongLabel のある単元だけ）
+ *    miss  … 本人の誤答率の中央値より GAP_RATE_ 以上高く、その差が誤答率の標準誤差の2倍を超える型
+ *    slow  … ◆（本人の他の型より遅い。markSelfSlow_）
+ *  状態
+ *    few  … 判定できる型（GAP_MIN_N_ 問以上）が無い
+ *    flat … 本人の誤答率の中央値が GAP_FLAT_ 以上（どの型も誤答が多く、型の差では読めない）
+ *    ok   … それ以外（抜けが0件なら「目立つ抜けなし」）
+ * ============================================================ */
+var GAP_MIN_N_ = 10;     // 型ごとの問題数（1回目正答＋誤答）の下限。10問で誤答率の標準誤差は最大±0.16。根拠なし（仮の値）
+var GAP_RATE_ = 0.2;     // 本人の中央値からの差。根拠なし（仮の値）
+var GAP_FLAT_ = 0.3;     // 中央値の誤答率がこれ以上なら「全体に誤答が多い」。根拠なし（仮の値）
+var GAP_WRONG_MIN_ = 2;  // 同じ誤概念を選んだ回数。1回は押し間違いと区別できない
+var GAP_MAX_ = 3;
+
+/**
+ * 純粋。tok/tm: { 型: 1回目正答数／誤答数 }、wl: { '型|誤概念': 回数 }、t: 児童の型ごとの想起（self 付き）。
+ * 返り値 { st: 'ok'|'few'|'flat', items: [{ t, k: 'wrong'|'miss'|'slow', txt, n, rate }] }
+ */
+function gapsOf_(tok, tm, wl, t, order) {
+  tok = tok || {}; tm = tm || {}; wl = wl || {}; t = t || {};
+  var rates = {}, elig = [];
+  order.forEach(function (ty) {
+    var m = tm[ty] || 0, N = (tok[ty] || 0) + m;
+    if (N >= GAP_MIN_N_) { rates[ty] = { r: m / N, N: N, m: m }; elig.push(ty); }
+  });
+  var items = [];
+  Object.keys(wl).forEach(function (k) {
+    if (wl[k] < GAP_WRONG_MIN_) return;
+    var i = k.indexOf('|');
+    items.push({ t: k.slice(0, i), k: 'wrong', txt: k.slice(i + 1), n: wl[k], s: 100 + wl[k] });
+  });
+  var center = elig.length ? median_(elig.map(function (ty) { return rates[ty].r; })) : 0;
+  elig.forEach(function (ty) {
+    var o = rates[ty], gap = o.r - center, se = Math.sqrt(Math.max(o.r * (1 - o.r), 0.01) / o.N);
+    if (elig.length >= 2 && gap >= GAP_RATE_ && gap > 2 * se) {
+      items.push({ t: ty, k: 'miss', txt: '', n: o.m, rate: Math.round(o.r * 100), s: 50 + gap * 10 });
+    }
+  });
+  order.forEach(function (ty) {
+    if (t[ty] && t[ty].self) items.push({ t: ty, k: 'slow', txt: '', n: t[ty].n, s: 10 });
+  });
+  items.sort(function (a, z) { return z.s - a.s; });
+  items = items.slice(0, GAP_MAX_).map(function (x) { delete x.s; return x; });
+  var stt = !elig.length && !items.length ? 'few' : (elig.length && center >= GAP_FLAT_ ? 'flat' : 'ok');
+  return { st: stt, items: items, med: Math.round(center * 100) };
+}
+
 /**
  * 本人の中で遅い型（◆）。学年との比較だけだと、全体に遅い子は行全体が「遅い」になり、
  * その子がとくに苦手な型が読めない。
@@ -4806,11 +4861,13 @@ function buildAnalysis_(fyear) {
     b.daily[d] = (b.daily[d] || 0) + 1;
 
     var st = b.kids[m];
-    if (!st) st = b.kids[m] = { name: rc.name, no: rc.no, tries: 0, miss: 0, t: {} };
+    if (!st) st = b.kids[m] = { name: rc.name, no: rc.no, tries: 0, miss: 0, t: {}, tok: {}, tm: {}, wl: {} };
     st.tries++;
 
     // type_stats … "型:試行数:Σ送信まで:初打鍵あり数:Σ初打鍵まで:Σ(初打鍵まで)^2"
     String(row[LOG_COL_.TSTAT] || '').split(',').forEach(function (e) {
+      var p0 = String(e).split(':');
+      if (typeSet[p0[0]] && p0.length >= 2) st.tok[p0[0]] = (st.tok[p0[0]] || 0) + (Number(p0[1]) || 0);   // 1回目で正答した数（抜け一覧の分母）
       var x = typeStat_(e);
       if (!x) return;                          // 初打鍵の無い古い行は想起の集計に入れない
       var ty = x.t;
@@ -4825,11 +4882,18 @@ function buildAnalysis_(fyear) {
       var acc = b.types[ty] || (b.types[ty] = newAcc_());
       acc.miss++;
       st.miss++;
+      st.tm[ty] = (st.tm[ty] || 0) + 1;
     });
 
     splitCellItems_(row[LOG_COL_.WRONG], typeSet).forEach(function (e) {
       if (e.indexOf('|') < 0) return;
       b.wrong[e] = (b.wrong[e] || 0) + 1;
+      // 誤答の値から誤概念を読める単元（UNIT.wrongLabel）は、児童ごとに数える（抜け一覧）
+      var wp = e.split('|');
+      if (typeof UNIT.wrongLabel === 'function' && wp.length >= 4) {
+        var lb = UNIT.wrongLabel(wp[0], wp[1], wp[2], wp[3]);
+        if (lb) { var lk = wp[0] + '|' + lb; st.wl[lk] = (st.wl[lk] || 0) + 1; }
+      }
     });
   }
 
@@ -4874,7 +4938,7 @@ function buildAnalysis_(fyear) {
     var bk = (perCls[ck] || { kids: {} }).kids, kids = [];
     Object.keys(roster).forEach(function (m) {
       if (roster[m].ck !== ck) return;
-      var st = bk[m] || { name: roster[m].name, no: roster[m].no, tries: 0, miss: 0, t: {} };
+      var st = bk[m] || { name: roster[m].name, no: roster[m].no, tries: 0, miss: 0, t: {}, tok: {}, tm: {}, wl: {} };
       var wMax = 0, wType = '', t = {};
       order.forEach(function (ty) {
         var o = recallOut_(st.t[ty]);
@@ -4884,7 +4948,8 @@ function buildAnalysis_(fyear) {
         if (o.n >= 5 && o.cv > wMax) { wMax = o.cv; wType = ty; }
       });
       kids.push({ no: st.no, name: st.name, tries: st.tries, miss: st.miss,
-                  wobble: wMax, wobbleType: wType ? (UNIT.types[wType] || wType) : '', t: t });
+                  wobble: wMax, wobbleType: wType ? (UNIT.types[wType] || wType) : '', t: t,
+                  _tok: st.tok, _tm: st.tm, _wl: st.wl });
     });
     kids.sort(function (a, z) { return a.no - z.no; });
     students[ck] = kids;
@@ -4909,6 +4974,8 @@ function buildAnalysis_(fyear) {
         }
       });
       markSelfSlow_(k.t);
+      k.gap = gapsOf_(k._tok, k._tm, k._wl, k.t, order);
+      delete k._tok; delete k._tm; delete k._wl;
     });
   });
   // クラス・全体の型平均も同じ分布に当てる。全体は学年が1つのときだけ（学年をまたぐ分布は無い）
@@ -4950,6 +5017,128 @@ function buildAnalysis_(fyear) {
     scopes: scopes,
     students: students
   };
+}
+
+/* ============================================================
+ *  用語モード（教師画面の「ようご」タブ）
+ *
+ *  毎時間の定例として教室モニターに映し、全員で声をそろえて読む。
+ *  ① 図だけを映す → ② 押すと名前が出る、の2段階。
+ *
+ *  台帳 TERMS_ は全単元共通で、並びは学習の順（学年→単元の順）。
+ *  単元は UNIT.terms で自分の用語を宣言する。台帳でその単元の最初の用語より前にある用語は既習とみなし、
+ *  毎回 TERM_PAST_N_ 個まで、しばらく出していないものから混ぜる（間隔をあけた復習）。
+ *  図は Core.gs の中で描く（単元のプロジェクトをまたいで既習の用語を描くため）。
+ * ============================================================ */
+var TERM_PAST_N_ = 2;       // 1回に混ぜる既習の用語の数。根拠なし（1〜2分に収める仮の値）
+var TERM_FIGS_ = 4;         // 1語あたりに用意する図の向きの数（毎回向きを変え、典型図への固着を避ける）
+var TERM_KEY_ = 'terms_seen';
+
+var TM_LINE_ = '#8C93AC';
+var TM_INK_ = '#FFFFFF';
+
+function tmSvg_(body) {
+  return '<svg viewBox="0 0 400 300" xmlns="http://www.w3.org/2000/svg">' + body + '</svg>';
+}
+function tmAt_(cx, cy, r, th) { return [Math.round(cx + r * Math.cos(th)), Math.round(cy - r * Math.sin(th))]; }
+function tmCircle_(r, stroke, w) {
+  return '<circle cx="200" cy="150" r="' + r + '" fill="none" stroke="' + stroke + '" stroke-width="' + w + '"/>';
+}
+function tmDot_(p, c) { return '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="9" fill="' + c + '"/>'; }
+function tmSeg_(p, q, c) {
+  return '<line x1="' + p[0] + '" y1="' + p[1] + '" x2="' + q[0] + '" y2="' + q[1] +
+         '" stroke="' + c + '" stroke-width="9" stroke-linecap="round"/>';
+}
+
+/**
+ * 用語の台帳（学習の順）。fig(rand, hi) は図の SVG。hi は名称が指すところの色（学年の色）。
+ * 指すところだけを hi で塗り、ほかは輪郭の灰にする（何を言う図なのかを1つに絞る）。
+ */
+var TERMS_ = [
+  { id: 'circle', grade: 3, unit: 'circle', name: '円', yomi: 'えん',
+    fig: function (rand, hi) { return tmSvg_(tmCircle_(110, hi, 9)); } },
+  { id: 'center', grade: 3, unit: 'circle', name: '中心', yomi: 'ちゅうしん',
+    fig: function (rand, hi) { return tmSvg_(tmCircle_(110, TM_LINE_, 5) + tmDot_([200, 150], hi)); } },
+  { id: 'radius', grade: 3, unit: 'circle', name: '半径', yomi: 'はんけい',
+    fig: function (rand, hi) {
+      var th = rand() * Math.PI * 2;
+      return tmSvg_(tmCircle_(110, TM_LINE_, 5) + tmSeg_([200, 150], tmAt_(200, 150, 110, th), hi) + tmDot_([200, 150], TM_INK_));
+    } },
+  { id: 'diameter', grade: 3, unit: 'circle', name: '直径', yomi: 'ちょっけい',
+    fig: function (rand, hi) {
+      var th = rand() * Math.PI;
+      return tmSvg_(tmCircle_(110, TM_LINE_, 5) + tmSeg_(tmAt_(200, 150, 110, th), tmAt_(200, 150, 110, th + Math.PI), hi) +
+                    tmDot_([200, 150], TM_INK_));
+    } },
+  { id: 'sphere', grade: 3, unit: 'circle', name: '球', yomi: 'きゅう',
+    fig: function (rand, hi) {
+      var ry = 22 + Math.round(rand() * 14);
+      return tmSvg_('<circle cx="200" cy="150" r="110" fill="' + hi + '" fill-opacity=".28" stroke="' + hi + '" stroke-width="7"/>' +
+        '<ellipse cx="200" cy="150" rx="110" ry="' + ry + '" fill="none" stroke="' + TM_LINE_ + '" stroke-width="4" stroke-dasharray="10 8"/>' +
+        '<ellipse cx="160" cy="105" rx="26" ry="16" fill="#FFFFFF" fill-opacity=".35"/>');
+    } }
+];
+
+function termById_(id) {
+  for (var i = 0; i < TERMS_.length; i++) if (TERMS_[i].id === id) return TERMS_[i];
+  return null;
+}
+
+/**
+ * 今日の用語の束（純粋。tests/terms.test.cjs が叩く）。
+ * cur: この単元の用語 id、seen: { id: { n: 出した回数, at: 最後に出した時刻 } }。
+ * 返り値 [{ id, name, yomi, cur, n, figs: [svg...] }]。この単元の用語が先、既習が後。
+ */
+function termDeck_(cur, seen, grade, rand) {
+  cur = (cur || []).filter(function (id) { return !!termById_(id); });
+  seen = seen || {};
+  var hi = GRADE_ACCENT_[grade] || GRADE_ACCENT_[3];
+  var first = TERMS_.length;
+  cur.forEach(function (id) { first = Math.min(first, TERMS_.indexOf(termById_(id))); });
+  if (!cur.length) {   // 用語を宣言していない単元：下の学年の用語だけを既習とする
+    first = 0;
+    while (first < TERMS_.length && TERMS_[first].grade < grade) first++;
+  }
+  var past = TERMS_.slice(0, first).filter(function (x) { return cur.indexOf(x.id) < 0 && x.grade <= grade; })
+    .sort(function (a, z) { return ((seen[a.id] || {}).at || 0) - ((seen[z.id] || {}).at || 0); })
+    .slice(0, TERM_PAST_N_);
+  function out(x, isCur) {
+    var figs = [];
+    for (var i = 0; i < TERM_FIGS_; i++) figs.push(x.fig(rand, hi));
+    var n = (seen[x.id] || {}).n || 0;
+    return { id: x.id, name: x.name, yomi: x.yomi, cur: isCur, n: n, figs: figs };
+  }
+  return cur.map(function (id) { return out(termById_(id), true); })
+    .concat(past.map(function (x) { return out(x, false); }));
+}
+
+function termSeen_() {
+  try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(TERM_KEY_) || '{}') || {}; }
+  catch (e) { return {}; }
+}
+
+/** 教師画面：今日の用語の束 */
+function getTermDeck() {
+  if (!isTeacher_(email_())) throw new Error('権限がありません');
+  var seed = Math.floor(Math.random() * 1e9);
+  return { deck: termDeck_(UNIT.terms || [], termSeen_(), UNIT.grade, rng_(seed)), declared: (UNIT.terms || []).length };
+}
+
+/** 教師画面：最後まで映し終えた用語を記録する（既習の用語の出す順に使う） */
+function termDone(ids) {
+  if (!isTeacher_(email_())) throw new Error('権限がありません');
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return { ok: false };
+  try {
+    var seen = termSeen_(), now = Date.now();
+    (ids || []).forEach(function (id) {
+      if (!termById_(String(id))) return;
+      var o = seen[id] || (seen[id] = { n: 0, at: 0 });
+      o.n++; o.at = now;
+    });
+    PropertiesService.getScriptProperties().setProperty(TERM_KEY_, JSON.stringify(seen));
+    return { ok: true };
+  } finally { lock.releaseLock(); }
 }
 
 /* ============================================================
@@ -5057,6 +5246,11 @@ function validateUnit_() {
   Object.keys(UNIT.units || {}).forEach(function (k) { checkColor('units.' + k, UNIT.units[k]); });
   Object.keys(UNIT.slotColor || {}).forEach(function (k) { checkColor('slotColor.' + k, UNIT.slotColor[k]); });
   if (typeof UNIT.gen !== 'function') probs.push('UNIT.gen がありません');
+  if (UNIT.terms != null) {
+    if (!Array.isArray(UNIT.terms)) probs.push('UNIT.terms は用語 id の配列にしてください');
+    else UNIT.terms.forEach(function (id) { if (!termById_(id)) probs.push('UNIT.terms の ' + id + ' が用語の台帳（TERMS_）にありません'); });
+  }
+  if (UNIT.wrongLabel != null && typeof UNIT.wrongLabel !== 'function') probs.push('UNIT.wrongLabel は関数にしてください');
 
   // モードの宣言
   var modeIds = [];
@@ -5976,6 +6170,13 @@ var UNIT = UNIT || UNIT_DEFS['bignum'];
  */
 
 var CI_MARK = ['①', '②', '③', '④'];
+/** タップの問いの誤答の選択肢 → 誤概念（UNIT.wrongLabel）。並びの意味は先頭の注記の表と同じ */
+var CI_WRONG_ = {
+  'A:near': '中心からずれた点を中心とみる', 'A:mid': '中心からずれた点を中心とみる', 'A:edge': '中心からずれた点を中心とみる',
+  'B:short': '円周まで届かない線を半径とみる', 'B:chord': '半分の長さの線（弦）を半径とみる', 'B:off': '中心を通らない線を半径とみる',
+  'C:hchord': '横の端から端（中心を通らない）を直径とみる', 'C:rad': '半径を直径とみる', 'C:part': '円周まで届かない線を直径とみる',
+  'F:up': '中心を通らない切り口を最大とみる', 'F:top': '中心を通らない切り口を最大とみる', 'F:down': '中心を通らない切り口を最大とみる'
+};
 var CI_LINE = '#8C93AC';    // 円の輪郭（背景の図）
 var CI_INK = '#FFFFFF';     // 選ぶ対象の線・点
 var CI_LABEL = '#C9D1E8';   // 長さの字
@@ -6040,6 +6241,25 @@ UNIT_DEFS['circle'] = {
         '「もんだい」の欄が選択肢の並び（例 B:chord-rad-short-off）で、' +
         '「こたえた値」が3なら③の short（円周まで届かない線）を選んだ、と読む。' +
         'ならび（I・J）で答えが正答のちょうど半分なら、ボール1こ分を半径で数えている可能性がある。',
+
+  /** 用語モード（教師画面の「ようご」）に出す用語。台帳は Core.gs の TERMS_ */
+  terms: ['circle', 'center', 'radius', 'diameter', 'sphere'],
+
+  /**
+   * 誤答 → 誤概念（教師画面の抜け一覧）。tag と、正しい答え・最初に間違えた値（文字列）から読む。
+   * 読めない誤り（単なる計算違い）は '' を返す。
+   */
+  wrongLabel: function (t, tag, want, got) {
+    var g = Number(got), w = Number(want);
+    if (/^[ABCF]$/.test(t)) {
+      var kinds = String(tag).split(':')[1];
+      var k = kinds ? kinds.split('-')[g - 1] : '';
+      return CI_WRONG_[t + ':' + k] || '';
+    }
+    if (/^[DEGH]$/.test(t) && g && (g * 2 === w || g === w * 2)) return '半径と直径を取りちがえる';
+    if (/^[IJK]$/.test(t) && g && (g * 2 === w || g === w * 2)) return 'ボール1こ分を半径で数える';
+    return '';
+  },
 
   gen: function (rand, mode) {
     switch (mode) {

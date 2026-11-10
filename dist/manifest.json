@@ -1,12 +1,12 @@
 {
- "server": "ca5b04fe66acbd1d8f1c136fb26a295e7b6f4fe8ed633c1c5dca24f1fa67d6d5",
- "html": "7ba2d00fb22f9770fd11417584c1853442ab6e01f02356f511d0eba8163f74fd",
- "serverChars": 348194,
- "htmlChars": 512413,
+ "server": "365eb8eb74bc995ceafba30fd69dafd38da4d382e43131f71b8b1bc7617c098b",
+ "html": "07847b167c47547ad93e5e81423507354bfe26c40bb4023788988528a3b43500",
+ "serverChars": 358114,
+ "htmlChars": 522267,
  "apps": {
   "tamath": {
    "repo": "sankisuguya-create/arithmetic-timeattack",
-   "commit": "eb92cd5a3d7f647a92b42253875635aee4f58cf7"
+   "commit": "85bf4b0335569f9ef2ead124b4d0bf2176e78532"
   }
  }
 }
