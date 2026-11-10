@@ -91,6 +91,21 @@
 .lb-edit .lb-htile{padding-top:60px;height:166px}
 @media (prefers-reduced-motion:reduce){.lb-htile:active{transform:none}}
 
+/* 今週の3件（先生だけ）。種類は記号と語で示し、色だけで伝えない */
+.lb-alerts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.lb-alert{display:flex;flex-direction:column;gap:8px;padding:16px;border:2px solid var(--line);border-radius:var(--radius);background:#fff}
+.lb-alert[data-kind=drop]{border-color:var(--ink-alert)}
+.lb-alert-head{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.lb-alert-kind{font-weight:700}
+.lb-alert[data-kind=drop] .lb-alert-kind{color:var(--ink-alert)}
+.lb-alert-skill{font-size:15px;color:var(--ink-sub)}
+.lb-alert-who{font-size:20px;font-weight:700}
+.lb-alert-text{font-size:15px;color:var(--ink)}
+.lb-alert-acts{display:flex;gap:8px;margin-top:4px}
+.lb-abtn{min-height:48px;width:168px;padding:0 8px;border:2px solid var(--solid-on);border-radius:999px;background:var(--solid-on);color:#fff;font-weight:700;cursor:pointer}
+.lb .lb-abtn{color:#fff}
+.lb .lb-abtn.sub{background:#fff;color:var(--solid-on);width:96px}   /* 主（判断が変わった）168px・従（見た）96px：比 1.75 で重要度の差と読める */
+
 /* 先生：上の帯と、カードの上の切り替え */
 .lb-tbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px;margin:10px 0 0;border-radius:var(--radius);background:var(--fill-b)}
 .lb-tbar label{font-size:15px;color:var(--ink)}

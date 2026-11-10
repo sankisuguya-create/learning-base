@@ -37,6 +37,8 @@ function apiCall(unit, name, args) { lbNeed_(); return LbPlatform.appApi('tamath
 function lbNightly() { lbNeed_(); return LbPlatform.nightly(); }
 function lbDaily() { lbNeed_(); return LbPlatform.daily(); }
 function lbRollover() { lbNeed_(); return LbPlatform.rollover(); }
+/** 月曜の朝：今週の3件の件数を先生にメールで知らせる */
+function lbWeekly() { lbNeed_(); return LbPlatform.weekly(); }
 /** 時間切れで残った夜の処理の続き（算数TA が1回だけの自動実行で呼ぶ） */
 function continueAll() { lbNeed_(); return LbPlatform.continueAll(); }
 /** 1時間ごと：中身の一時保存を温め直す（児童が開いた時に取り直しで待たせない） */
@@ -53,7 +55,7 @@ function lbSetup() {
   lbOwnerOnly_();
   lbNeed_();
   var want = { lbNightly: 23, lbRollover: 2, lbDaily: 3 }, have = {}, removed = [];
-  var mine = { lbNightly: 1, lbRollover: 1, lbDaily: 1, lbHourly: 1, continueAll: 1 };
+  var mine = { lbNightly: 1, lbRollover: 1, lbDaily: 1, lbHourly: 1, lbWeekly: 1, continueAll: 1 };
   ScriptApp.getProjectTriggers().forEach(function (t) {
     var fn = t.getHandlerFunction();
     // 前の形（アプリの GAS を直接貼っていた時）の自動実行は、呼ぶ関数がもう無いので消す
@@ -62,6 +64,7 @@ function lbSetup() {
   });
   for (var fn in want) if (!have[fn]) ScriptApp.newTrigger(fn).timeBased().atHour(want[fn]).everyDays(1).create();
   if (!have.lbHourly) ScriptApp.newTrigger('lbHourly').timeBased().everyHours(1).create();
+  if (!have.lbWeekly) ScriptApp.newTrigger('lbWeekly').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).nearMinute(40).create();
   var msg = '学習BASE の準備ができました（版 ' + LB_.ver + '）\n' + (removed.length ? '前の形の自動実行を消しました：' + removed.join('・') + '\n' : '') + LbPlatform.setup();
   console.log(msg);
   return msg;
@@ -214,6 +217,13 @@ function lbFiles_() {
 }
 /** 共通部品・振り分けが読み込み係に問い合わせる口 */
 var LB_LOADER = { files: function () { return lbFiles_(); }, ver: function () { return LB_.ver; }, repo: LB_REPO };
+
+/**
+ * 権限の宣言（呼ばない）。GAS は貼られたファイルに書かれた命令を見て承認を求める権限を決めるので、
+ * jsDelivr から取ってくるコードだけが使う機能（メール・ドキュメント）は、ここに書いておかないと承認の対象にならない。
+ * MailApp：今週の3件のメール／DocumentApp：NotebookLM 用の書き出し（段階E）
+ */
+function lbScopes_() { MailApp.getRemainingDailyQuota(); DocumentApp.create; }
 
 function lbOwnerOnly_() {
   var a = String(Session.getActiveUser().getEmail() || '').toLowerCase();

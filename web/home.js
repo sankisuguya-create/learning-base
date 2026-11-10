@@ -132,8 +132,25 @@
     return '<span class="lb-chips"><button class="lb-chip' + (on ? '' : ' off') + '" data-act="pub" data-id="' + esc(p.id) + '" aria-pressed="' + on + '">' + (on ? '✓ みせる' : '✕ かくす') + '</button>' +
       '<button class="lb-chip star' + (star ? ' on' : '') + '" data-act="now" data-id="' + esc(p.id) + '" aria-pressed="' + star + '" aria-label="いまの学習">★' + (star ? ' いま' : '') + '</button></span>';
   }
+  /**
+   * 今週の3件（先生だけ）。いまの学習より上に置く：先生がこの画面で最初にすることは「次に手を打つ相手を知る」だから。
+   * 種類は記号と語で示す（色だけで伝えない）。押すと判断の記録が残り、その項目は消える
+   */
+  function now3View() {
+    if (S.boot.role !== 'teacher') return '';
+    var list = S.boot.now3 || [];
+    var html = '<h2 class="lb-h">今週の3件</h2>';
+    if (!list.length) return html + '<div class="lb-nownone">今週は ありません（毎晩、記録から計算します）</div>';
+    return html + '<div class="lb-alerts">' + list.map(function (a) {
+      return '<div class="lb-alert" data-kind="' + esc(a.kind) + '"><div class="lb-alert-head"><span class="lb-alert-kind">' + esc(a.label) + '</span>' +
+        '<span class="lb-alert-skill">' + esc(a.app) + '・' + esc(a.skill) + '</span></div>' +
+        '<div class="lb-alert-who">' + a.names.map(esc).join('、') + '</div><div class="lb-alert-text">' + esc(a.text) + '</div>' +
+        '<div class="lb-alert-acts"><button class="lb-abtn" data-tier="main" data-act="decide" data-how="changed" data-key="' + esc(a.key) + '">判断が変わった</button>' +
+        '<button class="lb-abtn sub" data-tier="small" data-act="decide" data-how="seen" data-key="' + esc(a.key) + '">見た</button></div></div>';
+    }).join('') + '</div>';
+  }
   function homeView() {
-    var h = home(), html = '';
+    var h = home(), html = now3View();
     html += '<h2 class="lb-h">' + (S.grade <= 2 ? 'いまの がくしゅう' : 'いまの学習') + '</h2>';
     if (h.now.length) {
       html += '<div class="lb-now">' + h.now.map(function (p) {
@@ -233,6 +250,13 @@
     if (act === 'back') { S.view = 'home'; render(); return; }
     if (act === 'edit') { S.edit = !S.edit; render(); return; }
     if (act === 'as-clear') { S.as = null; render(); return; }
+    if (act === 'decide') {
+      var key = b.getAttribute('data-key'), how = b.getAttribute('data-how');
+      P.call('homeDecide', S.boot.classKey, key, how, '').then(function (list) {
+        S.boot.now3 = list; render(); toast(how === 'changed' ? '「判断が変わった」を記録しました' : '「見た」を記録しました');
+      }).catch(function (e) { toast('記録できませんでした：' + (e && e.message || e)); });
+      return;
+    }
     if (act === 'reset') { save('homeResetPublish', [S.boot.classKey], 'ぜんぶ みせる に もどしました'); return; }
     if (act === 'pub') {
       var p = pageById(id), on = !isOn(p);

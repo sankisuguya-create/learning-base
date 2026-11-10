@@ -48,7 +48,10 @@ function run(S, user = 'owner@edu.nishi.or.jp') {
     },
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/a/macros/edu.nishi.or.jp/s/LB/exec' }),
       getProjectTriggers: () => S.triggers.map(fn => ({ getHandlerFunction: () => fn })), deleteTrigger: tr => { S.triggers.splice(S.triggers.indexOf(tr.getHandlerFunction()), 1); },
-      newTrigger: fn => ({ timeBased: () => ({ atHour: () => ({ everyDays: () => ({ create: () => S.triggers.push(fn) }) }), everyHours: () => ({ create: () => S.triggers.push(fn) }), after: () => ({ create: () => S.triggers.push(fn) }) }) }) },
+      WeekDay: { MONDAY: 'MONDAY' },
+      newTrigger: fn => ({ timeBased: () => ({ atHour: () => ({ everyDays: () => ({ create: () => S.triggers.push(fn) }) }), everyHours: () => ({ create: () => S.triggers.push(fn) }), after: () => ({ create: () => S.triggers.push(fn) }),
+        onWeekDay: () => ({ atHour: () => ({ nearMinute: () => ({ create: () => S.triggers.push(fn) }) }) }) }) }) },
+    MailApp: { sendEmail: m => { (S.mails = S.mails || []).push(m); }, getRemainingDailyQuota: () => 100 },
     HtmlService: {
       createHtmlOutput: h => ({ html: h, setTitle() { return this; }, addMetaTag() { return this; } }),
       // 本物の GAS と同じく、<?!= ?> の中で見えるのはテンプレートに渡した名前と組み込みだけ（関数の中に包んだアプリの名前は見えない）
@@ -216,6 +219,55 @@ t('新しい形の記録：送信で単元のスプレッドシートに1行（�
   assert.ok(S.hub.sheets.catalog.v.some(r => r[0] === 'tamath'));
 });
 
+t('段階D：過去の log を1回だけ集計へ（新しい形の記録より前の分）→ 今週の3件 → 先生の画面 → 判断の記録 → 月曜のメール（名前なし）', () => {
+  const S = school();
+  const kuku = makeSS('kuku');
+  S.units = { KUKUxxxxxxxxxxxxxxxxxxxxxx: kuku }; S.props['unit_sheet:kuku'] = 'KUKUxxxxxxxxxxxxxxxxxxxxxx';
+  S.hub.insertSheet('teachers').v.push(['メール', '学年', '組'], ['tan@edu.nishi.or.jp', 3, 1]);
+  const c = run(S); c.doGet({ parameter: {} });
+  const mail = '11111111@kyoiku.edu.nishi.or.jp';
+  // 過去の log：4週前まで 90%、今週 50%（急に崩れた）
+  const head = ['ts', 'email', '学年', '組', '番号', '氏名', 'mode', 'モード名', 'limit_sec', 'correct', 'attempts', 'miss_items', 'slow_items', 'type_stats', 'wrong_items'];
+  const log = kuku.insertSheet('log'); log.v.push(head);
+  const day = k => new Date(Date.now() - k * 7 * 86400000);
+  for (let k = 1; k <= 4; k++) log.v.push([day(k), mail, 3, '1', 5, '田中 はなこ', 3, 'm', 60, 10, 10, 'x7:7x1', '', 'x7:9:0:9:9000:0:62.2:430', '']);
+  log.v.push([day(0), mail, 3, '1', 5, '田中 はなこ', 3, 'm', 60, 10, 10, 'x7:a,x7:b,x7:c,x7:d,x7:e,x7:f', '', 'x7:6:0:6:6000:0:41.4:286', '']);
+  // 新しい形の記録が始まった後の1回（log にも同じ回があるが、二重に数えない）
+  run(S).lbStatus();
+  c.LB_MODULES.tamath.writeForUnit('kuku', { mode: 3 }, mail, false, [{ i: 0, q: '7x8', t: 'x7', a: '56', tries: 1, hit: true, ok: true, skill: 'math/kuku/x7', first: 1000 }]);
+  const sessTs = kuku.sheets.sessions_2026.v[1][0];
+  log.v.push([new Date(sessTs.getTime() + 1), mail, 3, '1', 5, '田中 はなこ', 3, 'm', 60, 1, 1, '', '', 'x7:1:0:1:1000:0:6.9:47.7', '']);   // 新しい形が始まった後の回（いまより前）
+  run(S).lbSetup();                                                  // 技能の目録をハブへ
+  run(S).lbNightly();
+  const f = S.hub.sheets.facts_2026.v.slice(1);
+  const total = f.reduce((t, r) => t + Number(r[7]), 0);
+  assert.strictEqual(total, 4 * 10 + 12 + 1, '過去の log（新しい形が始まる前の分）＋新しい形の1問。後の log の回は数えない');
+  run(S).lbNightly();
+  assert.strictEqual(S.hub.sheets.facts_2026.v.slice(1).reduce((t, r) => t + Number(r[7]), 0), total, '2回目の夜は取り込まない');
+  // 今週の3件
+  const now3 = S.hub.sheets.now3.v;
+  assert.ok(now3.length >= 2 && now3[1][3] === 'drop', '急に崩れた が出る');
+  const tb = run(S, 'tan@edu.nishi.or.jp').lbCall('home', 'boot', [{ classKey: '3-1' }]);
+  assert.strictEqual(tb.now3[0].kind, 'drop');
+  assert.strictEqual(tb.now3[0].names[0], '田中 はなこ');
+  assert.match(tb.now3[0].skill, /九九/);
+  assert.match(tb.now3[0].text, /正答率 90% →/);
+  const kid = run(S, mail).lbCall('home', 'boot', [{}]);
+  assert.strictEqual(kid.now3, undefined, '児童には渡さない');
+  // 月曜のメール（判断する前）
+  run(S).lbWeekly();
+  const ms = S.mails || [];
+  assert.ok(ms.some(m => m.to === 'tan@edu.nishi.or.jp') && ms.some(m => m.to === 'owner@edu.nishi.or.jp'));
+  assert.ok(ms.every(m => !/田中|はなこ/.test(m.body + m.subject)), 'メールに名前を書かない');
+  assert.match(ms[0].body, /3年1組：急に崩れた 1/);
+  // 判断の記録
+  const after = run(S, 'tan@edu.nishi.or.jp').lbCall('home', 'decide', ['3-1', tb.now3[0].key, 'changed', '']);
+  assert.ok(!after.some(x => x.key === tb.now3[0].key));
+  assert.throws(() => run(S, mail).lbCall('home', 'decide', ['3-1', tb.now3[0].key, 'seen', '']), /先生だけ/);
+  S.mails = []; run(S).lbWeekly();
+  assert.ok(!(S.mails || []).some(m => /急に崩れた/.test(m.body)), '判断した項目はメールにも出ない');
+});
+
 t('版の欄が不正・ハブが未設定なら、理由を出して止まる', () => {
   const S = school(); S.hub.sheets.platform.v[0][1] = 'main';
   assert.match(run(S).doGet({ parameter: {} }).html, /コミット番号でもタグでもありません/);
@@ -228,7 +280,7 @@ t('lbSetup：所有者だけ。自動実行（夜・朝・4/1・毎時）を1回
   S.triggers.push('nightlyAggregateAll', 'rolloverRosterAll', 'resetDailyAll');   // 前の形（算数TA をまとめた GAS）の自動実行
   const msg = run(S).lbSetup(); run(S).lbSetup();
   assert.match(msg, /前の形の自動実行を消しました：nightlyAggregateAll・rolloverRosterAll・resetDailyAll/);
-  assert.strictEqual(JSON.stringify(S.triggers.slice().sort()), JSON.stringify(['lbDaily', 'lbHourly', 'lbNightly', 'lbRollover']));
+  assert.strictEqual(JSON.stringify(S.triggers.slice().sort()), JSON.stringify(['lbDaily', 'lbHourly', 'lbNightly', 'lbRollover', 'lbWeekly']));
   assert.match(msg, /tamath：/);
 });
 t('自動実行：夜の処理は各アプリへ（算数TA は未登録の単元を飛ばす）。毎時は jsDelivr に行かずに一時保存を延ばす', () => {

@@ -79,11 +79,30 @@ var LbHome = (function () {
         out.members = Base.members(pick.grade, pick.cls).map(function (r) {
           return { lid: r.lid, no: r.no, name: r.name, provisional: !!r.provisional };
         });
+        try { out.now3 = now3(pick.key); } catch (e) { out.now3 = []; console.error('今週の3件を読めません: ' + e.message); }
       }
       return out;
     }
     out.message = m.role === 'none' ? '学校のアカウントで ひらいてください' : 'なまえが まだ とうろく されていません。せんせいに つたえてね';
     return out;
+  }
+
+  /** 今週の3件（名前・技能の名前・根拠の一文を付ける）。名前は教師にだけ渡す */
+  function now3(classKey) {
+    var hub = Base.hub(), cats = LbCatalog.readAll(hub);
+    return LbAlerts.read(hub, classKey).map(function (x) {
+      var cat = cats[x.app], sk = cat ? LbCatalog.index(cat)[x.skill] : null;
+      return { key: x.key, kind: x.kind, label: LbAlerts.LABEL[x.kind] || x.kind, skill: sk ? sk.label : x.skill, app: cat ? cat.title : x.app,
+        names: x.lids.map(function (l) { var r = Base.learner(l); return r ? r.name : '（名簿にない）'; }), text: LbAlerts.describe(x) };
+    });
+  }
+  /** 判断の記録（判断が変わった／見た）。押した項目は今週の3件から消える */
+  function decide(classKey, key, action, memo) {
+    var m = requireClass(classKey);
+    var item = LbAlerts.read(Base.hub(), classKey).filter(function (x) { return x.key === String(key); })[0];
+    if (!item) throw new Error('もう ない項目です（ページを開き直してください）');
+    LbAlerts.decide(Base.hub(), classKey, item, action === 'changed' ? 'changed' : 'seen', memo, m.email);
+    return now3(classKey);
   }
 
   function setPublish(classKey, pageId, on) {
@@ -106,7 +125,7 @@ var LbHome = (function () {
     return LbPages.readSettings(Base.hub(), classKey);
   }
 
-  return { boot: boot, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
+  return { boot: boot, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();
 
 /* 画面（google.script.run）から呼ぶ入口 */
@@ -114,3 +133,4 @@ function homeBoot(opt) { return LbHome.boot(opt); }
 function homeSetPublish(classKey, pageId, on) { return LbHome.setPublish(classKey, pageId, on); }
 function homeResetPublish(classKey) { return LbHome.resetPublish(classKey); }
 function homeSetNow(classKey, list) { return LbHome.setNow(classKey, list); }
+function homeDecide(classKey, key, action, memo) { return LbHome.decide(classKey, key, action, memo); }

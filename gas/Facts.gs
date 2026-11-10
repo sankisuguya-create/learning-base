@@ -175,6 +175,32 @@ var LbFacts = (function () {
     return ingest(hubSs, sources, opts);
   }
 
+  /**
+   * セッションの形（{ ts, lid, grade, cls, no, app, context, skills }）の配列を集計に足す。
+   * 過去の記録（アプリの log など、新しい形の記録が無い頃の分）の取り込みに使う。練習（practice）は足さない
+   */
+  function mergeSessions(hubSs, fy, sessions) {
+    var add = {};
+    (sessions || []).forEach(function (s) { if (s.lid && s.context !== 'practice' && Base.fyOf(s.ts) === fy) addSession(add, s); });
+    if (!Object.keys(add).length) return 0;
+    var name = 'facts_' + fy, sh = hubSs.getSheetByName(name) || hubSs.insertSheet(name);
+    var old = sh.getLastRow() > 1 ? fromRows(sh.getRange(2, 1, sh.getLastRow() - 1, HEAD.length).getValues()) : {};
+    writeFacts(sh, merge(old, add));
+    return Object.keys(add).length;
+  }
+  /** 読んだ位置の表に「済み」の印を置く・見る（過去の記録を1回だけ取り込むため） */
+  function marked(hubSs, key) { return !!readCursor(hubSs)[key]; }
+  function mark(hubSs, key) { var c = readCursor(hubSs); c[key] = 1; writeCursor(hubSs, c); }
+  /** その記録先の最初の新しい形の記録の時刻（無ければ null）。過去の記録はこれより前だけを取り込む */
+  function firstSessionTs(ss, fy) {
+    var names = LbSession.sheetNames(ss, fy);
+    for (var i = 0; i < names.length; i++) {
+      var sh = ss.getSheetByName(names[i]);
+      if (sh && sh.getLastRow() >= 2) return sh.getRange(2, 1, 1, 1).getValues()[0][0];
+    }
+    return null;
+  }
+
   /** 集計を読む（年度・絞り込み）。{ キー: 行 } */
   function read(hubSs, fy, filter) {
     var sh = hubSs.getSheetByName('facts_' + fy);
@@ -209,5 +235,6 @@ var LbFacts = (function () {
   }
 
   return { HEAD: HEAD, weekOf: weekOf, addWeeks: addWeeks, addSession: addSession, merge: merge, toRows: toRows, fromRows: fromRows,
-    combine: combine, stats: stats, recent: recent, state: state, ingest: ingest, rebuild: rebuild, read: read };
+    combine: combine, stats: stats, recent: recent, state: state, ingest: ingest, rebuild: rebuild, read: read,
+    mergeSessions: mergeSessions, marked: marked, mark: mark, firstSessionTs: firstSessionTs };
 })();

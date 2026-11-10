@@ -16,7 +16,8 @@
 var LbPlatform = (function () {
   /** 学習BASE の画面から呼べる関数（lbCall の mod・name）。ここに無いものは呼べない */
   var API = {
-    home: { boot: function (o) { return LbHome.boot(o); }, setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
+    home: { boot: function (o) { return LbHome.boot(o); }, decide: function (k, key, a, m) { return LbHome.decide(k, key, a, m); },
+      setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
       resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); } }
   };
 
@@ -54,6 +55,81 @@ var LbPlatform = (function () {
     });
     return errs;
   }
+  /**
+   * 過去の記録を1回だけ集計に取り込む（アプリが legacySources・legacySessions を持つ時）。
+   * 記録先ごとに「済み」の印を置き、新しい形の記録が始まった時刻より前の分だけを足す（二重に数えない）
+   */
+  function legacy() {
+    var hub = Base.hub(), fy = Base.fy(), errs = [];
+    Object.keys(LB_MODULES).forEach(function (k) {
+      var m = LB_MODULES[k];
+      if (typeof m.legacySources !== 'function' || typeof m.legacySessions !== 'function') return;
+      var srcs = []; try { srcs = m.legacySources(); } catch (e) { errs.push(k + ': ' + e.message); return; }
+      var ss = {}; try { (m.sessionSources ? m.sessionSources() : []).forEach(function (s) { ss[s.key] = s.ss; }); } catch (e) {}
+      srcs.forEach(function (src) {
+        var flag = 'legacy|' + src.key + '|' + fy;
+        if (LbFacts.marked(hub, flag)) return;
+        try {
+          var before = ss[src.key] ? LbFacts.firstSessionTs(ss[src.key], fy) : null;
+          var n = LbFacts.mergeSessions(hub, fy, m.legacySessions(src.unit, before || new Date()));
+          LbFacts.mark(hub, flag);
+          console.log('過去の記録を取り込んだ：' + src.key + '（' + n + ' 行）');
+        } catch (e) { errs.push(src.key + ': ' + e.message); }
+      });
+    });
+    return errs;
+  }
+
+  /** 今週の3件を計算してハブに置く */
+  function alerts() {
+    try {
+      var hub = Base.hub(), fy = Base.fy();
+      var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+      var by = LbAlerts.compute(LbFacts.read(hub, fy), Base.roster(), LbCatalog.readAll(hub), today, LbAlerts.decidedKeys(hub));
+      console.log('今週の3件：' + LbAlerts.store(hub, by) + ' 件');
+      return [];
+    } catch (e) { console.error('今週の3件 失敗: ' + e.message); return ['alerts: ' + e.message]; }
+  }
+
+  /**
+   * 月曜の朝：学級の担当の先生（teachers シート）と所有者に「今週の3件」の件数を知らせる。
+   * 児童の名前はメールに書かない（名前は学習BASE の画面の中だけ）
+   */
+  function weekly() {
+    var hub = Base.hub(), url = '';
+    try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
+    var sh = hub.getSheetByName('now3');
+    if (!sh || sh.getLastRow() < 2) return 0;
+    var count = {};
+    var done = LbAlerts.decidedKeys(hub);
+    sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var cls = Object.prototype.toString.call(r[0]) === '[object Date]' ? (r[0].getMonth() + 1) + '-' + r[0].getDate() : String(r[0]);
+      if (done[r[2]]) return;
+      var c = count[cls] || (count[cls] = {}); c[r[3]] = (c[r[3]] || 0) + 1;
+    });
+    var classes = Object.keys(count);
+    if (!classes.length) return 0;
+    var owner = ''; try { owner = Session.getEffectiveUser().getEmail(); } catch (e) {}
+    var to = {};
+    function addTo(mail, cls) { if (mail) (to[mail] = to[mail] || []).push(cls); }
+    classes.forEach(function (cls) {
+      var i = cls.indexOf('-'), g = Number(cls.slice(0, i)), c = cls.slice(i + 1);
+      Base.teachers().forEach(function (t) { if (t.scopes.some(function (s) { return !s.grade || (s.grade === g && (!s.cls || s.cls === c)); })) addTo(t.mail, cls); });
+      addTo(owner, cls);
+    });
+    var name = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' }, sent = 0;
+    Object.keys(to).forEach(function (mail) {
+      var lines = to[mail].filter(function (v, i, a) { return a.indexOf(v) === i; }).sort().map(function (cls) {
+        var c = count[cls], i = cls.indexOf('-');
+        return cls.slice(0, i) + '年' + cls.slice(i + 1) + '組：' + Object.keys(c).map(function (k) { return name[k] + ' ' + c[k]; }).join('・');
+      });
+      MailApp.sendEmail({ to: mail, subject: '学習BASE：今週の3件', body: '今週、目を向けるとよい相手がいます。\n\n' + lines.join('\n') +
+        '\n\n学習BASE（先生の画面の一番上）で確かめてください。\n' + url + '\n\n（このメールには児童の名前を書いていません）' });
+      sent++;
+    });
+    return sent;
+  }
+
   /** 全アプリの新しい形の記録を「児童×技能×週」に足す（ハブの facts_<年度>）。時間切れなら残りは次の夜 */
   function facts() {
     var sources = [];
@@ -91,7 +167,7 @@ var LbPlatform = (function () {
   function platformScript(baseUrl) {
     return 'window.LB_PLATFORM={baseUrl:' + JSON.stringify(baseUrl) + ',' +
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
-      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow"};' +
+      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide"};' +
       'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",map[name]||name,a);});},' +
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +
@@ -103,6 +179,7 @@ var LbPlatform = (function () {
   }
 
   return { doGet: doGet, call: call, appApi: appApi, setup: setup,
-    nightly: function () { var e = each('nightly'); return e.concat(facts()); }, daily: function () { return each('daily'); },
+    nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); return e.concat(alerts()); },
+    weekly: weekly, daily: function () { return each('daily'); },
     rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };
 })();

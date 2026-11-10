@@ -1089,6 +1089,32 @@ var LbFacts = (function () {
     return ingest(hubSs, sources, opts);
   }
 
+  /**
+   * セッションの形（{ ts, lid, grade, cls, no, app, context, skills }）の配列を集計に足す。
+   * 過去の記録（アプリの log など、新しい形の記録が無い頃の分）の取り込みに使う。練習（practice）は足さない
+   */
+  function mergeSessions(hubSs, fy, sessions) {
+    var add = {};
+    (sessions || []).forEach(function (s) { if (s.lid && s.context !== 'practice' && Base.fyOf(s.ts) === fy) addSession(add, s); });
+    if (!Object.keys(add).length) return 0;
+    var name = 'facts_' + fy, sh = hubSs.getSheetByName(name) || hubSs.insertSheet(name);
+    var old = sh.getLastRow() > 1 ? fromRows(sh.getRange(2, 1, sh.getLastRow() - 1, HEAD.length).getValues()) : {};
+    writeFacts(sh, merge(old, add));
+    return Object.keys(add).length;
+  }
+  /** 読んだ位置の表に「済み」の印を置く・見る（過去の記録を1回だけ取り込むため） */
+  function marked(hubSs, key) { return !!readCursor(hubSs)[key]; }
+  function mark(hubSs, key) { var c = readCursor(hubSs); c[key] = 1; writeCursor(hubSs, c); }
+  /** その記録先の最初の新しい形の記録の時刻（無ければ null）。過去の記録はこれより前だけを取り込む */
+  function firstSessionTs(ss, fy) {
+    var names = LbSession.sheetNames(ss, fy);
+    for (var i = 0; i < names.length; i++) {
+      var sh = ss.getSheetByName(names[i]);
+      if (sh && sh.getLastRow() >= 2) return sh.getRange(2, 1, 1, 1).getValues()[0][0];
+    }
+    return null;
+  }
+
   /** 集計を読む（年度・絞り込み）。{ キー: 行 } */
   function read(hubSs, fy, filter) {
     var sh = hubSs.getSheetByName('facts_' + fy);
@@ -1123,7 +1149,157 @@ var LbFacts = (function () {
   }
 
   return { HEAD: HEAD, weekOf: weekOf, addWeeks: addWeeks, addSession: addSession, merge: merge, toRows: toRows, fromRows: fromRows,
-    combine: combine, stats: stats, recent: recent, state: state, ingest: ingest, rebuild: rebuild, read: read };
+    combine: combine, stats: stats, recent: recent, state: state, ingest: ingest, rebuild: rebuild, read: read,
+    mergeSessions: mergeSessions, marked: marked, mark: mark, firstSessionTs: firstSessionTs };
+})();
+
+// ===== gas/Alerts.gs =====
+/**
+ * Alerts.gs — 今週の3件（教師が次に手を打つ相手を、学級ごとに3件まで）
+ *
+ * 正本は learning-base。設計：`-` リポジトリ principles/learning-app-foundation.md §6
+ * 毎晩、集計（facts）から学級ごとに候補を計算し、ハブの now3 シートに置く。教師が学習BASE を開くと最上部に出る。
+ * 判定の規則と閾値は RULES の1か所だけに置く（初期値は根拠なし。判断の記録の件数で直す）。
+ *
+ * 候補の種類（強い順）
+ *   drop   急に崩れた児童：今週の正答率が直近4週の平均より15ポイント以上下がった（今週10問以上）、または時間が25%以上長くなった
+ *   class  学級でつまずいている技能：直近2週にその技能に取り組んだ児童（5問以上を5人以上）のうち、半数以上が正答率70%未満
+ *   stall  伸びが止まった児童：練習中の技能で、直近4週とその前の4週がどちらも20問以上あるのに、
+ *          正答率が2ポイント以上上がっておらず、時間も3%以上短くなっていない
+ */
+var LbAlerts = (function () {
+  var RULES = {
+    drop: { weekMinN: 10, baseWeeks: 4, baseMinN: 10, accDrop: 0.15, timeRise: 1.25 },
+    klass: { weeks: 2, kidMinN: 5, minKids: 5, accBelow: 0.7, share: 0.5 },
+    stall: { weeks: 4, minN: 20, accGain: 0.02, timeRatio: 0.97 },
+    max: 3,
+    dismissDays: 14
+  };
+  var KIND_RANK = { drop: 3, klass: 2, stall: 1 };
+  var LABEL = { drop: '▼ 急に崩れた', klass: '● 学級でつまずき', stall: '― 伸びが止まった' };
+  var SHEET = 'now3', HEAD = ['学級', '順', 'キー', '種類', '学習者ID', 'アプリ', '技能', '根拠', '週'];
+  var DEC_SHEET = 'decisions', DEC_HEAD = ['日時', '教師', '学級', 'キー', '種類', 'どうした', 'メモ'];
+
+  /** 学習者ID|アプリ|技能 → { 週: 集計の行 } */
+  function index(acc) {
+    var ix = {};
+    for (var k in acc) {
+      var f = acc[k], key = f.lid + '|' + f.app + '|' + f.skill;
+      (ix[key] = ix[key] || {})[f.week] = f;
+    }
+    return ix;
+  }
+  function weeksBack(w0, from, to) { var out = []; for (var i = from; i <= to; i++) out.push(LbFacts.addWeeks(w0, -i)); return out; }
+  function sum(byWeek, weeks) { return LbFacts.combine(weeks.map(function (w) { return byWeek[w]; }).filter(Boolean)); }
+
+  /**
+   * 候補を計算する（純粋な計算）。
+   * acc：集計（LbFacts.read の返り値）／roster：名簿（lid・grade・cls）／cats：{ アプリ: 目録 }／today：'YYYY-MM-DD'
+   * 返す：{ 学級: [{ key, kind, lids, app, skill, ev, week }] }（強い順に最大3件）
+   */
+  function compute(acc, roster, cats, today, dismissed) {
+    dismissed = dismissed || {};
+    var w0 = LbFacts.weekOf(new Date(today + 'T12:00:00+09:00')), ix = index(acc), cand = {};
+    var clsOf = {};
+    roster.forEach(function (r) { if (r.lid) clsOf[r.lid] = r.grade + '-' + r.cls; });
+    function add(cls, item) { if (!cls || dismissed[item.key]) return; (cand[cls] = cand[cls] || []).push(item); }
+    var perSkill = {};   // 学級|アプリ|技能 → [{ lid, n, acc }]
+    Object.keys(ix).forEach(function (key) {
+      var p = key.split('|'), lid = p[0], app = p[1], skill = p.slice(2).join('|'), byWeek = ix[key], cls = clsOf[lid];
+      if (!cls) return;
+      // drop
+      var d = RULES.drop, now = sum(byWeek, [w0]), base = sum(byWeek, weeksBack(w0, 1, d.baseWeeks));
+      if (now.n >= d.weekMinN && base.n >= d.baseMinN) {
+        var sn = LbFacts.stats(now), sb = LbFacts.stats(base);
+        var accDrop = sb.acc - sn.acc, rise = (sn.gmMs && sb.gmMs) ? sn.gmMs / sb.gmMs : 1;
+        if (accDrop >= d.accDrop || rise >= d.timeRise) add(cls, { key: 'drop|' + lid + '|' + app + '|' + skill + '|' + w0, kind: 'drop', lids: [lid], app: app, skill: skill, week: w0,
+          mag: Math.max(accDrop / d.accDrop, rise / d.timeRise), ev: { accNow: sn.acc, accBase: sb.acc, msNow: sn.gmMs, msBase: sb.gmMs, nNow: now.n } });
+      }
+      // stall
+      var st = RULES.stall, rec = sum(byWeek, weeksBack(w0, 0, st.weeks - 1)), prev = sum(byWeek, weeksBack(w0, st.weeks, 2 * st.weeks - 1));
+      if (rec.n >= st.minN && prev.n >= st.minN && LbFacts.state(rec, LbCatalog.mastery(cats[app], skill)) !== '到達') {
+        var sr = LbFacts.stats(rec), sp = LbFacts.stats(prev);
+        var noGain = (sr.acc - sp.acc) < st.accGain, noFaster = (sr.gmMs && sp.gmMs) ? sr.gmMs / sp.gmMs > st.timeRatio : true;
+        if (noGain && noFaster) add(cls, { key: 'stall|' + lid + '|' + app + '|' + skill + '|' + w0, kind: 'stall', lids: [lid], app: app, skill: skill, week: w0,
+          mag: rec.n / st.minN, ev: { accNow: sr.acc, accBase: sp.acc, msNow: sr.gmMs, msBase: sp.gmMs, nNow: rec.n, nBase: prev.n } });
+      }
+      // klass の材料
+      var k = RULES.klass, two = sum(byWeek, weeksBack(w0, 0, k.weeks - 1));
+      if (two.n >= k.kidMinN) (perSkill[cls + '|' + app + '|' + skill] = perSkill[cls + '|' + app + '|' + skill] || []).push({ lid: lid, acc: LbFacts.stats(two).acc });
+    });
+    Object.keys(perSkill).forEach(function (key) {
+      var k = RULES.klass, kids = perSkill[key];
+      if (kids.length < k.minKids) return;
+      var low = kids.filter(function (x) { return x.acc < k.accBelow; }), share = low.length / kids.length;
+      if (share < k.share) return;
+      var p = key.split('|'), cls = p[0], app = p[1], skill = p.slice(2).join('|');
+      add(cls, { key: 'klass|' + cls + '|' + app + '|' + skill + '|' + w0, kind: 'klass', lids: low.map(function (x) { return x.lid; }), app: app, skill: skill, week: w0,
+        mag: share / k.share, ev: { kids: kids.length, low: low.length } });
+    });
+    var out = {};
+    Object.keys(cand).forEach(function (cls) {
+      out[cls] = cand[cls].sort(function (a, b) { return KIND_RANK[b.kind] - KIND_RANK[a.kind] || b.mag - a.mag || (a.key < b.key ? -1 : 1); })
+        .slice(0, RULES.max).map(function (x) { return { key: x.key, kind: x.kind, lids: x.lids, app: x.app, skill: x.skill, ev: x.ev, week: x.week }; });
+    });
+    return out;
+  }
+
+  /** 根拠の一文（教師の画面に出す。名前は含めない） */
+  function describe(item) {
+    var e = item.ev || {}, pct = function (x) { return x == null ? '—' : Math.round(x * 100) + '%'; }, sec = function (x) { return x ? (x / 1000).toFixed(1) + '秒' : '—'; };
+    if (item.kind === 'drop') return '正答率 ' + pct(e.accBase) + ' → ' + pct(e.accNow) + '・時間 ' + sec(e.msBase) + ' → ' + sec(e.msNow) + '（今週 ' + e.nNow + '問・前の4週と比べて）';
+    if (item.kind === 'stall') return '正答率 ' + pct(e.accBase) + ' → ' + pct(e.accNow) + '・時間 ' + sec(e.msBase) + ' → ' + sec(e.msNow) + '（前の4週 ' + e.nBase + '問 → 直近4週 ' + e.nNow + '問）';
+    return '取り組んだ ' + e.kids + '人のうち ' + e.low + '人が正答率70%未満（直近2週）';
+  }
+
+  /* ---------- 保存 ---------- */
+
+  function textCol(sh, col) { sh.getRange(1, col, Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000), 1).setNumberFormat('@'); }
+  function clsCell(v) {
+    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) return (v.getMonth() + 1) + '-' + v.getDate();
+    return String(v == null ? '' : v).trim();
+  }
+
+  /** 計算した候補を now3 シートに置く（丸ごと入れ替え） */
+  function store(hubSs, byClass) {
+    var sh = hubSs.getSheetByName(SHEET) || hubSs.insertSheet(SHEET), rows = [HEAD];
+    Object.keys(byClass).sort().forEach(function (cls) {
+      byClass[cls].forEach(function (x, i) { rows.push([cls, i + 1, x.key, x.kind, x.lids.join(','), x.app, x.skill, JSON.stringify(x.ev), x.week]); });
+    });
+    sh.clearContents(); textCol(sh, 1); textCol(sh, 9);
+    sh.getRange(1, 1, rows.length, HEAD.length).setValues(rows);
+    return rows.length - 1;
+  }
+  /** その学級の候補（判断済み・見たものを除く） */
+  function read(hubSs, classKey) {
+    var sh = hubSs.getSheetByName(SHEET);
+    if (!sh || sh.getLastRow() < 2) return [];
+    var done = decidedKeys(hubSs);
+    return sh.getRange(2, 1, sh.getLastRow() - 1, HEAD.length).getValues().filter(function (r) { return clsCell(r[0]) === classKey && !done[r[2]]; })
+      .sort(function (a, b) { return a[1] - b[1]; }).map(function (r) {
+        var ev = {}; try { ev = JSON.parse(String(r[7])); } catch (e) {}
+        return { key: String(r[2]), kind: String(r[3]), lids: String(r[4]).split(',').filter(Boolean), app: String(r[5]), skill: String(r[6]), ev: ev };
+      });
+  }
+  /** 判断の記録（判断が変わった／見た）。押された時だけ1行 */
+  function decide(hubSs, classKey, item, action, memo, by) {
+    var sh = hubSs.getSheetByName(DEC_SHEET);
+    if (!sh) { sh = hubSs.insertSheet(DEC_SHEET); sh.getRange(1, 1, 1, DEC_HEAD.length).setValues([DEC_HEAD]); textCol(sh, 3); }
+    sh.appendRow([new Date(), by || '', classKey, String(item.key), String(item.kind || ''), action === 'changed' ? '判断が変わった' : '見た', String(memo || '').slice(0, 500)]);
+  }
+  /** 判断済み・見た キー（直近 dismissDays 日。同じ週のキーは同じなので、次の週にまた条件に当たれば出る） */
+  function decidedKeys(hubSs, now) {
+    var sh = hubSs.getSheetByName(DEC_SHEET), out = {};
+    if (!sh || sh.getLastRow() < 2) return out;
+    var since = (now || Date.now()) - RULES.dismissDays * 86400000;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var t = r[0] instanceof Date ? r[0].getTime() : new Date(r[0]).getTime();
+      if (!isNaN(t) && t >= since) out[String(r[3])] = true;
+    });
+    return out;
+  }
+
+  return { RULES: RULES, LABEL: LABEL, compute: compute, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
 })();
 
 // ===== gas/Pages.gs =====
@@ -1418,11 +1594,30 @@ var LbHome = (function () {
         out.members = Base.members(pick.grade, pick.cls).map(function (r) {
           return { lid: r.lid, no: r.no, name: r.name, provisional: !!r.provisional };
         });
+        try { out.now3 = now3(pick.key); } catch (e) { out.now3 = []; console.error('今週の3件を読めません: ' + e.message); }
       }
       return out;
     }
     out.message = m.role === 'none' ? '学校のアカウントで ひらいてください' : 'なまえが まだ とうろく されていません。せんせいに つたえてね';
     return out;
+  }
+
+  /** 今週の3件（名前・技能の名前・根拠の一文を付ける）。名前は教師にだけ渡す */
+  function now3(classKey) {
+    var hub = Base.hub(), cats = LbCatalog.readAll(hub);
+    return LbAlerts.read(hub, classKey).map(function (x) {
+      var cat = cats[x.app], sk = cat ? LbCatalog.index(cat)[x.skill] : null;
+      return { key: x.key, kind: x.kind, label: LbAlerts.LABEL[x.kind] || x.kind, skill: sk ? sk.label : x.skill, app: cat ? cat.title : x.app,
+        names: x.lids.map(function (l) { var r = Base.learner(l); return r ? r.name : '（名簿にない）'; }), text: LbAlerts.describe(x) };
+    });
+  }
+  /** 判断の記録（判断が変わった／見た）。押した項目は今週の3件から消える */
+  function decide(classKey, key, action, memo) {
+    var m = requireClass(classKey);
+    var item = LbAlerts.read(Base.hub(), classKey).filter(function (x) { return x.key === String(key); })[0];
+    if (!item) throw new Error('もう ない項目です（ページを開き直してください）');
+    LbAlerts.decide(Base.hub(), classKey, item, action === 'changed' ? 'changed' : 'seen', memo, m.email);
+    return now3(classKey);
   }
 
   function setPublish(classKey, pageId, on) {
@@ -1445,7 +1640,7 @@ var LbHome = (function () {
     return LbPages.readSettings(Base.hub(), classKey);
   }
 
-  return { boot: boot, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
+  return { boot: boot, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();
 
 /* 画面（google.script.run）から呼ぶ入口 */
@@ -1453,8 +1648,9 @@ function homeBoot(opt) { return LbHome.boot(opt); }
 function homeSetPublish(classKey, pageId, on) { return LbHome.setPublish(classKey, pageId, on); }
 function homeResetPublish(classKey) { return LbHome.resetPublish(classKey); }
 function homeSetNow(classKey, list) { return LbHome.setNow(classKey, list); }
+function homeDecide(classKey, key, action, memo) { return LbHome.decide(classKey, key, action, memo); }
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@0f1af68） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@c3ee013） =====
 LB_MODULES["tamath"] = (function () {
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
@@ -1828,6 +2024,51 @@ function lbWriteSession_(s, mail, isPractice, items) {
 }
 /** 単元を決めて新しい形の記録を書く（学習BASE の検査が使う。名前が _ で終わるので画面からは呼べない） */
 function lbWriteForUnit_(unit, s, mail, isPractice, items) { useUnit_(unit); return lbWriteSession_(s, mail, isPractice, items); }
+/**
+ * 過去の記録（log シート）を、新しい形の集計に取り込める形にする（学習BASE の夜の処理が1回だけ使う）。
+ * log には1問ずつの記録は無いが、型ごとの統計（type_stats）と、一度で正答しなかった問題（miss_items）から、
+ * 技能ごとの 件数・一度で正答した数・時間の統計 が分かる：
+ *   一度で正答した数 = type_stats の1番目／件数 = それ ＋ miss_items のその型の数／時間 = type_stats の 初打鍵の数・Σln・Σln²
+ * 本人はメールで書かれているので、名簿（学習者ID）で引く。名簿にない人の行は取り込まない。
+ * before より前の行だけ（それ以後は新しい形の記録がある）。返す：[{ ts, lid, grade, cls, no, app, context, skills }]
+ */
+function lbLegacySessions_(unit, before) {
+  useUnit_(unit);
+  if (typeof Base === 'undefined' || !hubRoster_()) return [];
+  var sh = ss_().getSheetByName(SHEETS.LOG);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var lidOf = {};
+  Base.roster().forEach(function (r) { if (r.lid) { if (r.mail) lidOf[r.mail] = r.lid; lidOf['lid:' + r.lid] = r.lid; } });
+  var cut = before ? new Date(before).getTime() : Infinity, out = [];
+  sh.getRange(2, 1, sh.getLastRow() - 1, LOG_WIDTH_).getValues().forEach(function (r) {
+    var ts = rowTime_(r[LOG_COL_.TS]);
+    if (!ts || ts >= cut) return;
+    var lid = lidOf[String(r[LOG_COL_.MAIL]).trim().toLowerCase()];
+    if (!lid) return;
+    var skills = {};
+    String(r[LOG_COL_.TSTAT] || '').split(',').forEach(function (part) {
+      var v = part.split(':');
+      if (v.length < 8 || !v[0]) return;
+      skills[lbSkill_(v[0])] = { n: Number(v[1]) || 0, ok: Number(v[1]) || 0, tn: Number(v[3]) || 0, sl: Number(v[6]) || 0, sl2: Number(v[7]) || 0, mis: {} };
+    });
+    String(r[LOG_COL_.MISS] || '').split(',').forEach(function (m) {
+      var t = m.split(':')[0];
+      if (!t) return;
+      var k = lbSkill_(t), sk = skills[k] || (skills[k] = { n: 0, ok: 0, tn: 0, sl: 0, sl2: 0, mis: {} });
+      sk.n++;
+    });
+    if (!Object.keys(skills).length) return;
+    out.push({ ts: new Date(ts), lid: lid, grade: Number(r[LOG_COL_.GRADE]) || 0, cls: String(r[LOG_COL_.CLS]), no: Number(r[LOG_COL_.NO]) || 0,
+      app: 'tamath', context: 'live', skills: skills });
+  });
+  return out;
+}
+/** 過去の記録を取り込める単元（登録済み）。{ key, unit } */
+function lbLegacySources_() {
+  var gp = PropertiesService.getScriptProperties();
+  return unitIds_().filter(function (id) { return !!gp.getProperty(unitSheetKey_(id)); }).map(function (id) { return { key: 'tamath:' + id, unit: id }; });
+}
+
 /** 算数TA の技能の目録（全単元の型）。到達の基準の初期値は正答率90%・20問以上（単元ごとに Unit.gs の mastery で直せる） */
 function tamathCatalog_() {
   var skills = [];
@@ -8916,7 +9157,9 @@ return {
   "rollover": (typeof rolloverRosterAll === 'function' ? rolloverRosterAll : undefined),
   "continueAll": (typeof continueAll === 'function' ? continueAll : undefined),
   "sessionSources": (typeof lbSessionSources_ === 'function' ? lbSessionSources_ : undefined),
-  "writeForUnit": (typeof lbWriteForUnit_ === 'function' ? lbWriteForUnit_ : undefined)
+  "writeForUnit": (typeof lbWriteForUnit_ === 'function' ? lbWriteForUnit_ : undefined),
+  "legacySources": (typeof lbLegacySources_ === 'function' ? lbLegacySources_ : undefined),
+  "legacySessions": (typeof lbLegacySessions_ === 'function' ? lbLegacySessions_ : undefined)
 };
 })();
 
@@ -8939,7 +9182,8 @@ return {
 var LbPlatform = (function () {
   /** 学習BASE の画面から呼べる関数（lbCall の mod・name）。ここに無いものは呼べない */
   var API = {
-    home: { boot: function (o) { return LbHome.boot(o); }, setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
+    home: { boot: function (o) { return LbHome.boot(o); }, decide: function (k, key, a, m) { return LbHome.decide(k, key, a, m); },
+      setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
       resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); } }
   };
 
@@ -8977,6 +9221,81 @@ var LbPlatform = (function () {
     });
     return errs;
   }
+  /**
+   * 過去の記録を1回だけ集計に取り込む（アプリが legacySources・legacySessions を持つ時）。
+   * 記録先ごとに「済み」の印を置き、新しい形の記録が始まった時刻より前の分だけを足す（二重に数えない）
+   */
+  function legacy() {
+    var hub = Base.hub(), fy = Base.fy(), errs = [];
+    Object.keys(LB_MODULES).forEach(function (k) {
+      var m = LB_MODULES[k];
+      if (typeof m.legacySources !== 'function' || typeof m.legacySessions !== 'function') return;
+      var srcs = []; try { srcs = m.legacySources(); } catch (e) { errs.push(k + ': ' + e.message); return; }
+      var ss = {}; try { (m.sessionSources ? m.sessionSources() : []).forEach(function (s) { ss[s.key] = s.ss; }); } catch (e) {}
+      srcs.forEach(function (src) {
+        var flag = 'legacy|' + src.key + '|' + fy;
+        if (LbFacts.marked(hub, flag)) return;
+        try {
+          var before = ss[src.key] ? LbFacts.firstSessionTs(ss[src.key], fy) : null;
+          var n = LbFacts.mergeSessions(hub, fy, m.legacySessions(src.unit, before || new Date()));
+          LbFacts.mark(hub, flag);
+          console.log('過去の記録を取り込んだ：' + src.key + '（' + n + ' 行）');
+        } catch (e) { errs.push(src.key + ': ' + e.message); }
+      });
+    });
+    return errs;
+  }
+
+  /** 今週の3件を計算してハブに置く */
+  function alerts() {
+    try {
+      var hub = Base.hub(), fy = Base.fy();
+      var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+      var by = LbAlerts.compute(LbFacts.read(hub, fy), Base.roster(), LbCatalog.readAll(hub), today, LbAlerts.decidedKeys(hub));
+      console.log('今週の3件：' + LbAlerts.store(hub, by) + ' 件');
+      return [];
+    } catch (e) { console.error('今週の3件 失敗: ' + e.message); return ['alerts: ' + e.message]; }
+  }
+
+  /**
+   * 月曜の朝：学級の担当の先生（teachers シート）と所有者に「今週の3件」の件数を知らせる。
+   * 児童の名前はメールに書かない（名前は学習BASE の画面の中だけ）
+   */
+  function weekly() {
+    var hub = Base.hub(), url = '';
+    try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
+    var sh = hub.getSheetByName('now3');
+    if (!sh || sh.getLastRow() < 2) return 0;
+    var count = {};
+    var done = LbAlerts.decidedKeys(hub);
+    sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var cls = Object.prototype.toString.call(r[0]) === '[object Date]' ? (r[0].getMonth() + 1) + '-' + r[0].getDate() : String(r[0]);
+      if (done[r[2]]) return;
+      var c = count[cls] || (count[cls] = {}); c[r[3]] = (c[r[3]] || 0) + 1;
+    });
+    var classes = Object.keys(count);
+    if (!classes.length) return 0;
+    var owner = ''; try { owner = Session.getEffectiveUser().getEmail(); } catch (e) {}
+    var to = {};
+    function addTo(mail, cls) { if (mail) (to[mail] = to[mail] || []).push(cls); }
+    classes.forEach(function (cls) {
+      var i = cls.indexOf('-'), g = Number(cls.slice(0, i)), c = cls.slice(i + 1);
+      Base.teachers().forEach(function (t) { if (t.scopes.some(function (s) { return !s.grade || (s.grade === g && (!s.cls || s.cls === c)); })) addTo(t.mail, cls); });
+      addTo(owner, cls);
+    });
+    var name = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' }, sent = 0;
+    Object.keys(to).forEach(function (mail) {
+      var lines = to[mail].filter(function (v, i, a) { return a.indexOf(v) === i; }).sort().map(function (cls) {
+        var c = count[cls], i = cls.indexOf('-');
+        return cls.slice(0, i) + '年' + cls.slice(i + 1) + '組：' + Object.keys(c).map(function (k) { return name[k] + ' ' + c[k]; }).join('・');
+      });
+      MailApp.sendEmail({ to: mail, subject: '学習BASE：今週の3件', body: '今週、目を向けるとよい相手がいます。\n\n' + lines.join('\n') +
+        '\n\n学習BASE（先生の画面の一番上）で確かめてください。\n' + url + '\n\n（このメールには児童の名前を書いていません）' });
+      sent++;
+    });
+    return sent;
+  }
+
   /** 全アプリの新しい形の記録を「児童×技能×週」に足す（ハブの facts_<年度>）。時間切れなら残りは次の夜 */
   function facts() {
     var sources = [];
@@ -9014,7 +9333,7 @@ var LbPlatform = (function () {
   function platformScript(baseUrl) {
     return 'window.LB_PLATFORM={baseUrl:' + JSON.stringify(baseUrl) + ',' +
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
-      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow"};' +
+      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide"};' +
       'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",map[name]||name,a);});},' +
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +
@@ -9026,6 +9345,7 @@ var LbPlatform = (function () {
   }
 
   return { doGet: doGet, call: call, appApi: appApi, setup: setup,
-    nightly: function () { var e = each('nightly'); return e.concat(facts()); }, daily: function () { return each('daily'); },
+    nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); return e.concat(alerts()); },
+    weekly: weekly, daily: function () { return each('daily'); },
     rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };
 })();

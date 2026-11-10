@@ -31,6 +31,16 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       const bg = await p.$eval('.lb-htile[data-id=tamath-kuku]', e => getComputedStyle(e).backgroundColor);
       if (bg !== 'rgb(18, 196, 139)') fails.push('child3: 九九のタイルがハブの色（ミント）でない: ' + bg);
     }
+    if (role === 'teacher') {   // 今週の3件：先生の画面の一番上。押すと消える
+      if ((await p.locator('.lb-alert').count()) !== 3) fails.push('teacher: 今週の3件が3件でない');
+      const first = await p.locator('.lb h2').first().textContent();
+      if (first !== '今週の3件') fails.push('teacher: 今週の3件が一番上にない: ' + first);
+      await p.click('.lb-alert [data-act=decide][data-how=changed]'); await p.waitForTimeout(400);
+      if ((await p.locator('.lb-alert').count()) !== 2) fails.push('teacher: 判断が変わった を押しても消えない');
+      await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('lb-demo') || '{}'); delete s.now3; localStorage.setItem('lb-demo', JSON.stringify(s)); });
+      await p.goto(p.url()); await p.waitForTimeout(600);
+    }
+    if (role === 'child3' && await p.locator('.lb-alert').count()) fails.push('child3: 児童に今週の3件が出る');
     if (role === 'teacher') {   // 算数は代わりに取り組むに対応：欄が出て、選んで開くと &as=<学習者ID>。対応していないページ（といボード）は開かない
       if (!(await p.locator('#lb-as').count())) fails.push('teacher: 「代わりに取り組む」が出ない');
       let opened = ''; await p.exposeFunction('lbOpened2', u => { opened = u; });
