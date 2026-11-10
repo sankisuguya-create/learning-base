@@ -123,7 +123,9 @@ var LbFacts = (function () {
 
   /**
    * 新しいセッションだけを読んで集計に足す（毎晩）。
-   * sources: [{ app, ss }]（アプリの id と記録のスプレッドシート）。hubSs：ハブ。
+   * sources: [{ app, key, ss }]（アプリの id・記録先の名前・記録のスプレッドシート）。hubSs：ハブ。
+   *   key は読んだ位置を覚える名前（省略時は app）。同じアプリが記録先を複数持つ時（算数TA は単元ごと）は別の key にする
+   * 練習（context が practice）の行は集計に入れない（opts.contexts で集計に入れる文脈を変えられる）
    * 読んだ位置（facts_cursor）を覚えるので、同じセッションを2回足さない。
    * 4分を越えたら途中でやめ、続きは次の実行で読む。返す：{ read, more }
    * 集計を書いた後・位置を書く前に止まると二重に足しうる。その時は rebuild で作り直す。
@@ -132,10 +134,11 @@ var LbFacts = (function () {
     opts = opts || {};
     var fy = opts.fy || Base.fyOf(new Date()), start = Date.now(), budget = opts.budgetMs || BUDGET_MS;
     var cur = readCursor(hubSs), add = {}, read = 0, more = false, touched = {};
+    var skipCtx = opts.excludeContexts || ['practice'];
     sources.forEach(function (src) {
       LbSession.sheetNames(src.ss, fy).forEach(function (name) {
         if (more) return;
-        var sh = src.ss.getSheetByName(name), last = sh.getLastRow(), ck = src.app + '|' + name;
+        var sh = src.ss.getSheetByName(name), last = sh.getLastRow(), ck = (src.key || src.app) + '|' + name;
         var from = Math.max(2, (cur[ck] || 1) + 1);
         while (from <= last) {
           if (Date.now() - start > budget) { more = true; break; }
@@ -145,7 +148,7 @@ var LbFacts = (function () {
           var sk = sh.getRange(from, LbSession.COL.skills + 1, n, 1).getValues();
           for (var i = 0; i < n; i++) {
             var s = LbSession.fromRow(head[i].concat(['', sk[i][0], '']));
-            if (s.lid) addSession(add, s);
+            if (s.lid && skipCtx.indexOf(s.context) < 0) addSession(add, s);
           }
           read += n; from += n; cur[ck] = from - 1; touched[ck] = true;
         }
@@ -167,9 +170,35 @@ var LbFacts = (function () {
     var sh = hubSs.getSheetByName('facts_' + fy);
     if (sh) sh.clearContents();
     var cur = readCursor(hubSs);
-    sources.forEach(function (src) { LbSession.sheetNames(src.ss, fy).forEach(function (n) { delete cur[src.app + '|' + n]; }); });
+    sources.forEach(function (src) { LbSession.sheetNames(src.ss, fy).forEach(function (n) { delete cur[(src.key || src.app) + '|' + n]; }); });
     writeCursor(hubSs, cur, true);
     return ingest(hubSs, sources, opts);
+  }
+
+  /**
+   * セッションの形（{ ts, lid, grade, cls, no, app, context, skills }）の配列を集計に足す。
+   * 過去の記録（アプリの log など、新しい形の記録が無い頃の分）の取り込みに使う。練習（practice）は足さない
+   */
+  function mergeSessions(hubSs, fy, sessions) {
+    var add = {};
+    (sessions || []).forEach(function (s) { if (s.lid && s.context !== 'practice' && Base.fyOf(s.ts) === fy) addSession(add, s); });
+    if (!Object.keys(add).length) return 0;
+    var name = 'facts_' + fy, sh = hubSs.getSheetByName(name) || hubSs.insertSheet(name);
+    var old = sh.getLastRow() > 1 ? fromRows(sh.getRange(2, 1, sh.getLastRow() - 1, HEAD.length).getValues()) : {};
+    writeFacts(sh, merge(old, add));
+    return Object.keys(add).length;
+  }
+  /** 読んだ位置の表に「済み」の印を置く・見る（過去の記録を1回だけ取り込むため） */
+  function marked(hubSs, key) { return !!readCursor(hubSs)[key]; }
+  function mark(hubSs, key) { var c = readCursor(hubSs); c[key] = 1; writeCursor(hubSs, c); }
+  /** その記録先の最初の新しい形の記録の時刻（無ければ null）。過去の記録はこれより前だけを取り込む */
+  function firstSessionTs(ss, fy) {
+    var names = LbSession.sheetNames(ss, fy);
+    for (var i = 0; i < names.length; i++) {
+      var sh = ss.getSheetByName(names[i]);
+      if (sh && sh.getLastRow() >= 2) return sh.getRange(2, 1, 1, 1).getValues()[0][0];
+    }
+    return null;
   }
 
   /** 集計を読む（年度・絞り込み）。{ キー: 行 } */
@@ -206,5 +235,6 @@ var LbFacts = (function () {
   }
 
   return { HEAD: HEAD, weekOf: weekOf, addWeeks: addWeeks, addSession: addSession, merge: merge, toRows: toRows, fromRows: fromRows,
-    combine: combine, stats: stats, recent: recent, state: state, ingest: ingest, rebuild: rebuild, read: read };
+    combine: combine, stats: stats, recent: recent, state: state, ingest: ingest, rebuild: rebuild, read: read,
+    mergeSessions: mergeSessions, marked: marked, mark: mark, firstSessionTs: firstSessionTs };
 })();

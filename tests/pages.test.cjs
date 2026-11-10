@@ -10,6 +10,13 @@ const { LbPages } = loadPure(['Pages.gs']);
 t('目録：リポジトリの pages.json は誤りなし', () => {
   assert.strictEqual(J(LbPages.validate(CAT)), '[]');
 });
+t('目録：別の GAS で動くページ（kind: link）は linkId が要る。URL は目録に書かない', () => {
+  assert.ok(LbPages.validate({ pages: [{ id: 'x', subject: 'sogo', grades: [3], title: 't', kind: 'link' }] }).join().includes('linkId'));
+  const tb = CAT.pages.find(p => p.id === 'toi-board');
+  assert.strictEqual(tb.kind, 'link'); assert.strictEqual(tb.url, undefined);
+  assert.ok(!/script\.google\.com|edu\.nishi/.test(JSON.stringify(CAT)), '学校の URL を公開の目録に書かない');
+});
+
 t('目録：誤りを具体的に返す', () => {
   const e = LbPages.validate({ pages: [
     { id: 'A', subject: 'x', grades: [7], kind: 'zzz' },
@@ -21,7 +28,7 @@ t('目録：誤りを具体的に返す', () => {
 
 t('ホーム：その学年の・公開のページだけ。教科は中身のある教科だけ、単元ごとにまとまる', () => {
   const h = LbPages.home(CAT, 3, { publish: {}, now: [] }, '2026-11-10');
-  assert.strictEqual(J(h.subjects.map(s => s.id)), J(['kokugo', 'sansu']), '総合（といボード）は既定で非公開');
+  assert.strictEqual(J(h.subjects.map(s => s.id)), J(['kokugo', 'sansu', 'sogo']), '総合（といボード）も出る');
   const sansu = h.bySubject.sansu;
   assert.strictEqual(sansu[0].unit, 'かけ算');
   assert.ok(sansu.every(u => u.pages.every(p => p.grades.includes(3))));
@@ -32,17 +39,18 @@ t('ページが1つだけの教科は only にそのページ（タイルから�
   const h = LbPages.home(CAT, 3, { publish: {}, now: [] }, '2026-11-10');
   assert.strictEqual(h.subjects.find(s => s.id === 'kokugo').only.id, 'kanzi');
   assert.strictEqual(h.subjects.find(s => s.id === 'sansu').only, undefined);
-  const h2 = LbPages.home(CAT, 3, { publish: { 'toi-board': true }, now: [] }, '2026-11-10');
+  const h2 = LbPages.home(CAT, 3, { publish: {}, now: [] }, '2026-11-10');
   assert.strictEqual(h2.subjects.find(s => s.id === 'sogo').only.id, 'toi-board');
+  assert.strictEqual(h2.subjects.find(s => s.id === 'sogo').only.kind, 'link');
   // 公開を絞って1つになった教科も直接開く
   const off = {}; CAT.pages.filter(p => p.subject === 'sansu' && p.id !== 'tamath-kuku').forEach(p => { off[p.id] = false; });
   assert.strictEqual(LbPages.home(CAT, 3, { publish: off, now: [] }, '2026-11-10').subjects.find(s => s.id === 'sansu').only.id, 'tamath-kuku');
 });
 
 t('ホーム：教師の公開の切り替えが効く（非公開にした・既定で非公開のものを公開にした）', () => {
-  const h = LbPages.home(CAT, 3, { publish: { 'tamath-kuku': false, 'toi-board': true }, now: [] }, '2026-11-10');
+  const h = LbPages.home(CAT, 3, { publish: { 'tamath-kuku': false, 'toi-board': false }, now: [] }, '2026-11-10');
   assert.ok(!h.bySubject.sansu.some(u => u.pages.some(p => p.id === 'tamath-kuku')));
-  assert.ok(h.subjects.some(s => s.id === 'sogo'));
+  assert.ok(!h.subjects.some(s => s.id === 'sogo'), 'かくしたといボードは出ない');
 });
 t('いまの学習：期間内・公開・学年が合うものを順に最大3件', () => {
   const now = [
@@ -57,7 +65,7 @@ t('いまの学習：期間内・公開・学年が合うものを順に最大3�
 t('教師の一覧：公開していないページも出し、公開・いまの学習の状態を添える', () => {
   const v = LbPages.teacherView(CAT, 3, { publish: { 'tamath-kuku': false }, now: [{ page: 'kanzi' }] }, '2026-11-10');
   assert.strictEqual(v.find(x => x.page.id === 'tamath-kuku').on, false);
-  assert.strictEqual(v.find(x => x.page.id === 'toi-board').on, false);
+  assert.strictEqual(v.find(x => x.page.id === 'toi-board').on, true);
   assert.strictEqual(v.find(x => x.page.id === 'kanzi').now, true);
 });
 t('保存：公開を押すたびに保存・学級ごと・全部もどす。いまの学習は学級の分を入れ替え、3件まで', () => {
@@ -95,10 +103,13 @@ function homeEnv(user, rosterRows) {
     canSeeClass: (mail, g, c) => mail.endsWith('@edu.nishi.or.jp') || (mail === 'sub@example.jp' && g === 3 && c === '2'),
     members: (g, c) => rosterRows.filter(r => r.grade === g && r.cls === c)
   };
-  const ctx = loadPure(['Pages.gs', 'Home.gs'], { Base: fake,
+  const props = {};
+  const ctx = loadPure(['Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Alerts.gs', 'Tune.gs', 'Pages.gs', 'Home.gs'], { Base: fake,
     Utilities: { formatDate: () => '2026-11-10' },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) }, LB_LOADER: { ver: () => 'abc1234' } });
-  return { ctx, hub };
+    Session: { getActiveUser: () => ({ getEmail: () => user }), getEffectiveUser: () => ({ getEmail: () => 'owner@edu.nishi.or.jp' }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); },
+      getProperties: () => Object.assign({}, props), deleteProperty: k => { delete props[k]; } }) }, LB_LOADER: { ver: () => 'abc1234' } });
+  return { ctx, hub, props };
 }
 const ROSTER = [{ lid: 'La', grade: 3, cls: '1', no: 1, name: 'あ' }, { lid: 'Lb', grade: 3, cls: '2', no: 1, name: 'い' },
   { lid: 'Lc', grade: 3, cls: '1', no: 30, name: '転入 太郎', provisional: true }, { lid: 'Ld', grade: 4, cls: '1', no: 1, name: 'う' }];
@@ -113,8 +124,11 @@ t('窓口：児童は自分の学級の設定だけ。目録の置き場（固�
   assert.throws(() => ctx.homeSetNow('3-1', [{ page: 'kanzi' }]), /先生だけ/);
 });
 t('窓口：教師は扱える学級の一覧と、選んだ学級の児童（メールの無い転入生も）を受け取る', () => {
-  const { ctx } = homeEnv('na@edu.nishi.or.jp', ROSTER);
+  const { ctx, hub } = homeEnv('na@edu.nishi.or.jp', ROSTER);
+  hub.insertSheet('links').v.push(['id', 'title', 'subtitle', 'url', 'grades', 'color', 'visible'], ['kuku', '九九', '3年', 'https://x/exec?unit=kuku', '3', 'mint', true], ['toi-board', 'といボード', '', 'https://y/exec', '3', 'lavender', false]);
   const b = ctx.homeBoot({ classKey: '3-1' });
+  assert.strictEqual(b.links['toi-board'].url, 'https://y/exec', 'といボードの URL はハブの links から（表示しない行でも）');
+  assert.strictEqual(b.links.kuku.color, 'mint');
   assert.strictEqual(J(b.classes.map(c => c.key)), J(['3-1', '3-2', '4-1']));
   assert.ok(b.members.some(m => m.name === '転入 太郎' && m.provisional));
   assert.strictEqual(b.members[0].mail, undefined, 'メールは画面に渡さない');
@@ -161,6 +175,56 @@ t('保存：日付に化けた学級（3-1 → 3月1日）・日付の欄も、�
   assert.strictEqual(LbPages.readSettings(hub, '3-2').now[0].from, '2026-11-01');
   LbPages.setPublish(hub, '3-1', 'kanzi', false, 't@x');
   assert.strictEqual(hub.sheets.class_pages.v[1][0], '3-1', '学級の欄は文字のまま');
+});
+
+t('窓口：開くたびに役割ごとに数える（前回の往復の時間は端末別、始めるまで・行き止まりは学年別）。名前は数えない', () => {
+  const { ctx, props } = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);
+  ctx.homeBoot({ lastMs: 3100, mem: 4, start: { path: 'tile', ms: 12000 }, dead: 1 });
+  const all = Object.values(props).map(v => JSON.parse(v)).reduce((a, o) => Object.assign(a, o), {});
+  assert.strictEqual(all['child|boot'], 1); assert.strictEqual(all['child|rt:4GB以下:2〜4秒'], 1);
+  assert.strictEqual(all['child|start:3年:教科のタイル:10〜20秒'], 1); assert.strictEqual(all['child|deadend:3年'], 1);
+  assert.ok(Object.keys(all).some(k => /^child\|srv:/.test(k)));
+  assert.ok(!JSON.stringify(props).match(/田中|はなこ|kyoiku/), '名前・メールは数えるところに入らない');
+});
+t('窓口：所有者かどうか。閾値を見直す・数える・保存するは所有者だけ。保存した値は次の計算から効く', () => {
+  const t1 = homeEnv('na@edu.nishi.or.jp', ROSTER);
+  t1.ctx.Base.fy = () => 2026;
+  const b = t1.ctx.homeBoot({ classKey: '3-1' });
+  assert.strictEqual(b.owner, false);
+  assert.ok(b.members.every(m => !('code' in m)), '記号は渡さない（撮影用は画面の見本）');
+  assert.throws(() => t1.ctx.homeTuning(), /所有者だけ/); assert.throws(() => t1.ctx.homeTryRules({}), /所有者だけ/); assert.throws(() => t1.ctx.homeSaveRules({ max: 5 }), /所有者だけ/);
+  assert.ok(!t1.hub.sheets.rules, '所有者でなければ何も書かない');
+  const own = homeEnv('owner@edu.nishi.or.jp', ROSTER);
+  own.ctx.Base.fy = () => 2026; own.ctx.Base.teachers = () => [];
+  assert.strictEqual(own.ctx.homeBoot({}).owner, true);
+  const tu = own.ctx.homeTuning();
+  assert.ok(tu.spec.length >= 10); assert.strictEqual(typeof tu.counts.drop, 'number');
+  assert.strictEqual(own.ctx.homeTryRules({ 'drop.accDrop': 0.1 }).tried.drop, 0);
+  const after = own.ctx.homeSaveRules({ 'drop.accDrop': 0.1 }, true);
+  assert.strictEqual(after.spec.find(x => x.path === 'drop.accDrop').changed, true);
+  assert.strictEqual(own.ctx.LbAlerts.active(own.hub).drop.accDrop, 0.1);
+  assert.ok(own.hub.sheets.now3, '今すぐ計算し直すと now3 を入れ替える');
+  assert.throws(() => own.ctx.homeSaveRules({ 'drop.accDrop': 5 }), /使えない値/);
+});
+t('窓口：気づきは先生だけ（担当外の学級は不可）。書き出しは所有者だけ。画面の失敗は決めた種類だけ数える', () => {
+  const kid = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);
+  assert.throws(() => kid.ctx.homeFeedback('3-1', 'home', 'x'), /先生だけ/);
+  assert.throws(() => kid.ctx.homeFeedback('', 'home', 'x'), /先生だけ/, '学級を空にしても児童は送れない');
+  assert.ok(!kid.hub.sheets.feedback);
+  assert.throws(() => kid.ctx.homeExport(), /所有者だけ/);
+  const sub = homeEnv('sub@example.jp', ROSTER);
+  assert.throws(() => sub.ctx.homeFeedback('3-1', 'home', 'x'), /担当していない/);
+  const tc = homeEnv('na@edu.nishi.or.jp', ROSTER);
+  assert.throws(() => tc.ctx.homeFeedback('3-1', 'home', '   '), /空/);
+  assert.strictEqual(tc.ctx.homeFeedback('3-1', 'home', '今週の3件が多すぎる'), true);
+  const row = tc.hub.sheets.feedback.v[1];
+  assert.strictEqual(row[2], '3-1', '学級は文字のまま'); assert.strictEqual(row[4], '今週の3件が多すぎる');
+  assert.throws(() => tc.ctx.homeExport(), /所有者だけ/);
+  assert.strictEqual(tc.ctx.homeReport('loadfail'), true); assert.strictEqual(tc.ctx.homeReport('<script>'), false);
+  assert.strictEqual(tc.ctx.homeReport('jserror', 'TypeError: a is null at 12345678@kyoiku.edu.nishi.or.jp'), true);
+  const pj = JSON.stringify(tc.props);
+  assert.ok(pj.includes('teacher|client:loadfail')); assert.ok(!pj.includes('script'));
+  assert.ok(pj.includes('teacher|js:TypeError: a is null at ＜メール＞')); assert.ok(!pj.includes('kyoiku'));
 });
 
 console.log(`pages ${n} 件 ok`);

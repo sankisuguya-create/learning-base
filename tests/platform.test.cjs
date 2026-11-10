@@ -25,11 +25,15 @@ function run(S, user = 'owner@edu.nishi.or.jp') {
     CacheService: { getScriptCache: () => ({ get: k => (k in store ? store[k] : null), put: (k, v) => { store[k] = String(v); }, remove: k => { delete store[k]; },
       getAll: ks => { const o = {}; ks.forEach(k => { if (k in store) o[k] = store[k]; }); return o; }, putAll: m => { for (const k in m) store[k] = String(m[k]); },
       removeAll: ks => ks.forEach(k => delete store[k]) }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = String(v); }, deleteProperty: k => { delete S.props[k]; } }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = String(v); }, deleteProperty: k => { delete S.props[k]; }, getProperties: () => Object.assign({}, S.props) }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
-    SpreadsheetApp: { openById: id => { if (id !== S.props.HUB_ID) throw new Error('開けません ' + id); return S.hub; }, getActiveSpreadsheet: () => { throw new Error('付属のスプレッドシートは無い'); } },
+    SpreadsheetApp: { openById: id => { if (id === S.props.HUB_ID) return S.hub; if (S.units && S.units[id]) return S.units[id]; throw new Error('開けません ' + id); }, getActiveSpreadsheet: () => { throw new Error('付属のスプレッドシートは無い'); } },
     UrlFetchApp: { fetch: url => {
       S.fetches.push(url);
+      if (url === 'https://raw.githubusercontent.com/sankisuguya-create/learning-base/main/release.json') {
+        if (S.githubDown) throw new Error('接続できません');
+        return { getResponseCode: () => (S.release ? 200 : 404), getContentText: () => JSON.stringify(S.release || {}) };
+      }
       if (S.down) throw new Error('接続できません');
       const m = url.match(/^https:\/\/cdn\.jsdelivr\.net\/gh\/sankisuguya-create\/learning-base@([^/]+)\/dist\/(.+)$/);
       const ok = m && m[1] === VER && S.files[m[2]] != null;
@@ -44,7 +48,10 @@ function run(S, user = 'owner@edu.nishi.or.jp') {
     },
     ScriptApp: { getService: () => ({ getUrl: () => 'https://script.google.com/a/macros/edu.nishi.or.jp/s/LB/exec' }),
       getProjectTriggers: () => S.triggers.map(fn => ({ getHandlerFunction: () => fn })), deleteTrigger: tr => { S.triggers.splice(S.triggers.indexOf(tr.getHandlerFunction()), 1); },
-      newTrigger: fn => ({ timeBased: () => ({ atHour: () => ({ everyDays: () => ({ create: () => S.triggers.push(fn) }) }), everyHours: () => ({ create: () => S.triggers.push(fn) }), after: () => ({ create: () => S.triggers.push(fn) }) }) }) },
+      WeekDay: { MONDAY: 'MONDAY' },
+      newTrigger: fn => ({ timeBased: () => ({ atHour: () => ({ everyDays: () => ({ create: () => S.triggers.push(fn) }) }), everyHours: () => ({ create: () => S.triggers.push(fn) }), after: () => ({ create: () => S.triggers.push(fn) }),
+        onWeekDay: () => ({ atHour: () => ({ nearMinute: () => ({ create: () => S.triggers.push(fn) }) }) }) }) }) },
+    MailApp: { sendEmail: m => { (S.mails = S.mails || []).push(m); }, getRemainingDailyQuota: () => 100 },
     HtmlService: {
       createHtmlOutput: h => ({ html: h, setTitle() { return this; }, addMetaTag() { return this; } }),
       // 本物の GAS と同じく、<?!= ?> の中で見えるのはテンプレートに渡した名前と組み込みだけ（関数の中に包んだアプリの名前は見えない）
@@ -154,6 +161,113 @@ t('版の切り替え：ハブの版を書き換え、lbReload（または5分�
   run(S).doGet({ parameter: {} });
   assert.ok(jsd(S).some(u => u.includes('@v2026.1110.0900/dist/server.js')));
 });
+t('自動：platform シートが無い・「版」が空・「自動」なら GitHub の release.json の版で動く', () => {
+  const FULL = 'a'.repeat(40);
+  for (const setup of [S => { delete S.hub.sheets.platform; }, S => { S.hub.sheets.platform.v[0][1] = ''; }, S => { S.hub.sheets.platform.v[0][1] = '自動'; }]) {
+    const S = school(); setup(S);
+    S.release = { ver: FULL, sha: '' }; S.files = Object.assign({}, S.files);
+    run(S).doGet({ parameter: {} });
+    assert.ok(jsd(S).some(u => u.includes('@' + FULL + '/dist/server.js')), 'release.json の版を取りに行く');
+  }
+});
+t('自動：GitHub に届かない時は、最後に取れた版で動く。一度も取れていなければ理由を出す', () => {
+  const S = school(); delete S.hub.sheets.platform;
+  S.release = { ver: 'b'.repeat(40), sha: '' };
+  run(S).lbStatus();                                                 // 一度取れた（覚える）
+  assert.strictEqual(S.props.LB_RELEASE.split('|')[0], 'b'.repeat(40));
+  S.cache = {}; S.githubDown = true;
+  run(S).doGet({ parameter: {} });
+  assert.ok(jsd(S).some(u => u.includes('@' + 'b'.repeat(40) + '/dist/server.js')));
+  const S2 = school(); delete S2.hub.sheets.platform; S2.githubDown = true;
+  assert.match(run(S2).doGet({ parameter: {} }).html, /使う版が決まりません/);
+});
+t('固定：「版」にコミット番号があれば release.json に関わらずその版（戻す・止める）', () => {
+  const S = school(); S.release = { ver: 'c'.repeat(40), sha: '' };
+  run(S).doGet({ parameter: {} });
+  assert.ok(!S.fetches.some(u => u.includes('release.json')), '固定の時は release.json を見ない');
+  assert.ok(jsd(S).some(u => u.includes('@' + VER + '/')));
+});
+
+t('新しい形の記録：送信で単元のスプレッドシートに1行（学習者ID・全問）。夜の処理でハブの集計へ（練習は除く）', () => {
+  const S = school();
+  S.units = { KUKUxxxxxxxxxxxxxxxxxxxxxx: makeSS('kuku') }; S.props['unit_sheet:kuku'] = 'KUKUxxxxxxxxxxxxxxxxxxxxxx';
+  const c = run(S); c.doGet({ parameter: {} });
+  const M = c.LB_MODULES.tamath, mail = '11111111@kyoiku.edu.nishi.or.jp';
+  const items = [{ i: 0, q: '7x8', t: 'x7', a: '56', tries: 1, hit: true, ok: true, skill: 'math/kuku/x7', first: 1200 },
+    { i: 1, q: '7x6', t: 'x7', a: '41/42', tries: 2, hit: true, ok: false, skill: 'math/kuku/x7' }];
+  assert.strictEqual(M.writeForUnit('kuku', { mode: 3 }, mail, false, items), true);
+  assert.strictEqual(M.writeForUnit('kuku', { mode: 3 }, mail, true, items), true, '練習も記録する');
+  assert.strictEqual(M.writeForUnit('kuku', { mode: 3 }, '99999999@kyoiku.edu.nishi.or.jp', false, items), false, '名簿にない人は書かない');
+  const rows = S.units.KUKUxxxxxxxxxxxxxxxxxxxxxx.sheets.sessions_2026.v;
+  assert.strictEqual(rows.length, 3);
+  const lid = S.hub.sheets.roster.v[1][S.hub.sheets.roster.v[0].indexOf('学習者ID')];
+  assert.ok(/^L[a-z2-9]{10}$/.test(lid));
+  const r1 = c.LbSession.fromRow(rows[1]);
+  assert.strictEqual(r1.lid, lid); assert.strictEqual(r1.app, 'tamath'); assert.strictEqual(r1.activity, 'kuku/3'); assert.strictEqual(r1.context, 'live');
+  assert.strictEqual(r1.items.length, 2); assert.strictEqual(r1.skills['math/kuku/x7'].ok, 1, '一度で正答した問題だけ正答');
+  assert.strictEqual(c.LbSession.fromRow(rows[2]).context, 'practice');
+  // 夜の処理：集計（練習は除く・読んだ位置は単元ごと）
+  run(S).lbNightly();
+  const f = S.hub.sheets.facts_2026.v;
+  assert.strictEqual(f.length, 2, '本番の1行だけ');
+  assert.strictEqual(f[1][1], lid); assert.strictEqual(f[1][6], 'math/kuku/x7'); assert.strictEqual(f[1][7], 2); assert.strictEqual(f[1][8], 1);
+  assert.ok(S.hub.sheets.facts_cursor.v.some(r => r[0] === 'tamath:kuku' && r[1] === 'sessions_2026'));
+  run(S).lbNightly();
+  assert.strictEqual(S.hub.sheets.facts_2026.v[1][7], 2, '2回目は足さない');
+  // 技能の目録をハブに書く（lbSetup）
+  run(S).lbSetup();
+  assert.ok(S.hub.sheets.catalog.v.some(r => r[0] === 'tamath'));
+});
+
+t('段階D：過去の log を1回だけ集計へ（新しい形の記録より前の分）→ 今週の3件 → 先生の画面 → 判断の記録 → 月曜のメール（名前なし）', () => {
+  const S = school();
+  const kuku = makeSS('kuku');
+  S.units = { KUKUxxxxxxxxxxxxxxxxxxxxxx: kuku }; S.props['unit_sheet:kuku'] = 'KUKUxxxxxxxxxxxxxxxxxxxxxx';
+  S.hub.insertSheet('teachers').v.push(['メール', '学年', '組'], ['tan@edu.nishi.or.jp', 3, 1]);
+  const c = run(S); c.doGet({ parameter: {} });
+  const mail = '11111111@kyoiku.edu.nishi.or.jp';
+  // 過去の log：4週前まで 90%、今週 50%（急に崩れた）
+  const head = ['ts', 'email', '学年', '組', '番号', '氏名', 'mode', 'モード名', 'limit_sec', 'correct', 'attempts', 'miss_items', 'slow_items', 'type_stats', 'wrong_items'];
+  const log = kuku.insertSheet('log'); log.v.push(head);
+  const day = k => new Date(Date.now() - k * 7 * 86400000);
+  for (let k = 1; k <= 4; k++) log.v.push([day(k), mail, 3, '1', 5, '田中 はなこ', 3, 'm', 60, 10, 10, 'x7:7x1', '', 'x7:9:0:9:9000:0:62.2:430', '']);
+  log.v.push([day(0), mail, 3, '1', 5, '田中 はなこ', 3, 'm', 60, 10, 10, 'x7:a,x7:b,x7:c,x7:d,x7:e,x7:f', '', 'x7:6:0:6:6000:0:41.4:286', '']);
+  // 新しい形の記録が始まった後の1回（log にも同じ回があるが、二重に数えない）
+  run(S).lbStatus();
+  c.LB_MODULES.tamath.writeForUnit('kuku', { mode: 3 }, mail, false, [{ i: 0, q: '7x8', t: 'x7', a: '56', tries: 1, hit: true, ok: true, skill: 'math/kuku/x7', first: 1000 }]);
+  const sessTs = kuku.sheets.sessions_2026.v[1][0];
+  log.v.push([new Date(sessTs.getTime() + 1), mail, 3, '1', 5, '田中 はなこ', 3, 'm', 60, 1, 1, '', '', 'x7:1:0:1:1000:0:6.9:47.7', '']);   // 新しい形が始まった後の回（いまより前）
+  run(S).lbSetup();                                                  // 技能の目録をハブへ
+  run(S).lbNightly();
+  const f = S.hub.sheets.facts_2026.v.slice(1);
+  const total = f.reduce((t, r) => t + Number(r[7]), 0);
+  assert.strictEqual(total, 4 * 10 + 12 + 1, '過去の log（新しい形が始まる前の分）＋新しい形の1問。後の log の回は数えない');
+  run(S).lbNightly();
+  assert.strictEqual(S.hub.sheets.facts_2026.v.slice(1).reduce((t, r) => t + Number(r[7]), 0), total, '2回目の夜は取り込まない');
+  // 今週の3件
+  const now3 = S.hub.sheets.now3.v;
+  assert.ok(now3.length >= 2 && now3[1][3] === 'drop', '急に崩れた が出る');
+  const tb = run(S, 'tan@edu.nishi.or.jp').lbCall('home', 'boot', [{ classKey: '3-1' }]);
+  assert.strictEqual(tb.now3[0].kind, 'drop');
+  assert.strictEqual(tb.now3[0].names[0], '田中 はなこ');
+  assert.match(tb.now3[0].skill, /九九/);
+  assert.match(tb.now3[0].text, /正答率 90% →/);
+  const kid = run(S, mail).lbCall('home', 'boot', [{}]);
+  assert.strictEqual(kid.now3, undefined, '児童には渡さない');
+  // 月曜のメール（判断する前）
+  run(S).lbWeekly();
+  const ms = S.mails || [];
+  assert.ok(ms.some(m => m.to === 'tan@edu.nishi.or.jp') && ms.some(m => m.to === 'owner@edu.nishi.or.jp'));
+  assert.ok(ms.every(m => !/田中|はなこ/.test(m.body + m.subject)), 'メールに名前を書かない');
+  assert.match(ms[0].body, /3年1組：急に崩れた 1/);
+  // 判断の記録
+  const after = run(S, 'tan@edu.nishi.or.jp').lbCall('home', 'decide', ['3-1', tb.now3[0].key, 'changed', '']);
+  assert.ok(!after.some(x => x.key === tb.now3[0].key));
+  assert.throws(() => run(S, mail).lbCall('home', 'decide', ['3-1', tb.now3[0].key, 'seen', '']), /先生だけ/);
+  S.mails = []; run(S).lbWeekly();
+  assert.ok(!(S.mails || []).some(m => /急に崩れた/.test(m.body)), '判断した項目はメールにも出ない');
+});
+
 t('版の欄が不正・ハブが未設定なら、理由を出して止まる', () => {
   const S = school(); S.hub.sheets.platform.v[0][1] = 'main';
   assert.match(run(S).doGet({ parameter: {} }).html, /コミット番号でもタグでもありません/);
@@ -166,7 +280,7 @@ t('lbSetup：所有者だけ。自動実行（夜・朝・4/1・毎時）を1回
   S.triggers.push('nightlyAggregateAll', 'rolloverRosterAll', 'resetDailyAll');   // 前の形（算数TA をまとめた GAS）の自動実行
   const msg = run(S).lbSetup(); run(S).lbSetup();
   assert.match(msg, /前の形の自動実行を消しました：nightlyAggregateAll・rolloverRosterAll・resetDailyAll/);
-  assert.strictEqual(JSON.stringify(S.triggers.slice().sort()), JSON.stringify(['lbDaily', 'lbHourly', 'lbNightly', 'lbRollover']));
+  assert.strictEqual(JSON.stringify(S.triggers.slice().sort()), JSON.stringify(['lbDaily', 'lbHourly', 'lbNightly', 'lbRollover', 'lbWeekly']));
   assert.match(msg, /tamath：/);
 });
 t('自動実行：夜の処理は各アプリへ（算数TA は未登録の単元を飛ばす）。毎時は jsDelivr に行かずに一時保存を延ばす', () => {
@@ -177,6 +291,58 @@ t('自動実行：夜の処理は各アプリへ（算数TA は未登録の単�
   assert.strictEqual(S.fetches.length, before);
 });
 
+t('直すための材料：開いた・往復・始めるまで・失敗（エラー文つき）を数え、夜に前日までを usage へ。所有者は画面から失敗と速さの書き出しを受け取れる（名前は入らない）', () => {
+  const S = school();
+  run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: { app: 'tamath', unit: 'kuku' } });
+  run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'boot', [{ lastMs: 1200, mem: 8, start: { path: 'now', ms: 3000 } }]);
+  const sum = () => Object.keys(S.props).filter(k => k.startsWith('LB_U|')).map(k => JSON.parse(S.props[k])).reduce((a, o) => { for (const k in o) a[k] = (a[k] || 0) + o[k]; return a; }, {});
+  const all = sum();
+  assert.strictEqual(all['child|boot'], 1); assert.strictEqual(all['child|rt:8GB:2秒未満'], 1); assert.strictEqual(all['child|start:3年:いまの学習:5秒未満'], 1);
+  assert.ok(!Object.keys(all).some(k => /open:/.test(k)), 'ページを開いた回数は数えない');
+  run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'report', ['jserror', 'TypeError: q is null']);
+  assert.strictEqual(sum()['child|js:TypeError: q is null'], 1, '画面からのエラー文が届く');
+  // 失敗を数える：呼べる関数が中で失敗した時（児童が学級の設定を変えようとした）。エラー文つき
+  assert.throws(() => run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'setNow', ['3-1', []]), /先生だけ/);
+  assert.strictEqual(sum()['child|err:home.setNow:先生だけが変えられます'], 1);
+  // 書き出し：所有者だけ
+  assert.throws(() => run(S, 'other@edu.nishi.or.jp').lbCall('home', 'exportForTuning', []), /所有者だけ/);
+  S.hub.insertSheet('feedback').v.push(['日時', '教師', '学級', '画面', '本文'], [new Date(), 'owner@edu.nishi.or.jp', '3-1', 'home', '田中はなこさんが押し間違えた']);
+  const r = run(S).lbCall('home', 'exportForTuning', []);
+  assert.ok(r.ok, (r.problems || []).join());
+  assert.ok(!/田中|はなこ|@|11111111/.test(r.text)); assert.match(r.text, /〔[a-z0-9]{2,3}〕さんが押し間違えた/);
+  assert.match(r.text, new RegExp('版：' + VER));
+  assert.ok(!/候補|分布|正答率/.test(r.text), '学習状態は入れない');
+  assert.match(r.text, /err:home\.setNow:先生だけが変えられます \| 1/);
+  // 閾値：所有者が保存した値で夜の計算をする
+  run(S).lbCall('home', 'saveRules', [{ 'drop.accDrop': 0.2 }, false]);
+  assert.strictEqual(S.hub.sheets.rules.v.find(x => x[0] === 'drop.accDrop')[1], 0.2);
+  assert.throws(() => run(S, 'other@edu.nishi.or.jp').lbCall('home', 'saveRules', [{ max: 5 }, false]), /所有者だけ/);
+  assert.ok(S.hub.sheets.pseudo_2026, '記号表はハブに');
+  // 夜：前日までの分を usage へ
+  for (const k of Object.keys(S.props)) if (k.startsWith('LB_U|')) { S.props[k.replace(/LB_U\|\d{4}-\d{2}-\d{2}/, 'LB_U|2026-01-05')] = S.props[k]; delete S.props[k]; }
+  run(S).lbNightly();
+  assert.ok(S.hub.sheets.usage.v.some(r => r[0] === '2026-01-05' && r[2] === 'err:home.setNow:先生だけが変えられます'));
+  assert.ok(!Object.keys(S.props).some(k => k.startsWith('LB_U|2026-01-05')));
+});
+t('月曜のメール：今週の3件が無い週でも、失敗があれば所有者にだけ件数を1行（名前・エラー文は書かない）', () => {
+  const S = school();
+  assert.strictEqual(run(S).lbWeekly(), 0, '失敗も3件も無ければ送らない');
+  assert.throws(() => run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'setNow', ['3-1', []]));
+  assert.strictEqual(run(S).lbWeekly(), 1);
+  const m = S.mails[S.mails.length - 1];
+  assert.strictEqual(m.to, 'owner@edu.nishi.or.jp'); assert.match(m.body, /直近7日の失敗：1 件/);
+  assert.ok(!/先生だけ|田中|はなこ/.test(m.body));
+});
+t('月曜のメール：今週の3件がある週は、失敗の1行を所有者のメールにだけ足す（担任には足さない）', () => {
+  const S = school();
+  S.hub.insertSheet('teachers').v.push(['メール', '学年', '組'], ['tannin@edu.nishi.or.jp', 3, '1']);
+  S.hub.insertSheet('now3').v.push(['学級', '順', 'キー', '種類'], ['3-1', 1, 'drop|x|2026-11-02', 'drop']);
+  assert.throws(() => run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'setNow', ['3-1', []]));
+  assert.strictEqual(run(S).lbWeekly(), 2);
+  const own = S.mails.find(m => m.to === 'owner@edu.nishi.or.jp'), tan = S.mails.find(m => m.to === 'tannin@edu.nishi.or.jp');
+  assert.match(own.body, /3年1組：急に崩れた 1/); assert.match(own.body, /（所有者へ）直近7日の失敗：1 件/);
+  assert.match(tan.body, /3年1組：急に崩れた 1/); assert.ok(!/失敗/.test(tan.body));
+});
 (async () => {
   const S = school();
   const html = run(S).doGet({ parameter: {} }).html;

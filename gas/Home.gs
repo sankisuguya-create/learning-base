@@ -39,6 +39,20 @@ var LbHome = (function () {
   }
 
   /**
+   * ハブの links シート（算数TA のハブのリンク一覧。列：id / title / subtitle / url / grades / color / visible / order / sheet / place）。
+   * ページの色（先生が選んだ色）と、別の GAS で動くページ（kind: link）の URL をここから取る。{ id: { url, color, subtitle } }
+   */
+  function hubLinks() {
+    var sh = Base.hub().getSheetByName('links'), out = {};
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
+      var id = String(r[0] || '').trim();
+      if (id) out[id] = { url: String(r[3] || '').trim(), color: String(r[5] || '').trim(), subtitle: String(r[2] || '').trim() };
+    });
+    return out;
+  }
+
+  /**
    * ホームを開いた時の情報。
    * - 児童：本人の名前・学年・学級と、学級の設定（公開・いまの学習）
    * - 教師：扱える学級の一覧、選んだ学級の設定と児童の一覧（代わりに取り組む児童を選ぶため）
@@ -46,7 +60,14 @@ var LbHome = (function () {
    */
   function boot(opt) {
     opt = opt || {};
+    var t0 = Date.now(), out = bootInner(opt), ev = ['boot', LbTune.speed('srv', Date.now() - t0)];
+    // 前回分（往復の時間・端末のメモリ・始めるまで・行き止まり）は画面が覚えて次に送る（呼び出しを増やさない）
+    LbTune.count(out.role, ev.concat(LbTune.bootEvents(out.role, out.learner ? out.learner.grade : 0, opt)));
+    return out;
+  }
+  function bootInner(opt) {
     var m = Base.me(), out = { role: m.role, today: today(), pagesUrl: pagesUrl(), subjects: LbPages.SUBJECTS };
+    try { out.links = hubLinks(); } catch (e) { out.links = {}; }
     if (m.role === 'child') {
       var c = m.child;
       out.learner = { name: c.name, mei: c.mei, grade: c.grade, cls: c.cls };
@@ -57,6 +78,7 @@ var LbHome = (function () {
     if (m.role === 'teacher') {
       var cls = classesFor(m.email);
       out.classes = cls;
+      out.owner = isOwnerView();
       var pick = cls.filter(function (x) { return x.key === opt.classKey; })[0] || cls[0];
       if (pick) {
         out.classKey = pick.key;
@@ -64,11 +86,30 @@ var LbHome = (function () {
         out.members = Base.members(pick.grade, pick.cls).map(function (r) {
           return { lid: r.lid, no: r.no, name: r.name, provisional: !!r.provisional };
         });
+        try { out.now3 = now3(pick.key); } catch (e) { out.now3 = []; console.error('今週の3件を読めません: ' + e.message); }
       }
       return out;
     }
     out.message = m.role === 'none' ? '学校のアカウントで ひらいてください' : 'なまえが まだ とうろく されていません。せんせいに つたえてね';
     return out;
+  }
+
+  /** 今週の3件（名前・技能の名前・根拠の一文を付ける）。名前は教師にだけ渡す */
+  function now3(classKey) {
+    var hub = Base.hub(), cats = LbCatalog.readAll(hub);
+    return LbAlerts.read(hub, classKey).map(function (x) {
+      var cat = cats[x.app], sk = cat ? LbCatalog.index(cat)[x.skill] : null;
+      return { key: x.key, kind: x.kind, label: LbAlerts.LABEL[x.kind] || x.kind, skill: sk ? sk.label : x.skill, app: cat ? cat.title : x.app,
+        names: x.lids.map(function (l) { var r = Base.learner(l); return r ? r.name : '（名簿にない）'; }), text: LbAlerts.describe(x) };
+    });
+  }
+  /** 判断の記録（判断が変わった／見た）。押した項目は今週の3件から消える */
+  function decide(classKey, key, action, memo) {
+    var m = requireClass(classKey);
+    var item = LbAlerts.read(Base.hub(), classKey).filter(function (x) { return x.key === String(key); })[0];
+    if (!item) throw new Error('もう ない項目です（ページを開き直してください）');
+    LbAlerts.decide(Base.hub(), classKey, item, action === 'changed' ? 'changed' : 'seen', memo, m.email);
+    return now3(classKey);
   }
 
   function setPublish(classKey, pageId, on) {
@@ -91,7 +132,74 @@ var LbHome = (function () {
     return LbPages.readSettings(Base.hub(), classKey);
   }
 
-  return { boot: boot, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
+  /* ---------- 直すための材料（Tune.gs） ---------- */
+
+  /** 所有者が開いているか（「自分として実行」では、開いた人＝所有者の時だけ getActiveUser と getEffectiveUser が同じ） */
+  function isOwnerView() {
+    try {
+      var a = String(Session.getActiveUser().getEmail() || '').toLowerCase(), e = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+      return !!a && a === e;
+    } catch (err) { return false; }
+  }
+  /** 先生の気づき（学習BASE の使い勝手・機能。児童の学習のようすは書かない）。ハブの feedback シートに1行 */
+  function feedback(classKey, view, text) {
+    var m = Base.me();
+    if (m.role !== 'teacher') throw new Error('先生だけが送れます');
+    var ck = '';
+    if (classKey) { requireClass(classKey); ck = String(classKey); }
+    LbTune.saveFeedback(Base.hub(), m.email, ck, view, text);
+    return true;
+  }
+  /**
+   * 画面の失敗を数える。loadfail：画面のファイルが読めない／bootfail：ホームの情報が取れない／catfail：目録が取れない／
+   * jserror：画面の JavaScript の失敗（detail にエラー文。メール・ID・長い数は伏せて記録）
+   */
+  var REPORT = { loadfail: 1, bootfail: 1, catfail: 1, jserror: 1 };
+  function report(kind, detail) {
+    if (!REPORT[kind]) return false;
+    var role = '-';
+    try { role = Base.me().role; } catch (e) {}
+    LbTune.count(role, kind === 'jserror' ? 'js:' + LbTune.errText(detail) : 'client:' + kind);
+    return true;
+  }
+  function requireOwner() { if (!isOwnerView()) throw new Error('スプレッドシートの所有者だけが使えます'); }
+  /** 失敗と速さの書き出し（所有者だけ。観察では見えないものだけ・学習状態は入れない）。{ ok, text, problems, notes } */
+  function exportForTuning() {
+    requireOwner();
+    var hub = Base.hub(), fy = Base.fy(), roster = Base.roster(), t = today();
+    var settings = classesFor(String(Session.getActiveUser().getEmail() || '').toLowerCase()).map(function (c) {
+      var st = LbPages.readSettings(hub, c.key), hidden = 0;
+      Object.keys(st.publish || {}).forEach(function (k) { if (st.publish[k] === false) hidden++; });
+      return { classKey: c.key, hidden: hidden, now: (st.now || []).filter(function (n) { return LbPages.inPeriod(n, t); }).length };
+    });
+    var ver = '';
+    try { ver = typeof LB_LOADER !== 'undefined' ? LB_LOADER.ver() : ''; } catch (e) {}
+    var r = LbTune.exportText({ hub: hub, fy: fy, today: t, ver: ver, roster: roster, teachers: Base.teachers(), settings: settings });
+    return r;
+  }
+
+  /* 閾値を見直す（所有者だけ・学校の中だけ。児童の学習状態を扱うので書き出しには入れない） */
+  function tuningInput() { var hub = Base.hub(), fy = Base.fy(); return { hub: hub, today: today(), roster: Base.roster(), acc: LbFacts.read(hub, fy), cats: LbCatalog.readAll(hub) }; }
+  function tuning() {
+    requireOwner();
+    return LbTune.tuning(tuningInput());
+  }
+  /** 入れた値で数える（保存しない）。values：{ 項目: 値 }（元の値。0.15 など） */
+  function tryRules(values) {
+    requireOwner();
+    var o = tuningInput();
+    return LbTune.tryRules(o.acc, o.roster, o.cats, o.today, LbAlerts.active(o.hub), values || {});
+  }
+  /** 値を保存する（翌晩から効く）。now が true なら今週の3件をすぐ計算し直す。返す：見直す画面の材料 */
+  function saveRules(values, now) {
+    requireOwner();
+    var o = tuningInput();
+    LbAlerts.saveValues(o.hub, values || {}, String(Session.getActiveUser().getEmail() || ''));
+    if (now) LbTune.logAlerts(o.hub, LbAlerts.refresh(o.hub, Base.fy(), o.roster, o.cats, o.today), o.today);
+    return LbTune.tuning(o);
+  }
+
+  return { boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();
 
 /* 画面（google.script.run）から呼ぶ入口 */
@@ -99,3 +207,10 @@ function homeBoot(opt) { return LbHome.boot(opt); }
 function homeSetPublish(classKey, pageId, on) { return LbHome.setPublish(classKey, pageId, on); }
 function homeResetPublish(classKey) { return LbHome.resetPublish(classKey); }
 function homeSetNow(classKey, list) { return LbHome.setNow(classKey, list); }
+function homeDecide(classKey, key, action, memo) { return LbHome.decide(classKey, key, action, memo); }
+function homeFeedback(classKey, view, text) { return LbHome.feedback(classKey, view, text); }
+function homeReport(kind, detail) { return LbHome.report(kind, detail); }
+function homeExport() { return LbHome.exportForTuning(); }
+function homeTuning() { return LbHome.tuning(); }
+function homeTryRules(values) { return LbHome.tryRules(values); }
+function homeSaveRules(values, now) { return LbHome.saveRules(values, now); }

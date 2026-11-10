@@ -8,14 +8,15 @@
     2
    ],
    "unit": "たし算",
-   "title": "たし算 タイムアタック",
-   "ruby": "たしざん タイムアタック",
+   "title": "たし算",
+   "ruby": "たしざん",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "tasu"
    },
-   "order": 10
+   "order": 10,
+   "actAs": true
   },
   {
    "id": "tamath-hiku",
@@ -24,14 +25,15 @@
     2
    ],
    "unit": "ひき算",
-   "title": "ひき算 タイムアタック",
-   "ruby": "ひきざん タイムアタック",
+   "title": "ひき算",
+   "ruby": "ひきざん",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "hiku"
    },
-   "order": 20
+   "order": 20,
+   "actAs": true
   },
   {
    "id": "tamath-kuku",
@@ -40,14 +42,15 @@
     3
    ],
    "unit": "かけ算",
-   "title": "九九 タイムアタック",
-   "ruby": "くく タイムアタック",
+   "title": "九九",
+   "ruby": "くく",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "kuku"
    },
-   "order": 10
+   "order": 10,
+   "actAs": true
   },
   {
    "id": "tamath-divmod",
@@ -63,7 +66,8 @@
    "params": {
     "unit": "divmod"
    },
-   "order": 20
+   "order": 20,
+   "actAs": true
   },
   {
    "id": "tamath-length",
@@ -72,14 +76,15 @@
     3
    ],
    "unit": "長さ",
-   "title": "長さ タイムアタック",
-   "ruby": "ながさ タイムアタック",
+   "title": "長さ",
+   "ruby": "ながさ",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "length"
    },
-   "order": 30
+   "order": 30,
+   "actAs": true
   },
   {
    "id": "tamath-weight",
@@ -88,14 +93,15 @@
     3
    ],
    "unit": "重さ",
-   "title": "重さ タイムアタック",
-   "ruby": "おもさ タイムアタック",
+   "title": "重さ",
+   "ruby": "おもさ",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "weight"
    },
-   "order": 40
+   "order": 40,
+   "actAs": true
   },
   {
    "id": "tamath-bignum",
@@ -104,14 +110,15 @@
     3
    ],
    "unit": "大きな数",
-   "title": "大きな数 タイムアタック",
-   "ruby": "おおきなかず タイムアタック",
+   "title": "大きな数",
+   "ruby": "おおきなかず",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "bignum"
    },
-   "order": 50
+   "order": 50,
+   "actAs": true
   },
   {
    "id": "tamath-decimal",
@@ -120,14 +127,15 @@
     3
    ],
    "unit": "小数",
-   "title": "小数 タイムアタック",
-   "ruby": "しょうすう タイムアタック",
+   "title": "小数",
+   "ruby": "しょうすう",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "decimal"
    },
-   "order": 60
+   "order": 60,
+   "actAs": true
   },
   {
    "id": "tamath-circle",
@@ -136,14 +144,15 @@
     3
    ],
    "unit": "円と球",
-   "title": "円と球 タイムアタック",
-   "ruby": "えんときゅう タイムアタック",
+   "title": "円と球",
+   "ruby": "えんときゅう",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "circle"
    },
-   "order": 70
+   "order": 70,
+   "actAs": true
   },
   {
    "id": "tamath-kakehissan",
@@ -152,14 +161,15 @@
     3
    ],
    "unit": "かけ算の筆算",
-   "title": "かけ算の筆算 タイムアタック",
-   "ruby": "かけざんのひっさん タイムアタック",
+   "title": "かけ算の筆算",
+   "ruby": "かけざんのひっさん",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "kakehissan"
    },
-   "order": 80
+   "order": 80,
+   "actAs": true
   },
   {
    "id": "tamath-bai",
@@ -168,14 +178,15 @@
     3
    ],
    "unit": "何倍でしょう",
-   "title": "何倍でしょう タイムアタック",
-   "ruby": "なんばいでしょう タイムアタック",
+   "title": "何倍でしょう",
+   "ruby": "なんばいでしょう",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "bai"
    },
-   "order": 90
+   "order": 90,
+   "actAs": true
   },
   {
    "id": "tamath-volume",
@@ -184,14 +195,15 @@
     5
    ],
    "unit": "体積",
-   "title": "体積 タイムアタック",
-   "ruby": "たいせき タイムアタック",
+   "title": "体積",
+   "ruby": "たいせき",
    "kind": "app",
    "app": "tamath",
    "params": {
     "unit": "volume"
    },
-   "order": 10
+   "order": 10,
+   "actAs": true
   },
   {
    "id": "kanzi",
@@ -220,10 +232,10 @@
    "unit": "西宮博",
    "title": "といボード",
    "ruby": "といボード",
-   "kind": "app",
-   "app": "toi-board",
+   "kind": "link",
    "order": 10,
-   "defaultOn": false
+   "defaultOn": true,
+   "linkId": "toi-board"
   }
  ]
 }

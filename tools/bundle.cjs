@@ -10,11 +10,11 @@
 // アプリのファイルは、隣にあるクローン（../<リポジトリ名>）から apps.lock.json のコミットで取り出す（git show）。
 const fs = require('fs'), path = require('path'), crypto = require('crypto'), { execFileSync } = require('child_process');
 const R = path.resolve(__dirname, '..');
-const GAS_ORDER = ['Base.gs', 'Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Pages.gs', 'Home.gs'];
+const GAS_ORDER = ['Base.gs', 'Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Alerts.gs', 'Tune.gs', 'Pages.gs', 'Home.gs'];
 const lock = JSON.parse(fs.readFileSync(path.join(R, 'apps.lock.json'), 'utf8'));
 
 function gitShow(repo, commit, file) {
-  const dir = path.resolve(R, '..', repo.split('/')[1]);
+  const dir = path.resolve(process.env.LB_APPS_DIR ? path.resolve(R, process.env.LB_APPS_DIR) : path.resolve(R, '..'), repo.split('/')[1]);   // GitHub Actions では LB_APPS_DIR に取り込む
   if (!fs.existsSync(dir)) throw new Error(`${repo} のクローンが ${dir} にありません`);
   return execFileSync('git', ['-C', dir, 'show', `${commit}:${file}`], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }

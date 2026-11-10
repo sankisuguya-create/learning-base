@@ -1037,7 +1037,9 @@ var LbFacts = (function () {
 
   /**
    * 新しいセッションだけを読んで集計に足す（毎晩）。
-   * sources: [{ app, ss }]（アプリの id と記録のスプレッドシート）。hubSs：ハブ。
+   * sources: [{ app, key, ss }]（アプリの id・記録先の名前・記録のスプレッドシート）。hubSs：ハブ。
+   *   key は読んだ位置を覚える名前（省略時は app）。同じアプリが記録先を複数持つ時（算数TA は単元ごと）は別の key にする
+   * 練習（context が practice）の行は集計に入れない（opts.contexts で集計に入れる文脈を変えられる）
    * 読んだ位置（facts_cursor）を覚えるので、同じセッションを2回足さない。
    * 4分を越えたら途中でやめ、続きは次の実行で読む。返す：{ read, more }
    * 集計を書いた後・位置を書く前に止まると二重に足しうる。その時は rebuild で作り直す。
@@ -1046,10 +1048,11 @@ var LbFacts = (function () {
     opts = opts || {};
     var fy = opts.fy || Base.fyOf(new Date()), start = Date.now(), budget = opts.budgetMs || BUDGET_MS;
     var cur = readCursor(hubSs), add = {}, read = 0, more = false, touched = {};
+    var skipCtx = opts.excludeContexts || ['practice'];
     sources.forEach(function (src) {
       LbSession.sheetNames(src.ss, fy).forEach(function (name) {
         if (more) return;
-        var sh = src.ss.getSheetByName(name), last = sh.getLastRow(), ck = src.app + '|' + name;
+        var sh = src.ss.getSheetByName(name), last = sh.getLastRow(), ck = (src.key || src.app) + '|' + name;
         var from = Math.max(2, (cur[ck] || 1) + 1);
         while (from <= last) {
           if (Date.now() - start > budget) { more = true; break; }
@@ -1059,7 +1062,7 @@ var LbFacts = (function () {
           var sk = sh.getRange(from, LbSession.COL.skills + 1, n, 1).getValues();
           for (var i = 0; i < n; i++) {
             var s = LbSession.fromRow(head[i].concat(['', sk[i][0], '']));
-            if (s.lid) addSession(add, s);
+            if (s.lid && skipCtx.indexOf(s.context) < 0) addSession(add, s);
           }
           read += n; from += n; cur[ck] = from - 1; touched[ck] = true;
         }
@@ -1081,9 +1084,35 @@ var LbFacts = (function () {
     var sh = hubSs.getSheetByName('facts_' + fy);
     if (sh) sh.clearContents();
     var cur = readCursor(hubSs);
-    sources.forEach(function (src) { LbSession.sheetNames(src.ss, fy).forEach(function (n) { delete cur[src.app + '|' + n]; }); });
+    sources.forEach(function (src) { LbSession.sheetNames(src.ss, fy).forEach(function (n) { delete cur[(src.key || src.app) + '|' + n]; }); });
     writeCursor(hubSs, cur, true);
     return ingest(hubSs, sources, opts);
+  }
+
+  /**
+   * セッションの形（{ ts, lid, grade, cls, no, app, context, skills }）の配列を集計に足す。
+   * 過去の記録（アプリの log など、新しい形の記録が無い頃の分）の取り込みに使う。練習（practice）は足さない
+   */
+  function mergeSessions(hubSs, fy, sessions) {
+    var add = {};
+    (sessions || []).forEach(function (s) { if (s.lid && s.context !== 'practice' && Base.fyOf(s.ts) === fy) addSession(add, s); });
+    if (!Object.keys(add).length) return 0;
+    var name = 'facts_' + fy, sh = hubSs.getSheetByName(name) || hubSs.insertSheet(name);
+    var old = sh.getLastRow() > 1 ? fromRows(sh.getRange(2, 1, sh.getLastRow() - 1, HEAD.length).getValues()) : {};
+    writeFacts(sh, merge(old, add));
+    return Object.keys(add).length;
+  }
+  /** 読んだ位置の表に「済み」の印を置く・見る（過去の記録を1回だけ取り込むため） */
+  function marked(hubSs, key) { return !!readCursor(hubSs)[key]; }
+  function mark(hubSs, key) { var c = readCursor(hubSs); c[key] = 1; writeCursor(hubSs, c); }
+  /** その記録先の最初の新しい形の記録の時刻（無ければ null）。過去の記録はこれより前だけを取り込む */
+  function firstSessionTs(ss, fy) {
+    var names = LbSession.sheetNames(ss, fy);
+    for (var i = 0; i < names.length; i++) {
+      var sh = ss.getSheetByName(names[i]);
+      if (sh && sh.getLastRow() >= 2) return sh.getRange(2, 1, 1, 1).getValues()[0][0];
+    }
+    return null;
   }
 
   /** 集計を読む（年度・絞り込み）。{ キー: 行 } */
@@ -1120,7 +1149,707 @@ var LbFacts = (function () {
   }
 
   return { HEAD: HEAD, weekOf: weekOf, addWeeks: addWeeks, addSession: addSession, merge: merge, toRows: toRows, fromRows: fromRows,
-    combine: combine, stats: stats, recent: recent, state: state, ingest: ingest, rebuild: rebuild, read: read };
+    combine: combine, stats: stats, recent: recent, state: state, ingest: ingest, rebuild: rebuild, read: read,
+    mergeSessions: mergeSessions, marked: marked, mark: mark, firstSessionTs: firstSessionTs };
+})();
+
+// ===== gas/Alerts.gs =====
+/**
+ * Alerts.gs — 今週の3件（教師が次に手を打つ相手を、学級ごとに3件まで）
+ *
+ * 正本は learning-base。設計：`-` リポジトリ principles/learning-app-foundation.md §6
+ * 毎晩、集計（facts）から学級ごとに候補を計算し、ハブの now3 シートに置く。教師が学習BASE を開くと最上部に出る。
+ * 判定の規則と閾値の初期値は RULES の1か所だけに置く（初期値は根拠なし）。
+ * 所有者は学習BASE の「閾値を見直す」画面で値を変えられる（ハブの rules シートに保存。翌晩の計算から効く）。
+ * 変えられる項目と範囲は SPEC。週の数（4週・2週）は規則の形なので変えない。
+ * 閾値を見直す数（候補の数・分布）は児童の学習状態なので学校の中だけで見る（改善用の書き出しには入れない）。
+ *
+ * 候補の種類（強い順）
+ *   drop   急に崩れた児童：今週の正答率が直近4週の平均より15ポイント以上下がった（今週10問以上）、または時間が25%以上長くなった
+ *   class  学級でつまずいている技能：直近2週にその技能に取り組んだ児童（5問以上を5人以上）のうち、半数以上が正答率70%未満
+ *   stall  伸びが止まった児童：練習中の技能で、直近4週とその前の4週がどちらも20問以上あるのに、
+ *          正答率が2ポイント以上上がっておらず、時間も3%以上短くなっていない
+ */
+var LbAlerts = (function () {
+  var RULES = {
+    drop: { weekMinN: 10, baseWeeks: 4, baseMinN: 10, accDrop: 0.15, timeRise: 1.25 },
+    klass: { weeks: 2, kidMinN: 5, minKids: 5, accBelow: 0.7, share: 0.5 },
+    stall: { weeks: 4, minN: 20, accGain: 0.02, timeRatio: 0.97 },
+    max: 3,
+    dismissDays: 14
+  };
+  /**
+   * 所有者が変えられる項目。scale：画面での表し方（0.15 → 15 ポイント）。step：見直す画面で試す幅（'x' は半分と1.5倍）
+   */
+  var SPEC = [
+    { path: 'drop.accDrop', kind: 'drop', label: '正答率の下がり幅（これ以上で出す）', unit: 'ポイント', scale: 100, min: 0.03, max: 0.5, step: 0.05 },
+    { path: 'drop.timeRise', kind: 'drop', label: '時間の伸び（これ以上で出す）', unit: '倍', scale: 1, min: 1.05, max: 3, step: 0.15 },
+    { path: 'drop.weekMinN', kind: 'drop', label: '今週の問題数（これ以上の時だけ）', unit: '問', scale: 1, min: 1, max: 200, int: true, step: 'x' },
+    { path: 'drop.baseMinN', kind: 'drop', label: '前の4週の問題数（これ以上の時だけ）', unit: '問', scale: 1, min: 1, max: 400, int: true, step: 'x' },
+    { path: 'klass.accBelow', kind: 'klass', label: '低いとみなす正答率（これ未満）', unit: '%', scale: 100, min: 0.3, max: 0.95, step: 0.1 },
+    { path: 'klass.share', kind: 'klass', label: '低い児童の割合（これ以上で出す）', unit: '%', scale: 100, min: 0.1, max: 1, step: 0.1 },
+    { path: 'klass.minKids', kind: 'klass', label: '取り組んだ児童（これ以上の時だけ）', unit: '人', scale: 1, min: 2, max: 40, int: true, step: 2 },
+    { path: 'klass.kidMinN', kind: 'klass', label: '1人の問題数（これ以上で数に入れる）', unit: '問', scale: 1, min: 1, max: 200, int: true, step: 'x' },
+    { path: 'stall.minN', kind: 'stall', label: '前後4週それぞれの問題数（これ以上の時だけ）', unit: '問', scale: 1, min: 5, max: 400, int: true, step: 'x' },
+    { path: 'stall.accGain', kind: 'stall', label: '正答率の伸び（これ未満なら止まった）', unit: 'ポイント', scale: 100, min: 0, max: 0.3, step: 0.02 },
+    { path: 'stall.timeRatio', kind: 'stall', label: '時間の比（これより大きければ止まった）', unit: '倍', scale: 1, min: 0.5, max: 1.2, step: 0.02 },
+    { path: 'max', kind: 'all', label: '学級ごとに出す数', unit: '件', scale: 1, min: 1, max: 10, int: true },
+    { path: 'dismissDays', kind: 'all', label: '押した項目を出さない日数', unit: '日', scale: 1, min: 1, max: 60, int: true }
+  ];
+  var RULE_SHEET = 'rules', RULE_HEAD = ['項目', '値', '初期値', '説明', '変えた日', '変えた人'];
+  var KIND_RANK = { drop: 3, klass: 2, stall: 1 };
+  var LABEL = { drop: '▼ 急に崩れた', klass: '● 学級でつまずき', stall: '― 伸びが止まった' };
+  var SHEET = 'now3', HEAD = ['学級', '順', 'キー', '種類', '学習者ID', 'アプリ', '技能', '根拠', '週'];
+  var DEC_SHEET = 'decisions', DEC_HEAD = ['日時', '教師', '学級', 'キー', '種類', 'どうした', 'メモ'];
+
+  /** 学習者ID|アプリ|技能 → { 週: 集計の行 } */
+  function index(acc) {
+    var ix = {};
+    for (var k in acc) {
+      var f = acc[k], key = f.lid + '|' + f.app + '|' + f.skill;
+      (ix[key] = ix[key] || {})[f.week] = f;
+    }
+    return ix;
+  }
+  function weeksBack(w0, from, to) { var out = []; for (var i = from; i <= to; i++) out.push(LbFacts.addWeeks(w0, -i)); return out; }
+  function sum(byWeek, weeks) { return LbFacts.combine(weeks.map(function (w) { return byWeek[w]; }).filter(Boolean)); }
+
+  /** 名簿 → { 学習者ID: 学級キー } */
+  function classMap(roster) { var m = {}; roster.forEach(function (r) { if (r.lid) m[r.lid] = r.grade + '-' + r.cls; }); return m; }
+
+  /**
+   * 規則に当たる候補を全部返す（上位3件に切る前。判断済みも含む）。
+   * ix：index(acc)／clsOf：classMap(roster)／rules：RULES と同じ形（閾値を変えたらどうなるかを数える時に別の値を渡す）
+   * 返す：[{ cls, key, kind, lids, app, skill, week, mag, ev }]
+   */
+  function candidates(ix, clsOf, cats, w0, rules) {
+    var R = rules || RULES, out = [];
+    function add(cls, item) { item.cls = cls; out.push(item); }
+    var perSkill = {};   // 学級|アプリ|技能 → [{ lid, acc }]
+    Object.keys(ix).forEach(function (key) {
+      var p = key.split('|'), lid = p[0], app = p[1], skill = p.slice(2).join('|'), byWeek = ix[key], cls = clsOf[lid];
+      if (!cls) return;
+      // drop
+      var d = R.drop, now = sum(byWeek, [w0]), base = sum(byWeek, weeksBack(w0, 1, d.baseWeeks));
+      if (now.n >= d.weekMinN && base.n >= d.baseMinN) {
+        var sn = LbFacts.stats(now), sb = LbFacts.stats(base);
+        var accDrop = sb.acc - sn.acc, rise = (sn.gmMs && sb.gmMs) ? sn.gmMs / sb.gmMs : 1;
+        if (accDrop >= d.accDrop || rise >= d.timeRise) add(cls, { key: 'drop|' + lid + '|' + app + '|' + skill + '|' + w0, kind: 'drop', lids: [lid], app: app, skill: skill, week: w0,
+          mag: Math.max(accDrop / d.accDrop, rise / d.timeRise), ev: { accNow: sn.acc, accBase: sb.acc, msNow: sn.gmMs, msBase: sb.gmMs, nNow: now.n } });
+      }
+      // stall
+      var st = R.stall, rec = sum(byWeek, weeksBack(w0, 0, st.weeks - 1)), prev = sum(byWeek, weeksBack(w0, st.weeks, 2 * st.weeks - 1));
+      if (rec.n >= st.minN && prev.n >= st.minN && LbFacts.state(rec, LbCatalog.mastery(cats[app], skill)) !== '到達') {
+        var sr = LbFacts.stats(rec), sp = LbFacts.stats(prev);
+        var noGain = (sr.acc - sp.acc) < st.accGain, noFaster = (sr.gmMs && sp.gmMs) ? sr.gmMs / sp.gmMs > st.timeRatio : true;
+        if (noGain && noFaster) add(cls, { key: 'stall|' + lid + '|' + app + '|' + skill + '|' + w0, kind: 'stall', lids: [lid], app: app, skill: skill, week: w0,
+          mag: rec.n / st.minN, ev: { accNow: sr.acc, accBase: sp.acc, msNow: sr.gmMs, msBase: sp.gmMs, nNow: rec.n, nBase: prev.n } });
+      }
+      // klass の材料
+      var k = R.klass, two = sum(byWeek, weeksBack(w0, 0, k.weeks - 1));
+      if (two.n >= k.kidMinN) (perSkill[cls + '|' + app + '|' + skill] = perSkill[cls + '|' + app + '|' + skill] || []).push({ lid: lid, acc: LbFacts.stats(two).acc });
+    });
+    Object.keys(perSkill).forEach(function (key) {
+      var k = R.klass, kids = perSkill[key];
+      if (kids.length < k.minKids) return;
+      var low = kids.filter(function (x) { return x.acc < k.accBelow; }), share = low.length / kids.length;
+      if (share < k.share) return;
+      var p = key.split('|'), cls = p[0], app = p[1], skill = p.slice(2).join('|');
+      add(cls, { key: 'klass|' + cls + '|' + app + '|' + skill + '|' + w0, kind: 'klass', lids: low.map(function (x) { return x.lid; }), app: app, skill: skill, week: w0,
+        mag: share / k.share, ev: { kids: kids.length, low: low.length, below: k.accBelow } });
+    });
+    return out;
+  }
+
+  /**
+   * 候補を計算する（純粋な計算）。
+   * acc：集計（LbFacts.read の返り値）／roster：名簿（lid・grade・cls）／cats：{ アプリ: 目録 }／today：'YYYY-MM-DD'
+   * 返す：{ 学級: [{ key, kind, lids, app, skill, ev, week }] }（強い順に最大3件）
+   */
+  function compute(acc, roster, cats, today, dismissed, rules) {
+    dismissed = dismissed || {};
+    var R = rules || RULES, cand = {};
+    candidates(index(acc), classMap(roster), cats, weekOfDay(today), R).forEach(function (x) {
+      if (!dismissed[x.key]) (cand[x.cls] = cand[x.cls] || []).push(x);
+    });
+    var out = {};
+    Object.keys(cand).forEach(function (cls) {
+      out[cls] = cand[cls].sort(function (a, b) { return KIND_RANK[b.kind] - KIND_RANK[a.kind] || b.mag - a.mag || (a.key < b.key ? -1 : 1); })
+        .slice(0, R.max).map(function (x) { return { key: x.key, kind: x.kind, lids: x.lids, app: x.app, skill: x.skill, ev: x.ev, week: x.week }; });
+    });
+    return out;
+  }
+  function weekOfDay(today) { return LbFacts.weekOf(new Date(today + 'T12:00:00+09:00')); }
+
+  /** 根拠の一文（教師の画面に出す。名前は含めない） */
+  function describe(item) {
+    var e = item.ev || {}, pct = function (x) { return x == null ? '—' : Math.round(x * 100) + '%'; }, sec = function (x) { return x ? (x / 1000).toFixed(1) + '秒' : '—'; };
+    if (item.kind === 'drop') return '正答率 ' + pct(e.accBase) + ' → ' + pct(e.accNow) + '・時間 ' + sec(e.msBase) + ' → ' + sec(e.msNow) + '（今週 ' + e.nNow + '問・前の4週と比べて）';
+    if (item.kind === 'stall') return '正答率 ' + pct(e.accBase) + ' → ' + pct(e.accNow) + '・時間 ' + sec(e.msBase) + ' → ' + sec(e.msNow) + '（前の4週 ' + e.nBase + '問 → 直近4週 ' + e.nNow + '問）';
+    return '取り組んだ ' + e.kids + '人のうち ' + e.low + '人が正答率' + Math.round((e.below || 0.7) * 100) + '%未満（直近2週）';
+  }
+
+  /* ---------- 保存 ---------- */
+
+  function textCol(sh, col) { sh.getRange(1, col, Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000), 1).setNumberFormat('@'); }
+  function clsCell(v) {
+    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) return (v.getMonth() + 1) + '-' + v.getDate();
+    return String(v == null ? '' : v).trim();
+  }
+
+  /** 計算した候補を now3 シートに置く（丸ごと入れ替え） */
+  function store(hubSs, byClass) {
+    var sh = hubSs.getSheetByName(SHEET) || hubSs.insertSheet(SHEET), rows = [HEAD];
+    Object.keys(byClass).sort().forEach(function (cls) {
+      byClass[cls].forEach(function (x, i) { rows.push([cls, i + 1, x.key, x.kind, x.lids.join(','), x.app, x.skill, JSON.stringify(x.ev), x.week]); });
+    });
+    sh.clearContents(); textCol(sh, 1); textCol(sh, 9);
+    sh.getRange(1, 1, rows.length, HEAD.length).setValues(rows);
+    return rows.length - 1;
+  }
+  /** その学級の候補（判断済み・見たものを除く） */
+  function read(hubSs, classKey) {
+    var sh = hubSs.getSheetByName(SHEET);
+    if (!sh || sh.getLastRow() < 2) return [];
+    var done = decidedKeys(hubSs);
+    return sh.getRange(2, 1, sh.getLastRow() - 1, HEAD.length).getValues().filter(function (r) { return clsCell(r[0]) === classKey && !done[r[2]]; })
+      .sort(function (a, b) { return a[1] - b[1]; }).map(function (r) {
+        var ev = {}; try { ev = JSON.parse(String(r[7])); } catch (e) {}
+        return { key: String(r[2]), kind: String(r[3]), lids: String(r[4]).split(',').filter(Boolean), app: String(r[5]), skill: String(r[6]), ev: ev };
+      });
+  }
+  /** 判断の記録（判断が変わった／見た）。押された時だけ1行 */
+  function decide(hubSs, classKey, item, action, memo, by) {
+    var sh = hubSs.getSheetByName(DEC_SHEET);
+    if (!sh) { sh = hubSs.insertSheet(DEC_SHEET); sh.getRange(1, 1, 1, DEC_HEAD.length).setValues([DEC_HEAD]); textCol(sh, 3); }
+    sh.appendRow([new Date(), by || '', classKey, String(item.key), String(item.kind || ''), action === 'changed' ? '判断が変わった' : '見た', String(memo || '').slice(0, 500)]);
+  }
+  /** 判断済み・見た キー（直近 dismissDays 日。同じ週のキーは同じなので、次の週にまた条件に当たれば出る） */
+  function decidedKeys(hubSs, now, days) {
+    var sh = hubSs.getSheetByName(DEC_SHEET), out = {};
+    if (!sh || sh.getLastRow() < 2) return out;
+    var since = (now || Date.now()) - (days || active(hubSs).dismissDays) * 86400000;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var t = r[0] instanceof Date ? r[0].getTime() : new Date(r[0]).getTime();
+      if (!isNaN(t) && t >= since) out[String(r[3])] = true;
+    });
+    return out;
+  }
+
+  /* ---------- 所有者が変えた値（rules シート） ---------- */
+
+  function getPath(o, path) { return path.split('.').reduce(function (x, k) { return x == null ? undefined : x[k]; }, o); }
+  function setPath(o, path, v) { var ks = path.split('.'), x = o; for (var i = 0; i < ks.length - 1; i++) x = x[ks[i]]; x[ks[ks.length - 1]] = v; }
+  function specOf(path) { for (var i = 0; i < SPEC.length; i++) if (SPEC[i].path === path) return SPEC[i]; return null; }
+  /** 値を確かめる。返す：数（直した値）か null（使えない値） */
+  function clean(spec, v) {
+    var x = typeof v === 'number' ? v : Number(String(v == null ? '' : v).trim());
+    if (String(v).trim() === '' || !isFinite(x)) return null;
+    if (spec.int) x = Math.round(x);
+    if (x < spec.min - 1e-9 || x > spec.max + 1e-9) return null;
+    return x;
+  }
+  /**
+   * 初期値に {項目: 値} を重ねた規則（使えない値・知らない項目は捨てる）。
+   * 返す：{ rules, bad: [項目] }
+   */
+  function withValues(values) {
+    var r = JSON.parse(JSON.stringify(RULES)), bad = [];
+    Object.keys(values || {}).forEach(function (path) {
+      var sp = specOf(path), x = sp ? clean(sp, values[path]) : null;
+      if (x == null) { bad.push(path); return; }
+      setPath(r, path, x);
+    });
+    return { rules: r, bad: bad };
+  }
+  /** 所有者が変えた値（rules シート）。{ 項目: 値 }。初期値と同じ行は返さない */
+  function savedValues(hubSs) {
+    var sh = hubSs.getSheetByName(RULE_SHEET), out = {};
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
+      var path = String(r[0] || '').trim(), sp = specOf(path);
+      if (!sp || r[1] === '' || r[1] == null) return;
+      var x = clean(sp, r[1]);
+      if (x != null && x !== getPath(RULES, path)) out[path] = x;
+    });
+    return out;
+  }
+  /** いま効いている規則（初期値＋rules シート）。シートの使えない値は無視する（初期値のまま） */
+  function active(hubSs) { return withValues(savedValues(hubSs)).rules; }
+  /**
+   * 所有者が値を保存する。values：{ 項目: 値 }（初期値に戻す項目は値を空にする）。
+   * 使えない値が1つでもあれば何も保存しない。返す：保存後の { 項目: 値 }
+   */
+  function saveValues(hubSs, values, by) {
+    var cur = savedValues(hubSs), next = {};
+    Object.keys(cur).forEach(function (k) { next[k] = cur[k]; });
+    var bad = [];
+    Object.keys(values || {}).forEach(function (path) {
+      var sp = specOf(path);
+      if (!sp) { bad.push(path); return; }
+      var v = values[path];
+      if (v === '' || v == null) { delete next[path]; return; }
+      var x = clean(sp, v);
+      if (x == null) { bad.push(path); return; }
+      if (x === getPath(RULES, path)) delete next[path]; else next[path] = x;
+    });
+    if (bad.length) throw new Error('使えない値です：' + bad.map(function (p) { var sp = specOf(p); return sp ? sp.label : p; }).join('・'));
+    var sh = hubSs.getSheetByName(RULE_SHEET) || hubSs.insertSheet(RULE_SHEET), now = new Date();
+    var old = {};
+    if (sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) { old[String(r[0])] = r; });
+    var rows = [RULE_HEAD].concat(SPEC.map(function (sp) {
+      var has = Object.prototype.hasOwnProperty.call(next, sp.path), o = old[sp.path];
+      var changed = (has ? next[sp.path] : '') !== (o ? (o[1] === '' ? '' : Number(o[1])) : '');
+      return [sp.path, has ? next[sp.path] : '', getPath(RULES, sp.path), sp.label + '（' + sp.unit + (sp.scale !== 1 ? '・' + sp.scale + '倍して表示' : '') + '）',
+        changed ? now : (o ? o[4] : ''), changed ? String(by || '') : (o ? o[5] : '')];
+    }));
+    sh.clearContents();
+    sh.getRange(1, 1, rows.length, RULE_HEAD.length).setValues(rows);
+    return next;
+  }
+  /** 今週の3件を計算し直して now3 に置く（毎晩・所有者が保存した時）。返す：{ 学級: [...] } */
+  function refresh(hubSs, fy, roster, cats, today) {
+    var R = active(hubSs);
+    var by = compute(LbFacts.read(hubSs, fy), roster, cats, today, decidedKeys(hubSs, null, R.dismissDays), R);
+    store(hubSs, by);
+    return by;
+  }
+
+  return { RULES: RULES, SPEC: SPEC, specOf: specOf, getPath: getPath, setPath: setPath, withValues: withValues, savedValues: savedValues, active: active, saveValues: saveValues, refresh: refresh, LABEL: LABEL, KIND_RANK: KIND_RANK, compute: compute, candidates: candidates, index: index, classMap: classMap, weekOfDay: weekOfDay, sum: sum, weeksBack: weeksBack, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
+})();
+
+// ===== gas/Tune.gs =====
+/**
+ * Tune.gs — 学習BASE を直すための材料（使われ方の記録・今週の3件の働き・閾値を変えたら・先生の気づき・改善用の書き出し）
+ *
+ * 正本は learning-base。設計：`-` リポジトリ principles/learning-app-foundation.md §15、手順：docs/tuning-log.md
+ *
+ * 改善の入力の主役は、所有者・担任の観察の報告（どの画面で・何をしようとして・何が起きたか）と画面写真（撮影用）。
+ * ここで自動で集めるのは、観察では見えないものだけ（決定 2026-11-10）：
+ *   - 失敗：サーバーの失敗と画面の JavaScript の失敗（どこで・エラー文。メール・ID・長い数字は伏せる）
+ *   - 実機の速さ：サーバーの処理時間と、開いてから表示までの往復（端末のメモリ 4GB以下／8GB 別）
+ *   - 始めるまで：児童がホームを開いてから最初のページを開くまでの時間と経路（いまの学習／教科のタイル／教科の中）、
+ *       教科に入って何も開かずに戻った回数（行き止まり）。直した時に効いたかを比べるため
+ *   - 先生の気づき（feedback）
+ * これを「失敗と速さ」の書き出し（exportText）にまとめ、所有者が Claude に渡す。児童の学習状態は入れない。
+ * 閾値を見直す材料（tuning・tryRules：候補の数・分布）は児童の学習状態なので、所有者の画面の中だけで見る。
+ *
+ * 使われ方は、1つ起きるたびにスクリプトのプロパティに足す（シートに書くと遅いので）。
+ * プロパティは日付と番号（0〜15、くじ）ごとに分け、同じ瞬間に2人が同じ所へ書く確率を下げる（重なると1回分落ちる。目安の数として使う）。
+ * 毎晩、前日までの分を usage シートに1日1行（区分×出来事）でまとめ、プロパティから消す。
+ */
+var LbTune = (function () {
+  var MIN_CELL = 5;
+  var PFX = 'LB_U|', SHARDS = 16;
+  var USAGE = 'usage', USAGE_HEAD = ['日付', '区分', '出来事', '回数'];
+  var LOG = 'now3_log', LOG_HEAD = ['週', '学級', 'キー', '種類', '初めて出た日'];
+  var FB = 'feedback', FB_HEAD = ['日時', '教師', '学級', '画面', '本文'];
+  var CODE_HEAD = ['学習者ID・メール', '記号'];
+  var KIND_JA = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' };
+  var SPEED = { srv: [[1000, '1秒未満'], [2000, '1〜2秒'], [4000, '2〜4秒'], [Infinity, '4秒以上']],
+    rt: [[2000, '2秒未満'], [4000, '2〜4秒'], [8000, '4〜8秒'], [Infinity, '8秒以上']],
+    start: [[5000, '5秒未満'], [10000, '5〜10秒'], [20000, '10〜20秒'], [Infinity, '20秒以上']] };
+  var PATHS = { now: 'いまの学習', tile: '教科のタイル', subject: '教科の中' };
+  var MAX_KEYS = 80;   // 1つのプロパティに置く出来事の種類の上限（エラー文が大量に違う時、9KB を越えないように）
+
+  function day(d) { return Utilities.formatDate(d || new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'); }
+  function ymd(v) {
+    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) return day(v);
+    return String(v == null ? '' : v).trim();
+  }
+  function textCol(sh, col) { sh.getRange(1, col, Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000), 1).setNumberFormat('@'); }
+  function sheet(hub, name, head, textCols) {
+    var sh = hub.getSheetByName(name);
+    if (sh) return sh;
+    sh = hub.insertSheet(name);
+    (textCols || []).forEach(function (c) { textCol(sh, c); });
+    sh.getRange(1, 1, 1, head.length).setValues([head]);
+    return sh;
+  }
+  /** 人数の欄：0 はそのまま、1〜4 は「5人未満」 */
+  function people(n) { return !n ? '0' : n < MIN_CELL ? MIN_CELL + '人未満' : String(n); }
+  function bucket(ms, edges) { for (var i = 0; i < edges.length; i++) if (ms < edges[i][0]) return edges[i][1]; return edges[edges.length - 1][1]; }
+  function cleanName(s) { return String(s == null ? '' : s).replace(/[|\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); }
+  /** エラー文を記録に使える形に（メール・学習者ID・6桁以上の数は伏せる。80字まで） */
+  function errText(e) {
+    return cleanName(String(e && e.message != null ? e.message : e))
+      .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/g, '＜メール＞').replace(/\bL[0-9A-Za-z]{10}\b/g, '＜ID＞').replace(/\d{6,}/g, '＜数＞').slice(0, 80);
+  }
+  /** 端末のメモリ（navigator.deviceMemory。Chrome は 0.25〜8 に丸めて返す）→ 区分 */
+  function memClass(m) { m = Number(m); return !m ? '不明' : m <= 4 ? '4GB以下' : '8GB'; }
+
+  /* ---------- 使われ方 ---------- */
+
+  /**
+   * 出来事を数える（1回の呼び出しで1回だけ書く）。失敗しても画面の動きを止めない。
+   * role：child / teacher / guest / none / -（不明）。events：'boot' や ['boot', 'srv:1秒未満']
+   */
+  function count(role, events) {
+    try {
+      var list = (Array.isArray(events) ? events : [events]).filter(Boolean);
+      if (!list.length) return;
+      var p = PropertiesService.getScriptProperties(), key = PFX + day() + '|' + Math.floor(Math.random() * SHARDS);
+      var o = {};
+      try { o = JSON.parse(p.getProperty(key) || '{}') || {}; } catch (e) { o = {}; }
+      list.forEach(function (ev) {
+        var k = cleanName(role || '-') + '|' + cleanName(ev);
+        if (!(k in o) && Object.keys(o).length >= MAX_KEYS) k = cleanName(role || '-') + '|その他';
+        o[k] = (o[k] || 0) + 1;
+      });
+      p.setProperty(key, JSON.stringify(o));
+    } catch (e) { /* 数えられなくても動く */ }
+  }
+  function speed(kind, ms) { return kind + ':' + bucket(Number(ms) || 0, SPEED[kind]); }
+  /** 失敗の出来事の名前：err:どこで:エラー文 */
+  function err(where, e) { return 'err:' + cleanName(where).slice(0, 40) + ':' + errText(e); }
+  /**
+   * ホームを開いた時に画面が送る、前回分の記録（呼び出しを増やさない）から出来事を作る。
+   * o: { lastMs, mem, start: { path, ms }, dead }。児童の「始めるまで」「行き止まり」は学年ごと
+   */
+  function bootEvents(role, grade, o) {
+    o = o || {};
+    var ev = [];
+    if (Number(o.lastMs) > 0) ev.push('rt:' + memClass(o.mem) + ':' + bucket(Number(o.lastMs), SPEED.rt));
+    if (role === 'child' && grade) {
+      var st = o.start || {};
+      if (PATHS[st.path] && Number(st.ms) > 0) ev.push('start:' + grade + '年:' + PATHS[st.path] + ':' + bucket(Number(st.ms), SPEED.start));
+      var d = Math.min(Number(o.dead) || 0, 20);
+      for (var i = 0; i < d; i++) ev.push('deadend:' + grade + '年');
+    }
+    return ev;
+  }
+
+  /** プロパティにある分（日付 → { 区分|出来事: 回数 }）。beforeDay を渡すとその日より前だけ */
+  function pending(beforeDay) {
+    var all = PropertiesService.getScriptProperties().getProperties() || {}, out = {}, keys = [];
+    Object.keys(all).forEach(function (k) {
+      if (k.indexOf(PFX) !== 0) return;
+      var d = k.split('|')[1];
+      if (beforeDay && d >= beforeDay) return;
+      var o = {};
+      try { o = JSON.parse(all[k]) || {}; } catch (e) { o = {}; }
+      var to = out[d] || (out[d] = {});
+      Object.keys(o).forEach(function (e) { to[e] = (to[e] || 0) + (Number(o[e]) || 0); });
+      keys.push(k);
+    });
+    return { byDay: out, keys: keys };
+  }
+  /** 毎晩：前日までの分を usage シートへ（1日×区分×出来事で1行）。書いてから消す（落ちても数え落としより二重の方が気づける） */
+  function flush(hub, today) {
+    var pd = pending(today || day()), rows = [];
+    Object.keys(pd.byDay).sort().forEach(function (d) {
+      Object.keys(pd.byDay[d]).sort().forEach(function (e) { var i = e.indexOf('|'); rows.push([d, e.slice(0, i), e.slice(i + 1), pd.byDay[d][e]]); });
+    });
+    if (rows.length) {
+      var sh = sheet(hub, USAGE, USAGE_HEAD, [1]);
+      sh.getRange(sh.getLastRow() + 1, 1, rows.length, USAGE_HEAD.length).setValues(rows);
+    }
+    var p = PropertiesService.getScriptProperties();
+    pd.keys.forEach(function (k) { p.deleteProperty(k); });
+    return rows.length;
+  }
+  /** sinceDay 以降の使われ方（シート＋まだプロパティにある分）。{ 日付: { 区分|出来事: 回数 } } */
+  function usage(hub, sinceDay) {
+    var out = {};
+    function add(d, e, n) { if (d < sinceDay) return; var o = out[d] || (out[d] = {}); o[e] = (o[e] || 0) + n; }
+    var sh = hub.getSheetByName(USAGE);
+    if (sh && sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) { add(ymd(r[0]), String(r[1]) + '|' + String(r[2]), Number(r[3]) || 0); });
+    var pd = pending(null).byDay;
+    Object.keys(pd).forEach(function (d) { Object.keys(pd[d]).forEach(function (e) { add(d, e, pd[d][e]); }); });
+    return out;
+  }
+
+  /* ---------- 今週の3件の働き ---------- */
+
+  /** 毎晩：画面に出した項目を now3_log に残す（同じキーは1回だけ。now3 は毎晩入れ替わるので、出たことの記録はここにしか残らない） */
+  function logAlerts(hub, byClass, today) {
+    var sh = sheet(hub, LOG, LOG_HEAD, [1, 2, 5]), have = {};
+    if (sh.getLastRow() >= 2) sh.getRange(2, 3, sh.getLastRow() - 1, 1).getValues().forEach(function (r) { have[String(r[0])] = true; });
+    var rows = [];
+    Object.keys(byClass).sort().forEach(function (cls) {
+      byClass[cls].forEach(function (x) { if (!have[x.key]) { have[x.key] = true; rows.push([x.week, cls, x.key, x.kind, today || day()]); } });
+    });
+    if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, LOG_HEAD.length).setValues(rows);
+    return rows.length;
+  }
+  /** 週×種類：出た・判断が変わった・見た・押されていない（直近 weeks 週） */
+  function performance(hub, today, weeks) {
+    var w0 = LbAlerts.weekOfDay(today), from = LbFacts.addWeeks(w0, -((weeks || 8) - 1));
+    var dec = {}, dsh = hub.getSheetByName('decisions');
+    if (dsh && dsh.getLastRow() >= 2) dsh.getRange(2, 1, dsh.getLastRow() - 1, 6).getValues().forEach(function (r) {
+      var k = String(r[3]), a = String(r[5]) === '判断が変わった' ? 'changed' : 'seen';
+      if (dec[k] !== 'changed') dec[k] = a;
+    });
+    var by = {}, sh = hub.getSheetByName(LOG);
+    if (sh && sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var w = ymd(r[0]), kind = String(r[3]);
+      if (w < from || w > w0) return;
+      var o = by[w + '|' + kind] || (by[w + '|' + kind] = { week: w, kind: kind, fired: 0, changed: 0, seen: 0, open: 0 });
+      o.fired++;
+      o[dec[String(r[2])] || 'open']++;
+    });
+    return Object.keys(by).map(function (k) { return by[k]; })
+      .sort(function (a, b) { return a.week < b.week ? 1 : a.week > b.week ? -1 : (LbAlerts.KIND_RANK[b.kind] || 0) - (LbAlerts.KIND_RANK[a.kind] || 0); });
+  }
+
+  /* ---------- 閾値を変えたら ---------- */
+
+  function round(x) { return Math.round(x * 1000) / 1000; }
+  /** 試す値：いまの値から step だけ上下（'x' は半分と1.5倍）。範囲の外と、いまの値と同じものは除く */
+  function variants(sp, cur) {
+    if (!sp.step) return [];
+    var v = sp.step === 'x' ? [cur * 0.5, cur * 1.5] : [cur - sp.step, cur + sp.step];
+    return v.map(function (x) { return sp.int ? Math.round(x) : round(x); })
+      .filter(function (x, i, a) { return x >= sp.min - 1e-9 && x <= sp.max + 1e-9 && x !== cur && a.indexOf(x) === i; });
+  }
+  /** 規則で候補を数える（3件に切る前・判断済みも含む）。{ drop, klass, stall, classes } */
+  function counter(acc, roster, cats, today) {
+    var ix = LbAlerts.index(acc), clsOf = LbAlerts.classMap(roster), w0 = LbAlerts.weekOfDay(today);
+    return function (rules) {
+      var c = { drop: 0, klass: 0, stall: 0 }, cls = {};
+      LbAlerts.candidates(ix, clsOf, cats, w0, rules).forEach(function (x) { c[x.kind]++; cls[x.cls] = true; });
+      c.classes = Object.keys(cls).length;
+      return c;
+    };
+  }
+  /** いまの規則（base）と、項目を1つずつ上下に変えた時の候補の数。学校の中だけで見る */
+  function sensitivity(acc, roster, cats, today, base) {
+    base = base || LbAlerts.RULES;
+    var run = counter(acc, roster, cats, today);
+    var rows = [Object.assign({ rule: 'いまの値', label: 'いまの値', value: '', now: '' }, run(base))];
+    LbAlerts.SPEC.forEach(function (sp) {
+      var cur = LbAlerts.getPath(base, sp.path);
+      variants(sp, cur).forEach(function (val) {
+        var r = JSON.parse(JSON.stringify(base));
+        LbAlerts.setPath(r, sp.path, val);
+        rows.push(Object.assign({ rule: sp.path, label: sp.label, unit: sp.unit, scale: sp.scale, value: val, now: cur }, run(r)));
+      });
+    });
+    return rows;
+  }
+  /** 所有者が画面で入れた値で数える（保存しない）。values は { 項目: 値 }（画面の表し方ではなく元の値）。返す：{ now, tried, bad } */
+  function tryRules(acc, roster, cats, today, base, values) {
+    var run = counter(acc, roster, cats, today), cur = {};
+    LbAlerts.SPEC.forEach(function (sp) { cur[sp.path] = LbAlerts.getPath(base, sp.path); });
+    Object.keys(values || {}).forEach(function (k) { cur[k] = values[k]; });
+    var w = LbAlerts.withValues(cur);
+    return { now: run(base), tried: run(w.rules), bad: w.bad };
+  }
+
+  /* ---------- 記録の分布（人数は5人未満を伏せる） ---------- */
+
+  /** 値 → 区間の名前。edges は [上限, 名前] の昇順（最後は Infinity） */
+  function bin(x, edges) { for (var i = 0; i < edges.length; i++) if (x < edges[i][0]) return edges[i][1]; return edges[edges.length - 1][1]; }
+  var BINS = {
+    dropAcc: [[0, '上がった'], [5, '0〜5'], [10, '5〜10'], [15, '10〜15'], [20, '15〜20'], [Infinity, '20以上']],
+    dropTime: [[0.9, '0.9倍未満'], [1.1, '0.9〜1.1倍'], [1.25, '1.1〜1.25倍'], [1.5, '1.25〜1.5倍'], [Infinity, '1.5倍以上']],
+    stallAcc: [[-5, '-5未満'], [0, '-5〜0'], [2, '0〜2'], [5, '2〜5'], [Infinity, '5以上']],
+    stallTime: [[0.9, '0.9倍未満'], [0.97, '0.9〜0.97倍'], [1.03, '0.97〜1.03倍'], [Infinity, '1.03倍以上']],
+    klassShare: [[0.3, '3割未満'], [0.5, '3〜5割'], [0.7, '5〜7割'], [Infinity, '7割以上']]
+  };
+  /**
+   * 規則が見ている値が、全校でどう散らばっているか（閾値がどこを切っているかを見るため）。
+   * 児童の数は区間ごとに数え（同じ児童が別の技能で別の区間に入ることはある）、5人未満は伏せる。合計は書かない（引き算で伏せた欄が分かるため）
+   */
+  function distributions(acc, roster, cats, today, rules) {
+    var R = rules || LbAlerts.RULES, ix = LbAlerts.index(acc), clsOf = LbAlerts.classMap(roster), w0 = LbAlerts.weekOfDay(today);
+    var sets = {}; Object.keys(BINS).forEach(function (k) { sets[k] = {}; BINS[k].forEach(function (b) { sets[k][b[1]] = {}; }); });
+    var grade = {}, groups = {};
+    roster.forEach(function (r) { if (r.lid && r.grade) grade[r.grade] = grade[r.grade] || { week: {}, month: {}, n: 0 }; });
+    Object.keys(ix).forEach(function (key) {
+      var p = key.split('|'), lid = p[0], app = p[1], skill = p.slice(2).join('|'), byWeek = ix[key], cls = clsOf[lid];
+      if (!cls) return;
+      var g = grade[Number(cls.split('-')[0])];
+      var now = LbAlerts.sum(byWeek, [w0]), month = LbAlerts.sum(byWeek, LbAlerts.weeksBack(w0, 0, 3));
+      if (g && now.n) { g.week[lid] = true; g.n += now.n; }
+      if (g && month.n) g.month[lid] = true;
+      var base = LbAlerts.sum(byWeek, LbAlerts.weeksBack(w0, 1, R.drop.baseWeeks));
+      if (now.n >= R.drop.weekMinN && base.n >= R.drop.baseMinN) {
+        var sn = LbFacts.stats(now), sb = LbFacts.stats(base);
+        sets.dropAcc[bin((sb.acc - sn.acc) * 100, BINS.dropAcc)][lid] = true;
+        if (sn.gmMs && sb.gmMs) sets.dropTime[bin(sn.gmMs / sb.gmMs, BINS.dropTime)][lid] = true;
+      }
+      var st = R.stall, rec = LbAlerts.sum(byWeek, LbAlerts.weeksBack(w0, 0, st.weeks - 1)), prev = LbAlerts.sum(byWeek, LbAlerts.weeksBack(w0, st.weeks, 2 * st.weeks - 1));
+      if (rec.n >= st.minN && prev.n >= st.minN && LbFacts.state(rec, LbCatalog.mastery(cats[app], skill)) !== '到達') {
+        var sr = LbFacts.stats(rec), sp = LbFacts.stats(prev);
+        sets.stallAcc[bin((sr.acc - sp.acc) * 100, BINS.stallAcc)][lid] = true;
+        if (sr.gmMs && sp.gmMs) sets.stallTime[bin(sr.gmMs / sp.gmMs, BINS.stallTime)][lid] = true;
+      }
+      var two = LbAlerts.sum(byWeek, LbAlerts.weeksBack(w0, 0, R.klass.weeks - 1));
+      if (two.n >= R.klass.kidMinN) { var gk = cls + '|' + app + '|' + skill, o = groups[gk] || (groups[gk] = { kids: 0, low: 0 }); o.kids++; if (LbFacts.stats(two).acc < R.klass.accBelow) o.low++; }
+    });
+    var hist = {};
+    Object.keys(BINS).forEach(function (k) { if (k !== 'klassShare') hist[k] = BINS[k].map(function (b) { return [b[1], people(Object.keys(sets[k][b[1]]).length)]; }); });
+    // 学級でつまずき：学級×技能のまとまりの数（児童の数ではないので伏せない）。取り組んだ児童が規則の人数に足りないまとまりは数えない
+    var gc = {}; BINS.klassShare.forEach(function (b) { gc[b[1]] = 0; });
+    Object.keys(groups).forEach(function (k) { var o = groups[k]; if (o.kids >= R.klass.minKids) gc[bin(o.low / o.kids, BINS.klassShare)]++; });
+    hist.klassShare = BINS.klassShare.map(function (b) { return [b[1], String(gc[b[1]])]; });
+    var grades = Object.keys(grade).map(Number).sort().map(function (g) {
+      var o = grade[g], wk = Object.keys(o.week).length;
+      return { grade: g, week: people(wk), month: people(Object.keys(o.month).length), n: wk >= MIN_CELL ? String(o.n) : '—' };
+    });
+    return { hist: hist, grades: grades };
+  }
+
+  /* ---------- 先生の気づき ---------- */
+
+  function saveFeedback(hub, by, classKey, view, text) {
+    text = String(text == null ? '' : text).trim().slice(0, 1000);
+    if (!text) throw new Error('気づきが空です');
+    var sh = sheet(hub, FB, FB_HEAD, [3, 4, 5]);
+    sh.appendRow([new Date(), String(by || ''), String(classKey || ''), cleanName(view), text]);
+  }
+  function readFeedback(hub, sinceMs) {
+    var sh = hub.getSheetByName(FB);
+    if (!sh || sh.getLastRow() < 2) return [];
+    return sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues().map(function (r) {
+      var t = r[0] instanceof Date ? r[0].getTime() : new Date(r[0]).getTime();
+      return { t: t, by: String(r[1]), cls: String(r[2]), view: String(r[3]), text: String(r[4]) };
+    }).filter(function (f) { return !isNaN(f.t) && f.t >= sinceMs && f.text; });
+  }
+
+  /* ---------- 記号（名前をかくす・気づきの置き換え） ---------- */
+
+  /**
+   * 今年度の記号表（ハブの pseudo_<年度>。学習者ID（教師はメール）→ 記号）。まだ記号の無い人にだけ振って足す。
+   * 記号は乱数で振る（名前・番号・ID から導けない）。表はハブにだけ置く。
+   */
+  function codes(hub, fy, roster, teachers) {
+    var name = 'pseudo_' + fy;
+    function readEx() {
+      var sh = hub.getSheetByName(name), ex = {};
+      if (sh && sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) { if (r[0] && r[1]) ex[String(r[0])] = String(r[1]); });
+      return ex;
+    }
+    var ppl = roster.filter(function (r) { return r.lid && r.name; }).map(function (r) { return { id: r.lid, sei: r.sei, mei: r.mei, seiKana: r.seiKana, meiKana: r.meiKana }; })
+      .concat((teachers || []).filter(function (t) { return t.mail && (t.sei || t.mei); }).map(function (t) { return { id: t.mail, sei: t.sei, mei: t.mei, seiKana: t.seiKana, meiKana: t.meiKana }; }));
+    var ex = readEx();
+    if (ppl.every(function (p) { return ex[p.id]; })) return LbPseudo.table(ppl, { existing: ex });
+    var lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    try {
+      ex = readEx();
+      var tbl = LbPseudo.table(ppl, { existing: ex });
+      var rows = ppl.filter(function (p) { return !ex[p.id]; }).map(function (p) { return [p.id, tbl.codeOf[p.id]]; });
+      if (rows.length) {
+        var sh = sheet(hub, name, CODE_HEAD, [1, 2]);
+        sh.getRange(sh.getLastRow() + 1, 1, rows.length, 2).setValues(rows);
+      }
+      return tbl;
+    } finally { lock.releaseLock(); }
+  }
+  /* ---------- 改善用の書き出し ---------- */
+
+  /**
+   * 最後の確かめ：メール・学習者ID・名前（記号表の全表記）が残っていないか。
+   * 返す：{ ok, problems: [文] }。名前は置き換えをもう一度かけて、当たる箇所が無いことで確かめる
+   */
+  function guard(text, tbl, roster) {
+    var probs = [];
+    if (/[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/.test(text)) probs.push('メールアドレスが残っています');
+    var lids = 0;
+    roster.forEach(function (r) { if (r.lid && text.indexOf(r.lid) >= 0) lids++; });
+    if (lids) probs.push('学習者ID が ' + lids + ' 件 残っています');
+    var again = LbPseudo.replace(text, tbl);
+    if (again.hits.length) probs.push('名前が ' + again.hits.length + ' か所 残っています');
+    return { ok: !probs.length, problems: probs };
+  }
+
+  function table(head, rows) {
+    return '| ' + head.join(' | ') + ' |\n|' + head.map(function () { return '---'; }).join('|') + '|\n' +
+      rows.map(function (r) { return '| ' + r.map(function (c) { return String(c).replace(/\|/g, '／').replace(/\n/g, ' '); }).join(' | ') + ' |'; }).join('\n');
+  }
+
+  /**
+   * 閾値を見直す画面の材料（所有者だけ・学校の中だけ）。
+   * o: { hub, today, roster, acc, cats }。返す：{ spec: [...], counts, sens, dist, perf }
+   */
+  function tuning(o) {
+    var base = LbAlerts.active(o.hub), saved = LbAlerts.savedValues(o.hub);
+    var spec = LbAlerts.SPEC.map(function (sp) {
+      return { path: sp.path, kind: sp.kind, label: sp.label, unit: sp.unit, scale: sp.scale, int: !!sp.int, min: sp.min, max: sp.max,
+        value: LbAlerts.getPath(base, sp.path), def: LbAlerts.getPath(LbAlerts.RULES, sp.path), changed: Object.prototype.hasOwnProperty.call(saved, sp.path) };
+    });
+    var sens = sensitivity(o.acc, o.roster, o.cats, o.today, base);
+    return { spec: spec, counts: sens[0], sens: sens.slice(1), dist: distributions(o.acc, o.roster, o.cats, o.today, base), perf: performance(o.hub, o.today, 8) };
+  }
+
+  /**
+   * 「失敗と速さ」の書き出し（Markdown。所有者が Claude に渡す）。観察では見えないものだけ。児童の学習状態は入れない。
+   * o: { hub, fy, today, ver, roster, teachers, settings: [{ classKey, hidden, now }], days }
+   * 返す：{ ok, text（ok の時だけ）, problems, notes: [目で確かめてほしいこと（画面にだけ出す。書き出しには入れない）] }
+   */
+  function exportText(o) {
+    var today = o.today || day(), days = o.days || 14;
+    var sinceDay = day(new Date(new Date(today + 'T12:00:00+09:00').getTime() - (days - 1) * 86400000));
+    var last7 = day(new Date(new Date(today + 'T12:00:00+09:00').getTime() - 6 * 86400000));
+    var out = [], notes = [];
+    out.push('# 学習BASE 失敗と速さ');
+    out.push('書き出した日：' + today + '／版：' + (o.ver || '不明') + '／年度：' + o.fy + '／児童の学習状態は入れていません');
+
+    var u = usage(o.hub, sinceDay), ev = {};
+    Object.keys(u).forEach(function (d) {
+      Object.keys(u[d]).forEach(function (e) { var x = ev[e] || (ev[e] = { a: 0, b: 0 }); if (d >= last7) x.a += u[d][e]; else x.b += u[d][e]; });
+    });
+    function pick(re) {
+      return Object.keys(ev).filter(function (e) { return re.test(e.slice(e.indexOf('|') + 1)); }).sort().map(function (e) {
+        var i = e.indexOf('|'); return { role: e.slice(0, i), name: e.slice(i + 1), a: ev[e].a, b: ev[e].b };
+      });
+    }
+    var boots = pick(/^boot$/);
+    out.push('\n開いた回数（分母）：' + (boots.length ? boots.map(function (r) { return r.role + ' ' + r.a + '（その前7日 ' + r.b + '）'; }).join('・') : 'まだ記録がありません'));
+
+    var errs = pick(/^(err|js|client):|^その他$/);
+    out.push('\n## 1. 失敗（直近7日と、その前の7日）\nerr＝サーバーの失敗（どこで:エラー文）／js＝画面の JavaScript の失敗／client＝画面の読み込みの失敗。メール・ID・長い数は伏せています');
+    out.push(errs.length ? table(['区分', '失敗', '直近7日', 'その前7日'], errs.map(function (r) { return [r.role, r.name, r.a, r.b]; })) : '（ありません）');
+
+    var sp = pick(/^(srv|rt):/);
+    out.push('\n## 2. 速さ\nsrv＝サーバーでの処理時間（ホームを開く時）／rt＝開いてから表示までの往復（端末のメモリ別。前回分）');
+    out.push(sp.length ? table(['区分', '速さ', '直近7日', 'その前7日'], sp.map(function (r) { return [r.role, r.name, r.a, r.b]; })) : '（まだ記録がありません）');
+
+    var st = pick(/^(start|deadend):/);
+    out.push('\n## 3. 始めるまで（児童。直した時に効いたかを比べる用）\nstart＝ホームを開いてから最初のページを開くまで（学年:経路:時間）／deadend＝教科に入って何も開かずに戻った回数');
+    out.push(st.length ? table(['出来事', '直近7日', 'その前7日'], st.map(function (r) { return [r.name, r.a, r.b]; })) : '（まだ記録がありません）');
+
+    var s = o.settings || [], saved = LbAlerts.savedValues(o.hub);
+    var hidCls = s.filter(function (x) { return x.hidden > 0; }).length, nowCls = s.filter(function (x) { return x.now > 0; }).length;
+    out.push('\n## 4. 先生の設定\n- 学級：' + s.length + '／かくしたページ：計 ' + s.reduce(function (a, x) { return a + x.hidden; }, 0) + ' 件（' + hidCls + ' 学級）' +
+      '／いまの学習：計 ' + s.reduce(function (a, x) { return a + x.now; }, 0) + ' 件（' + nowCls + ' 学級）');
+    out.push('- 閾値（所有者が初期値から変えたもの）：' + (Object.keys(saved).length ? Object.keys(saved).map(function (k) { return k + ' ' + LbAlerts.getPath(LbAlerts.RULES, k) + '→' + saved[k]; }).join('・') : 'なし'));
+
+    // 気づき：先生のメールは「先生n」に、学級は学年だけに、文の中の名前は記号に
+    var tbl = codes(o.hub, o.fy, o.roster, o.teachers);
+    var fb = readFeedback(o.hub, new Date(sinceDay + 'T00:00:00+09:00').getTime()), tno = {}, tn = 0;
+    out.push('\n## 5. 先生の気づき（直近' + days + '日。文の中の名前は記号〔…〕に置き換え済み）');
+    if (!fb.length) out.push('（ありません）');
+    fb.forEach(function (f) {
+      if (!tno[f.by]) tno[f.by] = '先生' + (++tn);
+      var r = LbPseudo.replace(f.text, tbl);
+      r.skipped1.forEach(function (x) { notes.push('1文字の名前かもしれない「' + x.name + '」を置き換えていません（' + day(new Date(f.t)) + ' の気づき）'); });
+      r.warn.forEach(function (x) { notes.push('「' + x.name + '」を名前として ' + x.count + ' か所 置き換えました。普通の言葉なら、元の文を言い換えてください'); });
+      if (r.hits.length) notes.push(day(new Date(f.t)) + ' の気づきに児童・先生の名前がありました（記号に置き換え済み）。児童の学習のようすが書かれていないか読んでください');
+      var g = String(f.cls).split('-')[0];
+      out.push('- ' + day(new Date(f.t)) + '・' + tno[f.by] + '・' + (Number(g) ? g + '年' : '学級なし') + '・' + (f.view || '—') + '：' + r.text);
+    });
+
+    // 全体にも置き換えをかける（エラー文などに名前と同じ表記がある時のため）。置き換えた所は画面で知らせる
+    var text = out.join('\n'), all = LbPseudo.replace(text, tbl);
+    var fbStart = text.indexOf('\n## 5. ');
+    all.hits.filter(function (h) { return h.start < fbStart; }).forEach(function (h) { notes.push('気づき以外の所で「' + h.from + '」を記号に置き換えました（エラー文などと重なっています）'); });
+    text = all.text;
+    var g = guard(text, tbl, o.roster);
+    return { ok: g.ok, text: g.ok ? text : '', problems: g.problems, notes: notes.filter(function (v, i, a) { return a.indexOf(v) === i; }) };
+  }
+  /** 直近7日の失敗の件数（月曜のメールに1行） */
+  function errorCount(hub, today) {
+    var since = day(new Date(new Date((today || day()) + 'T12:00:00+09:00').getTime() - 6 * 86400000)), u = usage(hub, since), n = 0;
+    Object.keys(u).forEach(function (d) { Object.keys(u[d]).forEach(function (e) { if (/\|(err|js|client):/.test(e)) n += u[d][e]; }); });
+    return n;
+  }
+
+  return { MIN_CELL: MIN_CELL, count: count, speed: speed, err: err, errText: errText, memClass: memClass, bootEvents: bootEvents, errorCount: errorCount, pending: pending, flush: flush, usage: usage,
+    logAlerts: logAlerts, performance: performance, variants: variants, sensitivity: sensitivity, tryRules: tryRules, distributions: distributions, people: people,
+    tuning: tuning, saveFeedback: saveFeedback, readFeedback: readFeedback, codes: codes, guard: guard, exportText: exportText };
 })();
 
 // ===== gas/Pages.gs =====
@@ -1140,7 +1869,9 @@ var LbFacts = (function () {
  *   { id: 'tamath-kuku', subject: 'sansu', grades: [3], unit: 'かけ算', title: '九九 タイムアタック', ruby: 'くく タイムアタック',
  *     kind: 'app', app: 'tamath', params: { unit: 'kuku' }, order: 10, defaultOn: true },
  *   { id: 'sakubun-1', subject: 'kokugo', grades: [3, 4], unit: '作文', title: '…', kind: 'page',
- *     src: { repo: 'sankisuguya-create/worksheet-platform', path: 'pages/sakubun-1.js', ver: '<コミット>' } }
+ *     src: { repo: 'sankisuguya-create/worksheet-platform', path: 'pages/sakubun-1.js', ver: '<コミット>' } },
+ *   { id: 'toi-board', subject: 'sogo', grades: [3], title: 'といボード', kind: 'link', linkId: 'toi-board' }
+ *     … 別の GAS で動くもの。開く先の URL は公開の目録に書かず、ハブの links シートの id=linkId の行の url を使う
  * ] }
  */
 var LbPages = (function () {
@@ -1183,7 +1914,9 @@ var LbPages = (function () {
       else if (p.kind === 'page') {
         var s = p.src || {};
         if (!s.repo || !s.path || !/^[0-9a-f]{7,40}$|^v[\w.\-]+$/.test(String(s.ver || ''))) e.push(w + ' の src は repo・path・ver（コミットかタグ）');
-      } else e.push(w + ' の kind は app か page');
+      } else if (p.kind === 'link') {
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(String(p.linkId || ''))) e.push(w + ' の linkId（ハブの links シートの id）が不正');
+      } else e.push(w + ' の kind は app・page・link');
       if (p.actAs != null && typeof p.actAs !== 'boolean') e.push(w + ' の actAs は true / false（代わりに取り組むに対応しているか）');
     });
     return e;
@@ -1371,6 +2104,20 @@ var LbHome = (function () {
   }
 
   /**
+   * ハブの links シート（算数TA のハブのリンク一覧。列：id / title / subtitle / url / grades / color / visible / order / sheet / place）。
+   * ページの色（先生が選んだ色）と、別の GAS で動くページ（kind: link）の URL をここから取る。{ id: { url, color, subtitle } }
+   */
+  function hubLinks() {
+    var sh = Base.hub().getSheetByName('links'), out = {};
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
+      var id = String(r[0] || '').trim();
+      if (id) out[id] = { url: String(r[3] || '').trim(), color: String(r[5] || '').trim(), subtitle: String(r[2] || '').trim() };
+    });
+    return out;
+  }
+
+  /**
    * ホームを開いた時の情報。
    * - 児童：本人の名前・学年・学級と、学級の設定（公開・いまの学習）
    * - 教師：扱える学級の一覧、選んだ学級の設定と児童の一覧（代わりに取り組む児童を選ぶため）
@@ -1378,7 +2125,14 @@ var LbHome = (function () {
    */
   function boot(opt) {
     opt = opt || {};
+    var t0 = Date.now(), out = bootInner(opt), ev = ['boot', LbTune.speed('srv', Date.now() - t0)];
+    // 前回分（往復の時間・端末のメモリ・始めるまで・行き止まり）は画面が覚えて次に送る（呼び出しを増やさない）
+    LbTune.count(out.role, ev.concat(LbTune.bootEvents(out.role, out.learner ? out.learner.grade : 0, opt)));
+    return out;
+  }
+  function bootInner(opt) {
     var m = Base.me(), out = { role: m.role, today: today(), pagesUrl: pagesUrl(), subjects: LbPages.SUBJECTS };
+    try { out.links = hubLinks(); } catch (e) { out.links = {}; }
     if (m.role === 'child') {
       var c = m.child;
       out.learner = { name: c.name, mei: c.mei, grade: c.grade, cls: c.cls };
@@ -1389,6 +2143,7 @@ var LbHome = (function () {
     if (m.role === 'teacher') {
       var cls = classesFor(m.email);
       out.classes = cls;
+      out.owner = isOwnerView();
       var pick = cls.filter(function (x) { return x.key === opt.classKey; })[0] || cls[0];
       if (pick) {
         out.classKey = pick.key;
@@ -1396,11 +2151,30 @@ var LbHome = (function () {
         out.members = Base.members(pick.grade, pick.cls).map(function (r) {
           return { lid: r.lid, no: r.no, name: r.name, provisional: !!r.provisional };
         });
+        try { out.now3 = now3(pick.key); } catch (e) { out.now3 = []; console.error('今週の3件を読めません: ' + e.message); }
       }
       return out;
     }
     out.message = m.role === 'none' ? '学校のアカウントで ひらいてください' : 'なまえが まだ とうろく されていません。せんせいに つたえてね';
     return out;
+  }
+
+  /** 今週の3件（名前・技能の名前・根拠の一文を付ける）。名前は教師にだけ渡す */
+  function now3(classKey) {
+    var hub = Base.hub(), cats = LbCatalog.readAll(hub);
+    return LbAlerts.read(hub, classKey).map(function (x) {
+      var cat = cats[x.app], sk = cat ? LbCatalog.index(cat)[x.skill] : null;
+      return { key: x.key, kind: x.kind, label: LbAlerts.LABEL[x.kind] || x.kind, skill: sk ? sk.label : x.skill, app: cat ? cat.title : x.app,
+        names: x.lids.map(function (l) { var r = Base.learner(l); return r ? r.name : '（名簿にない）'; }), text: LbAlerts.describe(x) };
+    });
+  }
+  /** 判断の記録（判断が変わった／見た）。押した項目は今週の3件から消える */
+  function decide(classKey, key, action, memo) {
+    var m = requireClass(classKey);
+    var item = LbAlerts.read(Base.hub(), classKey).filter(function (x) { return x.key === String(key); })[0];
+    if (!item) throw new Error('もう ない項目です（ページを開き直してください）');
+    LbAlerts.decide(Base.hub(), classKey, item, action === 'changed' ? 'changed' : 'seen', memo, m.email);
+    return now3(classKey);
   }
 
   function setPublish(classKey, pageId, on) {
@@ -1423,7 +2197,74 @@ var LbHome = (function () {
     return LbPages.readSettings(Base.hub(), classKey);
   }
 
-  return { boot: boot, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
+  /* ---------- 直すための材料（Tune.gs） ---------- */
+
+  /** 所有者が開いているか（「自分として実行」では、開いた人＝所有者の時だけ getActiveUser と getEffectiveUser が同じ） */
+  function isOwnerView() {
+    try {
+      var a = String(Session.getActiveUser().getEmail() || '').toLowerCase(), e = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+      return !!a && a === e;
+    } catch (err) { return false; }
+  }
+  /** 先生の気づき（学習BASE の使い勝手・機能。児童の学習のようすは書かない）。ハブの feedback シートに1行 */
+  function feedback(classKey, view, text) {
+    var m = Base.me();
+    if (m.role !== 'teacher') throw new Error('先生だけが送れます');
+    var ck = '';
+    if (classKey) { requireClass(classKey); ck = String(classKey); }
+    LbTune.saveFeedback(Base.hub(), m.email, ck, view, text);
+    return true;
+  }
+  /**
+   * 画面の失敗を数える。loadfail：画面のファイルが読めない／bootfail：ホームの情報が取れない／catfail：目録が取れない／
+   * jserror：画面の JavaScript の失敗（detail にエラー文。メール・ID・長い数は伏せて記録）
+   */
+  var REPORT = { loadfail: 1, bootfail: 1, catfail: 1, jserror: 1 };
+  function report(kind, detail) {
+    if (!REPORT[kind]) return false;
+    var role = '-';
+    try { role = Base.me().role; } catch (e) {}
+    LbTune.count(role, kind === 'jserror' ? 'js:' + LbTune.errText(detail) : 'client:' + kind);
+    return true;
+  }
+  function requireOwner() { if (!isOwnerView()) throw new Error('スプレッドシートの所有者だけが使えます'); }
+  /** 失敗と速さの書き出し（所有者だけ。観察では見えないものだけ・学習状態は入れない）。{ ok, text, problems, notes } */
+  function exportForTuning() {
+    requireOwner();
+    var hub = Base.hub(), fy = Base.fy(), roster = Base.roster(), t = today();
+    var settings = classesFor(String(Session.getActiveUser().getEmail() || '').toLowerCase()).map(function (c) {
+      var st = LbPages.readSettings(hub, c.key), hidden = 0;
+      Object.keys(st.publish || {}).forEach(function (k) { if (st.publish[k] === false) hidden++; });
+      return { classKey: c.key, hidden: hidden, now: (st.now || []).filter(function (n) { return LbPages.inPeriod(n, t); }).length };
+    });
+    var ver = '';
+    try { ver = typeof LB_LOADER !== 'undefined' ? LB_LOADER.ver() : ''; } catch (e) {}
+    var r = LbTune.exportText({ hub: hub, fy: fy, today: t, ver: ver, roster: roster, teachers: Base.teachers(), settings: settings });
+    return r;
+  }
+
+  /* 閾値を見直す（所有者だけ・学校の中だけ。児童の学習状態を扱うので書き出しには入れない） */
+  function tuningInput() { var hub = Base.hub(), fy = Base.fy(); return { hub: hub, today: today(), roster: Base.roster(), acc: LbFacts.read(hub, fy), cats: LbCatalog.readAll(hub) }; }
+  function tuning() {
+    requireOwner();
+    return LbTune.tuning(tuningInput());
+  }
+  /** 入れた値で数える（保存しない）。values：{ 項目: 値 }（元の値。0.15 など） */
+  function tryRules(values) {
+    requireOwner();
+    var o = tuningInput();
+    return LbTune.tryRules(o.acc, o.roster, o.cats, o.today, LbAlerts.active(o.hub), values || {});
+  }
+  /** 値を保存する（翌晩から効く）。now が true なら今週の3件をすぐ計算し直す。返す：見直す画面の材料 */
+  function saveRules(values, now) {
+    requireOwner();
+    var o = tuningInput();
+    LbAlerts.saveValues(o.hub, values || {}, String(Session.getActiveUser().getEmail() || ''));
+    if (now) LbTune.logAlerts(o.hub, LbAlerts.refresh(o.hub, Base.fy(), o.roster, o.cats, o.today), o.today);
+    return LbTune.tuning(o);
+  }
+
+  return { boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();
 
 /* 画面（google.script.run）から呼ぶ入口 */
@@ -1431,8 +2272,15 @@ function homeBoot(opt) { return LbHome.boot(opt); }
 function homeSetPublish(classKey, pageId, on) { return LbHome.setPublish(classKey, pageId, on); }
 function homeResetPublish(classKey) { return LbHome.resetPublish(classKey); }
 function homeSetNow(classKey, list) { return LbHome.setNow(classKey, list); }
+function homeDecide(classKey, key, action, memo) { return LbHome.decide(classKey, key, action, memo); }
+function homeFeedback(classKey, view, text) { return LbHome.feedback(classKey, view, text); }
+function homeReport(kind, detail) { return LbHome.report(kind, detail); }
+function homeExport() { return LbHome.exportForTuning(); }
+function homeTuning() { return LbHome.tuning(); }
+function homeTryRules(values) { return LbHome.tryRules(values); }
+function homeSaveRules(values, now) { return LbHome.saveRules(values, now); }
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@85bf4b0） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@d143829） =====
 LB_MODULES["tamath"] = (function () {
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
@@ -1779,6 +2627,102 @@ function tplFromFile_(name) {
 function appQuery_() { return typeof LB_APP_QUERY !== 'undefined' && LB_APP_QUERY ? String(LB_APP_QUERY) : ''; }
 function unitHref_(base, id) { var a = appQuery_(); return base + '?' + (a ? a + '&' : '') + 'unit=' + encodeURIComponent(id); }
 
+/* ------------------------------------------------------------
+ *  学習BASE の新しい形の記録（LbSession）・技能の目録（LbCatalog）
+ *  学習BASE の中（LbSession・Base がある時）だけ書く。単体の GAS では何もしない。
+ * ------------------------------------------------------------ */
+/** 技能のキー：math/<単元>/<型>（型は Unit.gs の types のキー） */
+function lbSkill_(t) { return 'math/' + UNIT.id + '/' + t; }
+/**
+ * 1問ぶん。ok は「一度で正答したか」（やり直して当たったものは正答に数えない。type_stats と同じ基準）。
+ * 時間は一度で正答した問題の「最初のキーまで」だけ（間違えた問題の時間は想起の速さを表さない）
+ */
+function lbItem_(it, qq, hist, hit, firstTry) {
+  var last = hist.length ? hist[hist.length - 1] : null, tk = Number(it.tk) || 0;
+  var o = { i: Number(it.i), q: String(qq.tag), t: String(qq.t), a: last ? last.join('/') : '', tries: hist.length, hit: !!hit, ok: !!firstTry, skill: lbSkill_(qq.t) };
+  if (firstTry && tk > 0) o.first = tk;
+  return o;
+}
+function lbWriteSession_(s, mail, isPractice, items) {
+  if (typeof LbSession === 'undefined' || typeof Base === 'undefined' || !hubRoster_()) return false;
+  var learner = ACT_.learner || Base.child(mail);
+  if (!learner || !learner.lid) return false;                     // 名簿にない人（おためし）は書かない
+  return LbSession.write(ss_(), {
+    ts: new Date(), lid: learner.lid, mail: learner.mail || '', app: 'tamath', activity: UNIT.id + '/' + s.mode,
+    context: isPractice ? 'practice' : 'live', ver: String(ENGINE_VER), items: items
+  }, { learner: learner, by: ACT_.by || '', catalog: tamathCatalog_() }).ok;
+}
+/** 単元を決めて新しい形の記録を書く（学習BASE の検査が使う。名前が _ で終わるので画面からは呼べない） */
+function lbWriteForUnit_(unit, s, mail, isPractice, items) { useUnit_(unit); return lbWriteSession_(s, mail, isPractice, items); }
+/**
+ * 過去の記録（log シート）を、新しい形の集計に取り込める形にする（学習BASE の夜の処理が1回だけ使う）。
+ * log には1問ずつの記録は無いが、型ごとの統計（type_stats）と、一度で正答しなかった問題（miss_items）から、
+ * 技能ごとの 件数・一度で正答した数・時間の統計 が分かる：
+ *   一度で正答した数 = type_stats の1番目／件数 = それ ＋ miss_items のその型の数／時間 = type_stats の 初打鍵の数・Σln・Σln²
+ * 本人はメールで書かれているので、名簿（学習者ID）で引く。名簿にない人の行は取り込まない。
+ * before より前の行だけ（それ以後は新しい形の記録がある）。返す：[{ ts, lid, grade, cls, no, app, context, skills }]
+ */
+function lbLegacySessions_(unit, before) {
+  useUnit_(unit);
+  if (typeof Base === 'undefined' || !hubRoster_()) return [];
+  var sh = ss_().getSheetByName(SHEETS.LOG);
+  if (!sh || sh.getLastRow() < 2) return [];
+  var lidOf = {};
+  Base.roster().forEach(function (r) { if (r.lid) { if (r.mail) lidOf[r.mail] = r.lid; lidOf['lid:' + r.lid] = r.lid; } });
+  var cut = before ? new Date(before).getTime() : Infinity, out = [];
+  sh.getRange(2, 1, sh.getLastRow() - 1, LOG_WIDTH_).getValues().forEach(function (r) {
+    var ts = rowTime_(r[LOG_COL_.TS]);
+    if (!ts || ts >= cut) return;
+    var lid = lidOf[String(r[LOG_COL_.MAIL]).trim().toLowerCase()];
+    if (!lid) return;
+    var skills = {};
+    String(r[LOG_COL_.TSTAT] || '').split(',').forEach(function (part) {
+      var v = part.split(':');
+      if (v.length < 8 || !v[0]) return;
+      skills[lbSkill_(v[0])] = { n: Number(v[1]) || 0, ok: Number(v[1]) || 0, tn: Number(v[3]) || 0, sl: Number(v[6]) || 0, sl2: Number(v[7]) || 0, mis: {} };
+    });
+    String(r[LOG_COL_.MISS] || '').split(',').forEach(function (m) {
+      var t = m.split(':')[0];
+      if (!t) return;
+      var k = lbSkill_(t), sk = skills[k] || (skills[k] = { n: 0, ok: 0, tn: 0, sl: 0, sl2: 0, mis: {} });
+      sk.n++;
+    });
+    if (!Object.keys(skills).length) return;
+    out.push({ ts: new Date(ts), lid: lid, grade: Number(r[LOG_COL_.GRADE]) || 0, cls: String(r[LOG_COL_.CLS]), no: Number(r[LOG_COL_.NO]) || 0,
+      app: 'tamath', context: 'live', skills: skills });
+  });
+  return out;
+}
+/** 過去の記録を取り込める単元（登録済み）。{ key, unit } */
+function lbLegacySources_() {
+  var gp = PropertiesService.getScriptProperties();
+  return unitIds_().filter(function (id) { return !!gp.getProperty(unitSheetKey_(id)); }).map(function (id) { return { key: 'tamath:' + id, unit: id }; });
+}
+
+/** 算数TA の技能の目録（全単元の型）。到達の基準の初期値は正答率90%・20問以上（単元ごとに Unit.gs の mastery で直せる） */
+function tamathCatalog_() {
+  var skills = [];
+  unitIds_().forEach(function (id) {
+    var u = UNIT_DEFS[id], types = u.types || {};
+    Object.keys(types).forEach(function (t) {
+      var sk = { key: 'math/' + id + '/' + t, label: (u.title ? String(u.title).replace(/\s*タイムアタック.*$/, '') + '：' : '') + String(types[t]), grade: Number(u.grade) || 0 };
+      if (u.mastery) sk.mastery = u.mastery;
+      skills.push(sk);
+    });
+  });
+  return { app: 'tamath', title: '算数タイムアタック', version: ENGINE_VER, skills: skills, mastery: { minN: 20, acc: 0.9, gmMs: 0, windowWeeks: 4 }, directives: [] };
+}
+/** 集計が読む記録先（登録済みの単元のスプレッドシート）。学習BASE の夜の処理が使う */
+function lbSessionSources_() {
+  var gp = PropertiesService.getScriptProperties(), out = [];
+  unitIds_().forEach(function (id) {
+    var sid = gp.getProperty(unitSheetKey_(id));
+    if (!sid) return;
+    try { out.push({ app: 'tamath', key: 'tamath:' + id, ss: SpreadsheetApp.openById(sid) }); } catch (e) { console.error(id + ' を開けません: ' + e.message); }
+  });
+  return out;
+}
+
 /** 名前の頭に単元の id を付ける CacheService（今までの呼び方 get/put/remove/…All をそのまま使える） */
 function nsCache_(id) {
   var c = CacheService.getScriptCache(), p = 'u:' + id + ':';
@@ -1818,7 +2762,9 @@ var API_DENY_ = { apiCall: 1, doGet: 1, setup: 1, registerUnitSheet: 1, listUnit
   continueAll: 1, include: 1, checkUnit: 1, baseSetHub: 1, baseClearCache: 1,
   importUnitSheetsFromHub: 1, switchHubLinks: 1, restoreHubLinks: 1, forgetCreatedUnitSheets: 1 };
 function apiCall(unitId, name, args) {
-  useUnit_(unitId);
+  var uk = parseUnitKey_(unitId);
+  useUnit_(uk.unit);
+  if (uk.as) setActAs_(uk.as);
   name = String(name || '');
   var fn = typeof LB_RESOLVE_ === 'function' ? LB_RESOLVE_(name) : globalThis[name];
   // 組み込みの関数（eval・Function など）は呼ばせない。GAS が画面から呼ばせるのも、プロジェクトに書いた関数だけ
@@ -1838,7 +2784,7 @@ function multiShim_() {
   if (!isMulti_()) return '';
   return '<script>(function(){' +
     'if(typeof google==="undefined"||!google.script||!google.script.run)return;' +
-    'var real=google.script.run,KEY=' + JSON.stringify(String(UNIT.id)) + ';' +
+    'var real=google.script.run,KEY=' + JSON.stringify(String(UNIT.id) + (ACT_.lid ? '|as=' + ACT_.lid : '')) + ';' +
     'var W={withSuccessHandler:1,withFailureHandler:1,withUserObject:1};' +
     'function mk(h){return new Proxy({},{get:function(t,k){' +
     'if(W[k])return function(f){var n={};for(var x in h)n[x]=h[x];n[k]=f;return mk(n);};' +
@@ -1935,8 +2881,31 @@ function sh_(name) {
 }
 
 function email_() {
+  // 教師が児童の代わりに取り組んでいる時は、その児童として振る舞う（setActAs_ で確かめた後だけ）。
+  // メールの無い転入生は 'lid:<学習者ID>' を本人のメールの代わりに使う（今の記録の列に入る）
+  if (ACT_.learner) return ACT_.learner.mail || ('lid:' + ACT_.learner.lid);
   var e = Session.getActiveUser().getEmail();
   return e ? e.toLowerCase() : '';
+}
+
+/* ------------------------------------------------------------
+ *  代わりに取り組む（学習BASE の中だけ）
+ *  教師が学習BASE で児童を選ぶと、URL に &as=<学習者ID> が付く。画面からの呼び出しでは、単元の欄に
+ *  'kuku|as=<学習者ID>' として載る（読み込み係の呼び出しの形を変えずに運ぶため）。
+ *  実行のたびに Base.actAs で「開いた人が教師で、その学級を見てよいか」を確かめ、通った時だけ児童として振る舞う。
+ * ------------------------------------------------------------ */
+var ACT_ = { lid: '', learner: null, by: '' };
+function setActAs_(lid) {
+  lid = String(lid || '').trim();
+  if (!lid) return;
+  if (typeof Base === 'undefined' || !hubRoster_()) throw new Error('代わりに取り組むは、学習BASE の中でだけ使えます');
+  var r = Base.actAs(lid);                   // 教師でない・担当外・名簿にいない なら止まる
+  ACT_ = { lid: lid, learner: r.learner, by: r.by };
+}
+/** 'kuku|as=L…' を { unit, as } に分ける */
+function parseUnitKey_(k) {
+  var s = String(k || ''), i = s.indexOf('|as=');
+  return i < 0 ? { unit: s, as: '' } : { unit: s.slice(0, i), as: s.slice(i + 4) };
 }
 
 function today_() {
@@ -2035,7 +3004,8 @@ function rosterRows_(fy) {
   if (hubRoster_()) {
     // ハブの名簿を Base.gs で読む（IMPORTRANGE をやめる）。過去年度はハブの roster_<年度>、
     // 無ければ今までどおり単元のスプレッドシートの roster_<年度>（4/1 に単元ごとに残していた分）
-    var hr = Base.roster(fy).map(function (r) { return { mail: r.mail, grade: r.grade, cls: r.cls, no: r.no, name: r.name }; });
+    var hr = Base.roster(fy).map(function (r) { return { mail: r.mail || (r.lid ? 'lid:' + r.lid : ''), grade: r.grade, cls: r.cls, no: r.no, name: r.name }; })
+      .filter(function (r) { return r.mail; });   // メールの無い転入生は 'lid:<学習者ID>'（代わりに取り組んだ記録の本人）
     if (hr.length || fy === curSchoolYear_()) return hr;
   }
   var s;
@@ -2387,6 +3357,7 @@ function doGet(e) {
     var uid = (e && e.parameter && e.parameter.unit) || '';
     if (!uid || !Object.prototype.hasOwnProperty.call(UNIT_DEFS, uid)) return unitIndexPage_();
     useUnit_(uid);
+    if (e.parameter.as) setActAs_(e.parameter.as);
   }
   ensureReady_();
   var page = (e && e.parameter && e.parameter.page) || '';
@@ -2593,7 +3564,7 @@ function submitSession(token, items) {
   }
 
   var q = genQueue_(s.seed, s.mode, QN);
-  var correct = 0, attempts = 0;
+  var correct = 0, attempts = 0, lbItems = [];
   var miss = [], slow = [], wrong = [], stat = {}, msByType = {};
 
   for (var i = 0; i < items.length; i++) {
@@ -2609,6 +3580,7 @@ function submitSession(token, items) {
     var firstTry = hist.length === 1 && hit;
 
     if (hit) correct++;
+    lbItems.push(lbItem_(it, qq, hist, hit, firstTry));
     if (!hit || hist.length > 1) {
       miss.push(qq.t + ':' + qq.tag);
       // 誤答明細シート用に、正しい答えと最初に間違えた値をセットで残す
@@ -2718,6 +3690,9 @@ function submitSession(token, items) {
   } finally {
     try { lock.releaseLock(); } catch (e2) {}
   }
+  // 学習BASE の新しい形の記録（学習者ID・全問）。今の記録（log）と採点の結果はここまでで確定している。
+  // ここで失敗しても結果は返す（新しい形が欠けるだけ。今の記録には影響しない）
+  try { lbWriteSession_(s, mail, isPractice, lbItems); } catch (eLb) { console.error('新しい形の記録に失敗: ' + (eLb && eLb.message || eLb)); }
 
   return {
     ok: true, mode: s.mode, limitSec: limSec, practice: isPractice,
@@ -5695,7 +6670,12 @@ function setup() {
     ownerOnly_();
     var gp = PropertiesService.getScriptProperties();
     // スプレッドシートが未登録の単元は飛ばす（ここで作らない。児童か教師が初めて開いた時に作る）
-    var msg = unitIds_().map(function (id) {
+    var cat = '';
+    if (typeof LbCatalog !== 'undefined' && hubRoster_()) {
+      try { cat = '技能の目録：' + (LbCatalog.publish(Base.hub(), tamathCatalog_()) ? 'ハブに書いた' : '変わりなし') + '\n\n'; }
+      catch (eC) { cat = '技能の目録：× ' + eC.message + '\n\n'; }
+    }
+    var msg = cat + unitIds_().map(function (id) {
       if (!gp.getProperty(unitSheetKey_(id))) return '【' + id + '】未登録のため飛ばした';
       useUnit_(id);
       try { return '【' + id + '】' + setupOne_(); } catch (e) { return '【' + id + '】× ' + e.message; }
@@ -8805,7 +9785,11 @@ return {
   "nightly": (typeof nightlyAggregateAll === 'function' ? nightlyAggregateAll : undefined),
   "daily": (typeof resetDailyAll === 'function' ? resetDailyAll : undefined),
   "rollover": (typeof rolloverRosterAll === 'function' ? rolloverRosterAll : undefined),
-  "continueAll": (typeof continueAll === 'function' ? continueAll : undefined)
+  "continueAll": (typeof continueAll === 'function' ? continueAll : undefined),
+  "sessionSources": (typeof lbSessionSources_ === 'function' ? lbSessionSources_ : undefined),
+  "writeForUnit": (typeof lbWriteForUnit_ === 'function' ? lbWriteForUnit_ : undefined),
+  "legacySources": (typeof lbLegacySources_ === 'function' ? lbLegacySources_ : undefined),
+  "legacySessions": (typeof lbLegacySessions_ === 'function' ? lbLegacySessions_ : undefined)
 };
 })();
 
@@ -8828,9 +9812,14 @@ return {
 var LbPlatform = (function () {
   /** 学習BASE の画面から呼べる関数（lbCall の mod・name）。ここに無いものは呼べない */
   var API = {
-    home: { boot: function (o) { return LbHome.boot(o); }, setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
-      resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); } }
+    home: { boot: function (o) { return LbHome.boot(o); }, decide: function (k, key, a, m) { return LbHome.decide(k, key, a, m); },
+      setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
+      resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); },
+      feedback: function (k, v, t) { return LbHome.feedback(k, v, t); }, report: function (kind, detail) { return LbHome.report(kind, detail); },
+      exportForTuning: function () { return LbHome.exportForTuning(); }, tuning: function () { return LbHome.tuning(); },
+      tryRules: function (v) { return LbHome.tryRules(v); }, saveRules: function (v, now) { return LbHome.saveRules(v, now); } }
   };
+  function roleNow() { try { return Base.me().role; } catch (e) { return '-'; } }
 
   function doGet(e) {
     var p = (e && e.parameter) || {};
@@ -8840,7 +9829,7 @@ var LbPlatform = (function () {
       var m = LB_MODULES[app];
       if (!m) return message('アプリが見つかりません: ' + app);
       LB_LOADER.files();                      // アプリの画面のファイルを読む（LB_FILES）
-      return m.doGet(e);
+      try { return m.doGet(e); } catch (err) { LbTune.count(roleNow(), LbTune.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
   }
@@ -8848,12 +9837,14 @@ var LbPlatform = (function () {
   function call(mod, name, args) {
     var api = API[String(mod)];
     if (!api || !Object.prototype.hasOwnProperty.call(api, String(name))) throw new Error('呼べない関数です: ' + mod + '.' + name);
-    return api[name].apply(null, Array.isArray(args) ? args : []);
+    try { return api[name].apply(null, Array.isArray(args) ? args : []); }
+    catch (e) { LbTune.count(roleNow(), LbTune.err(mod + '.' + name, e)); throw e; }
   }
   function appApi(app, unit, name, args) {
     var m = LB_MODULES[app];
     if (!m || !m.apiCall) throw new Error('アプリが見つかりません: ' + app);
-    return m.apiCall(unit, name, args);
+    try { return m.apiCall(unit, name, args); }
+    catch (e) { LbTune.count(roleNow(), LbTune.err(app + '.' + String(name).slice(0, 40), e)); throw e; }
   }
 
   /** 自動実行：各アプリの夜・朝の処理。1つのアプリが失敗しても他は続ける */
@@ -8866,6 +9857,105 @@ var LbPlatform = (function () {
     });
     return errs;
   }
+  /**
+   * 過去の記録を1回だけ集計に取り込む（アプリが legacySources・legacySessions を持つ時）。
+   * 記録先ごとに「済み」の印を置き、新しい形の記録が始まった時刻より前の分だけを足す（二重に数えない）
+   */
+  function legacy() {
+    var hub = Base.hub(), fy = Base.fy(), errs = [];
+    Object.keys(LB_MODULES).forEach(function (k) {
+      var m = LB_MODULES[k];
+      if (typeof m.legacySources !== 'function' || typeof m.legacySessions !== 'function') return;
+      var srcs = []; try { srcs = m.legacySources(); } catch (e) { errs.push(k + ': ' + e.message); return; }
+      var ss = {}; try { (m.sessionSources ? m.sessionSources() : []).forEach(function (s) { ss[s.key] = s.ss; }); } catch (e) {}
+      srcs.forEach(function (src) {
+        var flag = 'legacy|' + src.key + '|' + fy;
+        if (LbFacts.marked(hub, flag)) return;
+        try {
+          var before = ss[src.key] ? LbFacts.firstSessionTs(ss[src.key], fy) : null;
+          var n = LbFacts.mergeSessions(hub, fy, m.legacySessions(src.unit, before || new Date()));
+          LbFacts.mark(hub, flag);
+          console.log('過去の記録を取り込んだ：' + src.key + '（' + n + ' 行）');
+        } catch (e) { errs.push(src.key + ': ' + e.message); }
+      });
+    });
+    return errs;
+  }
+
+  /** 今週の3件を計算してハブに置く */
+  function alerts() {
+    try {
+      var hub = Base.hub(), fy = Base.fy();
+      var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+      var by = LbAlerts.refresh(hub, fy, Base.roster(), LbCatalog.readAll(hub), today);   // 所有者が変えた閾値（rules シート）で
+      console.log('今週の3件：' + Object.keys(by).reduce(function (t, c) { return t + by[c].length; }, 0) + ' 件（初めて出た ' + LbTune.logAlerts(hub, by, today) + ' 件）');
+      return [];
+    } catch (e) { console.error('今週の3件 失敗: ' + e.message); return ['alerts: ' + e.message]; }
+  }
+
+  /**
+   * 月曜の朝：学級の担当の先生（teachers シート）と所有者に「今週の3件」の件数を知らせる。
+   * 児童の名前はメールに書かない（名前は学習BASE の画面の中だけ）。
+   * 所有者には、直近7日の失敗の件数も1行（今週の3件が無い週でも、失敗があれば送る）
+   */
+  function weekly() {
+    var hub = Base.hub(), url = '';
+    try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
+    var owner = ''; try { owner = Session.getEffectiveUser().getEmail(); } catch (e) {}
+    var ne = 0; try { ne = LbTune.errorCount(hub); } catch (e) {}
+    var errLine = ne ? '直近7日の失敗：' + ne + ' 件。学習BASE の一番下「失敗と速さを見る・書き出す」で確かめてください。' : '';
+    var sh = hub.getSheetByName('now3');
+    var count = {};
+    var done = LbAlerts.decidedKeys(hub);
+    if (sh && sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var cls = Object.prototype.toString.call(r[0]) === '[object Date]' ? (r[0].getMonth() + 1) + '-' + r[0].getDate() : String(r[0]);
+      if (done[r[2]]) return;
+      var c = count[cls] || (count[cls] = {}); c[r[3]] = (c[r[3]] || 0) + 1;
+    });
+    var classes = Object.keys(count);
+    if (!classes.length) {
+      if (!errLine || !owner) return 0;
+      MailApp.sendEmail({ to: owner, subject: '学習BASE：失敗の件数', body: errLine + '\n' + url });
+      return 1;
+    }
+    var to = {};
+    function addTo(mail, cls) { if (mail) (to[mail] = to[mail] || []).push(cls); }
+    classes.forEach(function (cls) {
+      var i = cls.indexOf('-'), g = Number(cls.slice(0, i)), c = cls.slice(i + 1);
+      Base.teachers().forEach(function (t) { if (t.scopes.some(function (s) { return !s.grade || (s.grade === g && (!s.cls || s.cls === c)); })) addTo(t.mail, cls); });
+      addTo(owner, cls);
+    });
+    var name = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' }, sent = 0;
+    Object.keys(to).forEach(function (mail) {
+      var lines = to[mail].filter(function (v, i, a) { return a.indexOf(v) === i; }).sort().map(function (cls) {
+        var c = count[cls], i = cls.indexOf('-');
+        return cls.slice(0, i) + '年' + cls.slice(i + 1) + '組：' + Object.keys(c).map(function (k) { return name[k] + ' ' + c[k]; }).join('・');
+      });
+      MailApp.sendEmail({ to: mail, subject: '学習BASE：今週の3件', body: '今週、目を向けるとよい相手がいます。\n\n' + lines.join('\n') +
+        '\n\n学習BASE（先生の画面の一番上）で確かめてください。\n' + url + (mail === owner && errLine ? '\n\n（所有者へ）' + errLine : '') + '\n\n（このメールには児童の名前を書いていません）' });
+      sent++;
+    });
+    return sent;
+  }
+
+  /** 前日までの使われ方を usage シートへ（1日×区分×出来事で1行） */
+  function usage() {
+    try { console.log('使われ方：' + LbTune.flush(Base.hub()) + ' 行'); return []; }
+    catch (e) { console.error('使われ方 失敗: ' + e.message); return ['usage: ' + e.message]; }
+  }
+
+  /** 全アプリの新しい形の記録を「児童×技能×週」に足す（ハブの facts_<年度>）。時間切れなら残りは次の夜 */
+  function facts() {
+    var sources = [];
+    Object.keys(LB_MODULES).forEach(function (k) {
+      var m = LB_MODULES[k];
+      if (typeof m.sessionSources === 'function') { try { sources = sources.concat(m.sessionSources()); } catch (e) { console.error(k + ' の記録先: ' + e.message); } }
+    });
+    if (!sources.length) return [];
+    try { var r = LbFacts.ingest(Base.hub(), sources); console.log('集計：' + r.read + ' 行' + (r.more ? '（続きは次回）' : '')); return []; }
+    catch (e) { console.error('集計 失敗: ' + e.message); return ['facts: ' + e.message]; }
+  }
+
   function setup() {
     return Object.keys(LB_MODULES).map(function (k) {
       var m = LB_MODULES[k];
@@ -8891,11 +9981,11 @@ var LbPlatform = (function () {
   function platformScript(baseUrl) {
     return 'window.LB_PLATFORM={baseUrl:' + JSON.stringify(baseUrl) + ',' +
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
-      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow"};' +
+      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide",homeFeedback:"feedback",homeReport:"report",homeExport:"exportForTuning",homeTuning:"tuning",homeTryRules:"tryRules",homeSaveRules:"saveRules"};' +
       'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",map[name]||name,a);});},' +
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +
-      'function lbLoadFail(){var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';
+      'function lbLoadFail(){if(window.lbFailed)return;window.lbFailed=1;try{google.script.run.lbCall("home","report",["loadfail"]);}catch(e){}var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';
   }
   function message(text) {
     return HtmlService.createHtmlOutput('<meta name="viewport" content="width=device-width, initial-scale=1"><div lang="ja" style="font-family:\'BIZ UDPGothic\',\'Noto Sans CJK JP\',sans-serif;font-size:20px;padding:24px">' +
@@ -8903,6 +9993,7 @@ var LbPlatform = (function () {
   }
 
   return { doGet: doGet, call: call, appApi: appApi, setup: setup,
-    nightly: function () { return each('nightly'); }, daily: function () { return each('daily'); },
+    nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); e = e.concat(alerts()); return e.concat(usage()); },
+    weekly: weekly, daily: function () { return each('daily'); },
     rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };
 })();
