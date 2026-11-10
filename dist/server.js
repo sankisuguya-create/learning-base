@@ -2280,7 +2280,7 @@ function homeTuning() { return LbHome.tuning(); }
 function homeTryRules(values) { return LbHome.tryRules(values); }
 function homeSaveRules(values, now) { return LbHome.saveRules(values, now); }
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@c3ee013） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@d143829） =====
 LB_MODULES["tamath"] = (function () {
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };

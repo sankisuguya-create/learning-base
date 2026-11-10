@@ -2,7 +2,7 @@
   "_": "学習BASE に載せるアプリと、その版（コミット）。tools/bundle.cjs がこの版のファイルを取り込んで dist/ を作る。アプリを更新する時はここの commit を書き換えて npm run bundle",
   "tamath": {
     "repo": "sankisuguya-create/arithmetic-timeattack",
-    "commit": "c3ee01383a2b1ed941c3dfb27c455e3001fc5498",
+    "commit": "d14382984fa7cae874384ab61163f699bdf36d8a",
     "server": [
       "dist/multi/Core.gs",
       "dist/multi/AllUnits.gs"
