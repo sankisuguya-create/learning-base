@@ -1465,33 +1465,21 @@ var LbAlerts = (function () {
   return { RULES: RULES, SPEC: SPEC, KIND_NAME: KIND_NAME, specOf: specOf, getPath: getPath, setPath: setPath, withValues: withValues, savedValues: savedValues, active: active, saveValues: saveValues, refresh: refresh, LABEL: LABEL, KIND_RANK: KIND_RANK, compute: compute, candidates: candidates, index: index, classMap: classMap, weekOfDay: weekOfDay, sum: sum, weeksBack: weeksBack, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
 })();
 
-// ===== gas/Tune.gs =====
+// ===== gas/Telemetry.gs =====
 /**
- * Tune.gs — 学習BASE を直すための材料（使われ方の記録・今週の3件の働き・閾値を変えたら・先生の気づき・改善用の書き出し）
+ * Telemetry.gs — 観察では見えないものを自動で集める（LbTelemetry）
  *
  * 正本は learning-base。設計：`-` リポジトリ principles/learning-app-foundation.md §15、手順：docs/tuning-log.md
- *
- * 改善の入力の主役は、所有者・担任の観察の報告（どの画面で・何をしようとして・何が起きたか）と画面写真（撮影用）。
- * ここで自動で集めるのは、観察では見えないものだけ（決定 2026-11-10）：
+ * 改善の入力の主役は観察の報告と画面写真（撮影用）。ここで集めるのは次だけ（決定 2026-11-10）：
  *   - 失敗：サーバーの失敗と画面の JavaScript の失敗（どこで・エラー文。メール・ID・長い数字は伏せる）
  *   - 実機の速さ：サーバーの処理時間と、開いてから表示までの往復（端末のメモリ 4GB以下／8GB 別）
- *   - 始めるまで：児童がホームを開いてから最初のページを開くまでの時間と経路（いまの学習／教科のタイル／教科の中）、
- *       教科に入って何も開かずに戻った回数（行き止まり）。直した時に効いたかを比べるため
- *   - 先生の気づき（feedback）
- * これを「失敗と速さ」の書き出し（exportText）にまとめ、所有者が Claude に渡す。児童の学習状態は入れない。
- * 閾値を見直す材料（tuning・tryRules：候補の数・分布）は児童の学習状態なので、所有者の画面の中だけで見る。
- *
- * 使われ方は、1つ起きるたびにスクリプトのプロパティに足す（シートに書くと遅いので）。
- * プロパティは日付と番号（0〜15、くじ）ごとに分け、同じ瞬間に2人が同じ所へ書く確率を下げる（重なると1回分落ちる。目安の数として使う）。
- * 毎晩、前日までの分を usage シートに1日1行（区分×出来事）でまとめ、プロパティから消す。
+ *   - 始めるまで：児童がホームを開いてから最初のページを開くまでの時間と経路、教科の行き止まり（直した時に効いたかを比べる）
+ * 1つ起きるたびにスクリプトのプロパティに足す（シートに書くと遅いので）。プロパティは日付と番号（0〜15、くじ）ごとに分け、
+ * 同じ瞬間に2人が同じ所へ書く確率を下げる（重なると1回分落ちる。目安の数）。毎晩、前日までの分を usage シートに1日1行でまとめる。
  */
-var LbTune = (function () {
-  var MIN_CELL = 5;
+var LbTelemetry = (function () {
   var PFX = 'LB_U|', SHARDS = 16;
   var USAGE = 'usage', USAGE_HEAD = ['日付', '区分', '出来事', '回数'];
-  var LOG = 'now3_log', LOG_HEAD = ['週', '学級', 'キー', '種類', '初めて出た日'];
-  var FB = 'feedback', FB_HEAD = ['日時', '教師', '学級', '画面', '本文'];
-  var CODE_HEAD = ['学習者ID・メール', '記号'];
   var SPEED = { srv: [[1000, '1秒未満'], [2000, '1〜2秒'], [4000, '2〜4秒'], [Infinity, '4秒以上']],
     rt: [[2000, '2秒未満'], [4000, '2〜4秒'], [8000, '4〜8秒'], [Infinity, '8秒以上']],
     start: [[5000, '5秒未満'], [10000, '5〜10秒'], [20000, '10〜20秒'], [Infinity, '20秒以上']] };
@@ -1499,8 +1487,6 @@ var LbTune = (function () {
   var MAX_KEYS = 80;   // 1つのプロパティに置く出来事の種類の上限（エラー文が大量に違う時、9KB を越えないように）
 
   var day = LbSheets.day, ymd = LbSheets.ymd, sheet = LbSheets.sheet;
-  /** 人数の欄：0 はそのまま、1〜4 は「5人未満」 */
-  function people(n) { return !n ? '0' : n < MIN_CELL ? MIN_CELL + '人未満' : String(n); }
   function bucket(ms, edges) { for (var i = 0; i < edges.length; i++) if (ms < edges[i][0]) return edges[i][1]; return edges[edges.length - 1][1]; }
   function cleanName(s) { return String(s == null ? '' : s).replace(/[|\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); }
   /** エラー文を記録に使える形に（メール・学習者ID・6桁以上の数は伏せる。80字まで） */
@@ -1591,6 +1577,33 @@ var LbTune = (function () {
     Object.keys(pd).forEach(function (d) { Object.keys(pd[d]).forEach(function (e) { add(d, e, pd[d][e]); }); });
     return out;
   }
+
+  /** 直近7日の失敗の件数（月曜のメールに1行） */
+  function errorCount(hub, today) {
+    var since = day(new Date(new Date((today || day()) + 'T12:00:00+09:00').getTime() - 6 * 86400000)), u = usage(hub, since), n = 0;
+    Object.keys(u).forEach(function (d) { Object.keys(u[d]).forEach(function (e) { if (/\|(err|js|client):/.test(e)) n += u[d][e]; }); });
+    return n;
+  }
+
+  return { cleanName: cleanName, count: count, speed: speed, err: err, errText: errText, memClass: memClass, bootEvents: bootEvents, errorCount: errorCount,
+    pending: pending, flush: flush, usage: usage };
+})();
+
+// ===== gas/Tuning.gs =====
+/**
+ * Tuning.gs — 閾値を見直す材料（LbTuning）。所有者の画面の中だけで見る（児童の学習状態なので、書き出しには入れない）
+ *
+ * 正本は learning-base。今週の3件の規則と値は Alerts.gs（RULES・SPEC・ハブの rules）。ここはそれを数え比べるだけ：
+ *   - 出た記録（now3_log）と先生の反応（decisions）を週×種類で
+ *   - 閾値を1つずつ変えた時・入れた値の時の候補の数
+ *   - 規則が見ている値の散らばり（人数は5人未満を伏せる）
+ */
+var LbTuning = (function () {
+  var MIN_CELL = 5;
+  var LOG = 'now3_log', LOG_HEAD = ['週', '学級', 'キー', '種類', '初めて出た日'];
+  var day = LbSheets.day, ymd = LbSheets.ymd, sheet = LbSheets.sheet;
+  /** 人数の欄：0 はそのまま、1〜4 は「5人未満」 */
+  function people(n) { return !n ? '0' : n < MIN_CELL ? MIN_CELL + '人未満' : String(n); }
 
   /* ---------- 今週の3件の働き ---------- */
 
@@ -1724,6 +1737,37 @@ var LbTune = (function () {
     return { hist: hist, grades: grades };
   }
 
+  /**
+   * 閾値を見直す画面の材料（所有者だけ・学校の中だけ）。
+   * o: { hub, today, roster, acc, cats }。返す：{ spec: [...], counts, sens, dist, perf }
+   */
+  function tuning(o) {
+    var base = LbAlerts.active(o.hub), saved = LbAlerts.savedValues(o.hub);
+    var spec = LbAlerts.SPEC.map(function (sp) {
+      return { path: sp.path, kind: sp.kind, label: sp.label, unit: sp.unit, scale: sp.scale, int: !!sp.int, min: sp.min, max: sp.max,
+        value: LbAlerts.getPath(base, sp.path), def: LbAlerts.getPath(LbAlerts.RULES, sp.path), changed: Object.prototype.hasOwnProperty.call(saved, sp.path) };
+    });
+    var sens = sensitivity(o.acc, o.roster, o.cats, o.today, base);
+    return { spec: spec, counts: sens[0], sens: sens.slice(1), dist: distributions(o.acc, o.roster, o.cats, o.today, base), perf: performance(o.hub, o.today, 8) };
+  }
+
+  return { MIN_CELL: MIN_CELL, people: people, logAlerts: logAlerts, performance: performance, variants: variants, sensitivity: sensitivity,
+    tryRules: tryRules, distributions: distributions, tuning: tuning };
+})();
+
+// ===== gas/Export.gs =====
+/**
+ * Export.gs — 先生の気づきと「失敗と速さ」の書き出し（LbExport）
+ *
+ * 正本は learning-base。所有者がコピーして Claude（私用 PC）に渡す。渡すのは学習BASE の使い勝手・機能性だけで、児童の学習状態は入れない。
+ * 児童の名前・メール・学習者ID を書かない：気づきの名前は記号に置き換え（記号表はハブの pseudo_<年度> にだけある）、
+ * 全文にも置き換えをかけ、最後に機械で確かめ、残っていれば文を返さない。先生のメールは「先生n」、学級は学年だけ。
+ */
+var LbExport = (function () {
+  var FB = 'feedback', FB_HEAD = ['日時', '教師', '学級', '画面', '本文'];
+  var CODE_HEAD = ['学習者ID・メール', '記号'];
+  var day = LbSheets.day, sheet = LbSheets.sheet, usage = LbTelemetry.usage, cleanName = LbTelemetry.cleanName;
+
   /* ---------- 先生の気づき ---------- */
 
   function saveFeedback(hub, by, classKey, view, text) {
@@ -1794,20 +1838,6 @@ var LbTune = (function () {
   }
 
   /**
-   * 閾値を見直す画面の材料（所有者だけ・学校の中だけ）。
-   * o: { hub, today, roster, acc, cats }。返す：{ spec: [...], counts, sens, dist, perf }
-   */
-  function tuning(o) {
-    var base = LbAlerts.active(o.hub), saved = LbAlerts.savedValues(o.hub);
-    var spec = LbAlerts.SPEC.map(function (sp) {
-      return { path: sp.path, kind: sp.kind, label: sp.label, unit: sp.unit, scale: sp.scale, int: !!sp.int, min: sp.min, max: sp.max,
-        value: LbAlerts.getPath(base, sp.path), def: LbAlerts.getPath(LbAlerts.RULES, sp.path), changed: Object.prototype.hasOwnProperty.call(saved, sp.path) };
-    });
-    var sens = sensitivity(o.acc, o.roster, o.cats, o.today, base);
-    return { spec: spec, counts: sens[0], sens: sens.slice(1), dist: distributions(o.acc, o.roster, o.cats, o.today, base), perf: performance(o.hub, o.today, 8) };
-  }
-
-  /**
    * 「失敗と速さ」の書き出し（Markdown。所有者が Claude に渡す）。観察では見えないものだけ。児童の学習状態は入れない。
    * o: { hub, fy, today, ver, roster, teachers, settings: [{ classKey, hidden, now }], days }
    * 返す：{ ok, text（ok の時だけ）, problems, notes: [目で確かめてほしいこと（画面にだけ出す。書き出しには入れない）] }
@@ -1873,16 +1903,7 @@ var LbTune = (function () {
     var g = guard(text, tbl, o.roster);
     return { ok: g.ok, text: g.ok ? text : '', problems: g.problems, notes: notes.filter(function (v, i, a) { return a.indexOf(v) === i; }) };
   }
-  /** 直近7日の失敗の件数（月曜のメールに1行） */
-  function errorCount(hub, today) {
-    var since = day(new Date(new Date((today || day()) + 'T12:00:00+09:00').getTime() - 6 * 86400000)), u = usage(hub, since), n = 0;
-    Object.keys(u).forEach(function (d) { Object.keys(u[d]).forEach(function (e) { if (/\|(err|js|client):/.test(e)) n += u[d][e]; }); });
-    return n;
-  }
-
-  return { MIN_CELL: MIN_CELL, count: count, speed: speed, err: err, errText: errText, memClass: memClass, bootEvents: bootEvents, errorCount: errorCount, pending: pending, flush: flush, usage: usage,
-    logAlerts: logAlerts, performance: performance, variants: variants, sensitivity: sensitivity, tryRules: tryRules, distributions: distributions, people: people,
-    tuning: tuning, saveFeedback: saveFeedback, readFeedback: readFeedback, codes: codes, guard: guard, exportText: exportText };
+  return { saveFeedback: saveFeedback, readFeedback: readFeedback, codes: codes, guard: guard, exportText: exportText };
 })();
 
 // ===== gas/Pages.gs =====
@@ -2140,9 +2161,9 @@ var LbHome = (function () {
    */
   function boot(opt) {
     opt = opt || {};
-    var t0 = Date.now(), out = bootInner(opt), ev = ['boot', LbTune.speed('srv', Date.now() - t0)];
+    var t0 = Date.now(), out = bootInner(opt), ev = ['boot', LbTelemetry.speed('srv', Date.now() - t0)];
     // 前回分（往復の時間・端末のメモリ・始めるまで・行き止まり）は画面が覚えて次に送る（呼び出しを増やさない）
-    LbTune.count(out.role, ev.concat(LbTune.bootEvents(out.role, out.learner ? out.learner.grade : 0, opt)));
+    LbTelemetry.count(out.role, ev.concat(LbTelemetry.bootEvents(out.role, out.learner ? out.learner.grade : 0, opt)));
     return out;
   }
   function bootInner(opt) {
@@ -2213,7 +2234,7 @@ var LbHome = (function () {
     return LbPages.readSettings(Base.hub(), classKey);
   }
 
-  /* ---------- 直すための材料（Tune.gs） ---------- */
+  /* ---------- 直すための材料（Telemetry.gs・Tuning.gs・Export.gs） ---------- */
 
   /** 所有者が開いているか（「自分として実行」では、開いた人＝所有者の時だけ getActiveUser と getEffectiveUser が同じ） */
   function isOwnerView() {
@@ -2228,7 +2249,7 @@ var LbHome = (function () {
     if (m.role !== 'teacher') throw new Error('先生だけが送れます');
     var ck = '';
     if (classKey) { requireClass(classKey); ck = String(classKey); }
-    LbTune.saveFeedback(Base.hub(), m.email, ck, view, text);
+    LbExport.saveFeedback(Base.hub(), m.email, ck, view, text);
     return true;
   }
   /**
@@ -2240,7 +2261,7 @@ var LbHome = (function () {
     if (!REPORT[kind]) return false;
     var role = '-';
     try { role = Base.me().role; } catch (e) {}
-    LbTune.count(role, kind === 'jserror' ? 'js:' + LbTune.errText(detail) : 'client:' + kind);
+    LbTelemetry.count(role, kind === 'jserror' ? 'js:' + LbTelemetry.errText(detail) : 'client:' + kind);
     return true;
   }
   function requireOwner() { if (!isOwnerView()) throw new Error('スプレッドシートの所有者だけが使えます'); }
@@ -2255,7 +2276,7 @@ var LbHome = (function () {
     });
     var ver = '';
     try { ver = typeof LB_LOADER !== 'undefined' ? LB_LOADER.ver() : ''; } catch (e) {}
-    var r = LbTune.exportText({ hub: hub, fy: fy, today: t, ver: ver, roster: roster, teachers: Base.teachers(), settings: settings });
+    var r = LbExport.exportText({ hub: hub, fy: fy, today: t, ver: ver, roster: roster, teachers: Base.teachers(), settings: settings });
     return r;
   }
 
@@ -2263,21 +2284,21 @@ var LbHome = (function () {
   function tuningInput() { var hub = Base.hub(), fy = Base.fy(); return { hub: hub, today: today(), roster: Base.roster(), acc: LbFacts.read(hub, fy), cats: LbCatalog.readAll(hub) }; }
   function tuning() {
     requireOwner();
-    return LbTune.tuning(tuningInput());
+    return LbTuning.tuning(tuningInput());
   }
   /** 入れた値で数える（保存しない）。values：{ 項目: 値 }（元の値。0.15 など） */
   function tryRules(values) {
     requireOwner();
     var o = tuningInput();
-    return LbTune.tryRules(o.acc, o.roster, o.cats, o.today, LbAlerts.active(o.hub), values || {});
+    return LbTuning.tryRules(o.acc, o.roster, o.cats, o.today, LbAlerts.active(o.hub), values || {});
   }
   /** 値を保存する（翌晩から効く）。now が true なら今週の3件をすぐ計算し直す。返す：見直す画面の材料 */
   function saveRules(values, now) {
     requireOwner();
     var o = tuningInput();
     LbAlerts.saveValues(o.hub, values || {}, String(Session.getActiveUser().getEmail() || ''));
-    if (now) LbTune.logAlerts(o.hub, LbAlerts.refresh(o.hub, Base.fy(), o.roster, o.cats, o.today), o.today);
-    return LbTune.tuning(o);
+    if (now) LbTuning.logAlerts(o.hub, LbAlerts.refresh(o.hub, Base.fy(), o.roster, o.cats, o.today), o.today);
+    return LbTuning.tuning(o);
   }
 
   /**
@@ -9833,7 +9854,7 @@ var LbPlatform = (function () {
       var m = LB_MODULES[app];
       if (!m) return message('アプリが見つかりません: ' + app);
       LB_LOADER.files();                      // アプリの画面のファイルを読む（LB_FILES）
-      try { return m.doGet(e); } catch (err) { LbTune.count(roleNow(), LbTune.err(app + '.doGet', err)); throw err; }
+      try { return m.doGet(e); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
   }
@@ -9842,13 +9863,13 @@ var LbPlatform = (function () {
     var api = API[String(mod)];
     if (!api || !Object.prototype.hasOwnProperty.call(api, String(name))) throw new Error('呼べない関数です: ' + mod + '.' + name);
     try { return api[name].apply(null, Array.isArray(args) ? args : []); }
-    catch (e) { LbTune.count(roleNow(), LbTune.err(mod + '.' + name, e)); throw e; }
+    catch (e) { LbTelemetry.count(roleNow(), LbTelemetry.err(mod + '.' + name, e)); throw e; }
   }
   function appApi(app, unit, name, args) {
     var m = LB_MODULES[app];
     if (!m || !m.apiCall) throw new Error('アプリが見つかりません: ' + app);
     try { return m.apiCall(unit, name, args); }
-    catch (e) { LbTune.count(roleNow(), LbTune.err(app + '.' + String(name).slice(0, 40), e)); throw e; }
+    catch (e) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.' + String(name).slice(0, 40), e)); throw e; }
   }
 
   /** 自動実行：各アプリの夜・朝の処理。1つのアプリが失敗しても他は続ける */
@@ -9892,7 +9913,7 @@ var LbPlatform = (function () {
       var hub = Base.hub(), fy = Base.fy();
       var today = LbSheets.day();
       var by = LbAlerts.refresh(hub, fy, Base.roster(), LbCatalog.readAll(hub), today);   // 所有者が変えた閾値（rules シート）で
-      console.log('今週の3件：' + Object.keys(by).reduce(function (t, c) { return t + by[c].length; }, 0) + ' 件（初めて出た ' + LbTune.logAlerts(hub, by, today) + ' 件）');
+      console.log('今週の3件：' + Object.keys(by).reduce(function (t, c) { return t + by[c].length; }, 0) + ' 件（初めて出た ' + LbTuning.logAlerts(hub, by, today) + ' 件）');
       return [];
     } catch (e) { console.error('今週の3件 失敗: ' + e.message); return ['alerts: ' + e.message]; }
   }
@@ -9906,7 +9927,7 @@ var LbPlatform = (function () {
     var hub = Base.hub(), url = '';
     try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
     var owner = ''; try { owner = Session.getEffectiveUser().getEmail(); } catch (e) {}
-    var ne = 0; try { ne = LbTune.errorCount(hub); } catch (e) {}
+    var ne = 0; try { ne = LbTelemetry.errorCount(hub); } catch (e) {}
     var errLine = ne ? '直近7日の失敗：' + ne + ' 件。学習BASE の一番下「失敗と速さを見る・書き出す」で確かめてください。' : '';
     var sh = hub.getSheetByName('now3');
     var count = {};
@@ -9944,7 +9965,7 @@ var LbPlatform = (function () {
 
   /** 前日までの使われ方を usage シートへ（1日×区分×出来事で1行） */
   function usage() {
-    try { console.log('使われ方：' + LbTune.flush(Base.hub()) + ' 行'); return []; }
+    try { console.log('使われ方：' + LbTelemetry.flush(Base.hub()) + ' 行'); return []; }
     catch (e) { console.error('使われ方 失敗: ' + e.message); return ['usage: ' + e.message]; }
   }
 

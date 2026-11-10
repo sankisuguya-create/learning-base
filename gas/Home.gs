@@ -60,9 +60,9 @@ var LbHome = (function () {
    */
   function boot(opt) {
     opt = opt || {};
-    var t0 = Date.now(), out = bootInner(opt), ev = ['boot', LbTune.speed('srv', Date.now() - t0)];
+    var t0 = Date.now(), out = bootInner(opt), ev = ['boot', LbTelemetry.speed('srv', Date.now() - t0)];
     // 前回分（往復の時間・端末のメモリ・始めるまで・行き止まり）は画面が覚えて次に送る（呼び出しを増やさない）
-    LbTune.count(out.role, ev.concat(LbTune.bootEvents(out.role, out.learner ? out.learner.grade : 0, opt)));
+    LbTelemetry.count(out.role, ev.concat(LbTelemetry.bootEvents(out.role, out.learner ? out.learner.grade : 0, opt)));
     return out;
   }
   function bootInner(opt) {
@@ -133,7 +133,7 @@ var LbHome = (function () {
     return LbPages.readSettings(Base.hub(), classKey);
   }
 
-  /* ---------- 直すための材料（Tune.gs） ---------- */
+  /* ---------- 直すための材料（Telemetry.gs・Tuning.gs・Export.gs） ---------- */
 
   /** 所有者が開いているか（「自分として実行」では、開いた人＝所有者の時だけ getActiveUser と getEffectiveUser が同じ） */
   function isOwnerView() {
@@ -148,7 +148,7 @@ var LbHome = (function () {
     if (m.role !== 'teacher') throw new Error('先生だけが送れます');
     var ck = '';
     if (classKey) { requireClass(classKey); ck = String(classKey); }
-    LbTune.saveFeedback(Base.hub(), m.email, ck, view, text);
+    LbExport.saveFeedback(Base.hub(), m.email, ck, view, text);
     return true;
   }
   /**
@@ -160,7 +160,7 @@ var LbHome = (function () {
     if (!REPORT[kind]) return false;
     var role = '-';
     try { role = Base.me().role; } catch (e) {}
-    LbTune.count(role, kind === 'jserror' ? 'js:' + LbTune.errText(detail) : 'client:' + kind);
+    LbTelemetry.count(role, kind === 'jserror' ? 'js:' + LbTelemetry.errText(detail) : 'client:' + kind);
     return true;
   }
   function requireOwner() { if (!isOwnerView()) throw new Error('スプレッドシートの所有者だけが使えます'); }
@@ -175,7 +175,7 @@ var LbHome = (function () {
     });
     var ver = '';
     try { ver = typeof LB_LOADER !== 'undefined' ? LB_LOADER.ver() : ''; } catch (e) {}
-    var r = LbTune.exportText({ hub: hub, fy: fy, today: t, ver: ver, roster: roster, teachers: Base.teachers(), settings: settings });
+    var r = LbExport.exportText({ hub: hub, fy: fy, today: t, ver: ver, roster: roster, teachers: Base.teachers(), settings: settings });
     return r;
   }
 
@@ -183,21 +183,21 @@ var LbHome = (function () {
   function tuningInput() { var hub = Base.hub(), fy = Base.fy(); return { hub: hub, today: today(), roster: Base.roster(), acc: LbFacts.read(hub, fy), cats: LbCatalog.readAll(hub) }; }
   function tuning() {
     requireOwner();
-    return LbTune.tuning(tuningInput());
+    return LbTuning.tuning(tuningInput());
   }
   /** 入れた値で数える（保存しない）。values：{ 項目: 値 }（元の値。0.15 など） */
   function tryRules(values) {
     requireOwner();
     var o = tuningInput();
-    return LbTune.tryRules(o.acc, o.roster, o.cats, o.today, LbAlerts.active(o.hub), values || {});
+    return LbTuning.tryRules(o.acc, o.roster, o.cats, o.today, LbAlerts.active(o.hub), values || {});
   }
   /** 値を保存する（翌晩から効く）。now が true なら今週の3件をすぐ計算し直す。返す：見直す画面の材料 */
   function saveRules(values, now) {
     requireOwner();
     var o = tuningInput();
     LbAlerts.saveValues(o.hub, values || {}, String(Session.getActiveUser().getEmail() || ''));
-    if (now) LbTune.logAlerts(o.hub, LbAlerts.refresh(o.hub, Base.fy(), o.roster, o.cats, o.today), o.today);
-    return LbTune.tuning(o);
+    if (now) LbTuning.logAlerts(o.hub, LbAlerts.refresh(o.hub, Base.fy(), o.roster, o.cats, o.today), o.today);
+    return LbTuning.tuning(o);
   }
 
   /**

@@ -1,6 +1,6 @@
 # 学習BASE を直す手順と記録
 
-設計：`-` リポジトリ `principles/learning-app-foundation.md` §15。実装：`gas/Tune.gs`。
+設計：`-` リポジトリ `principles/learning-app-foundation.md` §15。実装：`gas/Telemetry.gs`（失敗と速さ）・`gas/Tuning.gs`（閾値を見直す）・`gas/Export.gs`（気づきと書き出し）。
 
 ## 考え方（決定 2026-11-10）
 

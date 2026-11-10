@@ -26,7 +26,7 @@ var LbPlatform = (function () {
       var m = LB_MODULES[app];
       if (!m) return message('アプリが見つかりません: ' + app);
       LB_LOADER.files();                      // アプリの画面のファイルを読む（LB_FILES）
-      try { return m.doGet(e); } catch (err) { LbTune.count(roleNow(), LbTune.err(app + '.doGet', err)); throw err; }
+      try { return m.doGet(e); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
   }
@@ -35,13 +35,13 @@ var LbPlatform = (function () {
     var api = API[String(mod)];
     if (!api || !Object.prototype.hasOwnProperty.call(api, String(name))) throw new Error('呼べない関数です: ' + mod + '.' + name);
     try { return api[name].apply(null, Array.isArray(args) ? args : []); }
-    catch (e) { LbTune.count(roleNow(), LbTune.err(mod + '.' + name, e)); throw e; }
+    catch (e) { LbTelemetry.count(roleNow(), LbTelemetry.err(mod + '.' + name, e)); throw e; }
   }
   function appApi(app, unit, name, args) {
     var m = LB_MODULES[app];
     if (!m || !m.apiCall) throw new Error('アプリが見つかりません: ' + app);
     try { return m.apiCall(unit, name, args); }
-    catch (e) { LbTune.count(roleNow(), LbTune.err(app + '.' + String(name).slice(0, 40), e)); throw e; }
+    catch (e) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.' + String(name).slice(0, 40), e)); throw e; }
   }
 
   /** 自動実行：各アプリの夜・朝の処理。1つのアプリが失敗しても他は続ける */
@@ -85,7 +85,7 @@ var LbPlatform = (function () {
       var hub = Base.hub(), fy = Base.fy();
       var today = LbSheets.day();
       var by = LbAlerts.refresh(hub, fy, Base.roster(), LbCatalog.readAll(hub), today);   // 所有者が変えた閾値（rules シート）で
-      console.log('今週の3件：' + Object.keys(by).reduce(function (t, c) { return t + by[c].length; }, 0) + ' 件（初めて出た ' + LbTune.logAlerts(hub, by, today) + ' 件）');
+      console.log('今週の3件：' + Object.keys(by).reduce(function (t, c) { return t + by[c].length; }, 0) + ' 件（初めて出た ' + LbTuning.logAlerts(hub, by, today) + ' 件）');
       return [];
     } catch (e) { console.error('今週の3件 失敗: ' + e.message); return ['alerts: ' + e.message]; }
   }
@@ -99,7 +99,7 @@ var LbPlatform = (function () {
     var hub = Base.hub(), url = '';
     try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
     var owner = ''; try { owner = Session.getEffectiveUser().getEmail(); } catch (e) {}
-    var ne = 0; try { ne = LbTune.errorCount(hub); } catch (e) {}
+    var ne = 0; try { ne = LbTelemetry.errorCount(hub); } catch (e) {}
     var errLine = ne ? '直近7日の失敗：' + ne + ' 件。学習BASE の一番下「失敗と速さを見る・書き出す」で確かめてください。' : '';
     var sh = hub.getSheetByName('now3');
     var count = {};
@@ -137,7 +137,7 @@ var LbPlatform = (function () {
 
   /** 前日までの使われ方を usage シートへ（1日×区分×出来事で1行） */
   function usage() {
-    try { console.log('使われ方：' + LbTune.flush(Base.hub()) + ' 行'); return []; }
+    try { console.log('使われ方：' + LbTelemetry.flush(Base.hub()) + ' 行'); return []; }
     catch (e) { console.error('使われ方 失敗: ' + e.message); return ['usage: ' + e.message]; }
   }
 
