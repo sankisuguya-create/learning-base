@@ -81,7 +81,59 @@ t('閾値を変えたら：いまの値の行と、1つずつ変えた行。下�
   const lo = rows.find(r => r.rule === 'drop.accDrop' && r.value === 0.10);
   assert.strictEqual(lo.drop, 1); assert.strictEqual(lo.now, 0.15); assert.strictEqual(lo.classes, 1);
   assert.strictEqual(env().A.RULES.drop.accDrop, 0.15, 'いまの規則は書き換えない');
-  assert.strictEqual(rows.length, 1 + T.VARIANTS.reduce((a, v) => a + v[1].length, 0));
+  const A = env().A;
+  assert.strictEqual(rows.length, 1 + A.SPEC.reduce((a, sp) => a + T.variants(sp, A.getPath(A.RULES, sp.path)).length, 0));
+  assert.strictEqual(J(T.variants(A.specOf('drop.weekMinN'), 10)), J([5, 15]), '問題数は半分と1.5倍');
+  assert.strictEqual(J(T.variants(A.specOf('stall.accGain'), 0.01)), J([0.03]), '範囲の外（0未満）は試さない');
+  assert.strictEqual(J(T.variants(A.specOf('max'), 3)), J([]), '試す幅の無い項目は試さない');
+  // 所有者が変えた値を土台にする：0.10 にしてあれば、いまの値の行で出る
+  const base = A.withValues({ 'drop.accDrop': 0.10 }).rules;
+  assert.strictEqual(T.sensitivity(acc, ROSTER, CAT, '2026-11-18', base)[0].drop, 1);
+  const tr = T.tryRules(acc, ROSTER, CAT, '2026-11-18', A.RULES, { 'drop.accDrop': 0.11 });
+  assert.strictEqual(tr.now.drop, 0); assert.strictEqual(tr.tried.drop, 1);
+  assert.strictEqual(J(T.tryRules(acc, ROSTER, CAT, '2026-11-18', A.RULES, { 'drop.accDrop': 9 }).bad), J(['drop.accDrop']), '範囲の外の値は数えずに知らせる');
+});
+t('閾値（rules シート）：所有者が保存した値が効く。範囲の外・知らない項目は保存しない。初期値と同じ値・空は初期値にもどす', () => {
+  const { A } = env();
+  const hub = makeSS('hub');
+  assert.strictEqual(A.active(hub).drop.accDrop, 0.15, 'シートが無ければ初期値');
+  A.saveValues(hub, { 'drop.accDrop': 0.12, 'max': 4 }, 'owner@edu.nishi.or.jp');
+  assert.strictEqual(A.active(hub).drop.accDrop, 0.12); assert.strictEqual(A.active(hub).max, 4);
+  assert.strictEqual(A.RULES.drop.accDrop, 0.15, '初期値は書き換えない');
+  assert.throws(() => A.saveValues(hub, { 'drop.accDrop': 0.9 }), /使えない値/);
+  assert.throws(() => A.saveValues(hub, { 'drop.baseWeeks': 2 }), /使えない値/, '週の数は変えられない');
+  assert.strictEqual(A.active(hub).drop.accDrop, 0.12, '使えない値の時は何も変えない');
+  A.saveValues(hub, { 'drop.accDrop': '', 'max': 3 });
+  assert.strictEqual(J(A.savedValues(hub)), J({}), '空・初期値と同じ値は初期値にもどす');
+  // 所有者がシートに直接書いた変な値は無視して初期値
+  hub.sheets.rules.v[1][1] = 'abc'; hub.sheets.rules.v.push(['stall.minN', 3]);
+  assert.strictEqual(A.active(hub).stall.minN, 20);
+  A.saveValues(hub, { 'klass.minKids': 4.6 });
+  assert.strictEqual(A.active(hub).klass.minKids, 5, '人数は整数に丸める');
+});
+t('閾値：押した項目を出さない日数と、学級ごとの数は保存した値で', () => {
+  const { A, F } = env();
+  const hub = makeSS('hub'), acc = {};
+  for (let k = 0; k < 8; k++) ROSTER.slice(0, 5).forEach(r => f(acc, W(F, k), r.lid, 'm', 6, 4, 2500));   // 止まった×5
+  const by = A.compute(acc, ROSTER, CAT, '2026-11-18', {}, A.withValues({ max: 5 }).rules);
+  assert.strictEqual(by['3-1'].length, 5);
+  A.decide(hub, '3-1', { key: 'k1', kind: 'stall' }, 'seen', '', 't');
+  hub.sheets.decisions.v[1][0] = new Date(Date.now() - 5 * 86400000);
+  assert.ok(A.decidedKeys(hub).k1, '14日以内');
+  A.saveValues(hub, { dismissDays: 3 });
+  assert.ok(!A.decidedKeys(hub).k1, '3日にすれば5日前の項目はもう出る');
+});
+t('閾値：毎晩の計算し直し（refresh）は保存した値で。シートに初期値と同じ値を直接書いても「変えた」扱いにしない', () => {
+  const { A, F } = env();
+  const hub = makeSS('hub'), acc = {};
+  for (let k = 0; k < 8; k++) ROSTER.slice(0, 5).forEach(r => f(acc, W(F, k), r.lid, 'm', 6, 4, 2500));   // 止まった×5
+  const fs = hub.insertSheet('facts_2026'); fs.v.push(F.HEAD); F.toRows(acc).forEach(r => fs.v.push(r));
+  assert.strictEqual(A.refresh(hub, 2026, ROSTER, CAT, '2026-11-18')['3-1'].length, 3, '初期値は3件');
+  A.saveValues(hub, { max: 1 });
+  assert.strictEqual(A.refresh(hub, 2026, ROSTER, CAT, '2026-11-18')['3-1'].length, 1, '保存した「学級ごとに出す数」で');
+  assert.strictEqual(hub.sheets.now3.v.length, 1 + 1);
+  hub.sheets.rules.v.push(['drop.accDrop', 0.15]);
+  assert.ok(!('drop.accDrop' in A.savedValues(hub)));
 });
 t('分布：区間ごとの児童の数。1〜4人は「5人未満」・0 は 0・5人以上は数。学年の問題数は今週5人未満なら —', () => {
   const { T, F } = env();
@@ -110,7 +162,6 @@ t('記号：初めてで全員に振ってハブに保存。2回目は同じ記�
   const c = T.codes(hub, 2026, ROSTER, TEACHERS);
   ROSTER.slice(0, 6).forEach(r => assert.strictEqual(c.codeOf[r.lid], a.codeOf[r.lid]));
   assert.ok(c.codeOf[ROSTER[7].lid]); assert.strictEqual(hub.sheets.pseudo_2026.v.length, 1 + 9);
-  assert.strictEqual(T.codeOf(hub, 2026)[ROSTER[0].lid], a.codeOf[ROSTER[0].lid]);
 });
 t('最後の確かめ：名前・メール・学習者ID が残っていれば止める', () => {
   const { T } = env();
@@ -124,38 +175,57 @@ t('最後の確かめ：名前・メール・学習者ID が残っていれば�
 
 function exportEnv() {
   const e = env();
-  const hub = makeSS('hub'), acc = {};
-  ROSTER.forEach((r, i) => { for (let k = 0; k < 8; k++) f(acc, W(e.F, k), r.lid, 'm', 6, 4, 2500); });
-  e.T.logAlerts(hub, { '3-1': [{ key: 'stall|x|' + W(e.F, 0), kind: 'stall', week: W(e.F, 0) }] }, '2026-11-18');
-  e.T.saveFeedback(hub, 'yamada@edu.nishi.or.jp', '3-1', 'home', '佐藤大和さんの「伸びが止まった」は外れ。はなこは家で練習している。空が泣いた。山田より');
+  const hub = makeSS('hub');
+  // 今週の3件：drop が 12件出て、4件「判断が変わった」・6件「見た」。stall は 3件（少ない）
+  const w0 = W(e.F, 0), items = [];
+  for (let i = 0; i < 12; i++) items.push({ key: 'drop|' + i + '|' + w0, kind: 'drop', week: w0 });
+  for (let i = 0; i < 3; i++) items.push({ key: 'stall|' + i + '|' + w0, kind: 'stall', week: w0 });
+  e.T.logAlerts(hub, { '3-1': items }, '2026-11-18');
+  for (let i = 0; i < 10; i++) e.A.decide(hub, '3-1', items[i], i < 4 ? 'changed' : 'seen', '', 't@edu.nishi.or.jp');
+  e.T.saveFeedback(hub, 'yamada@edu.nishi.or.jp', '3-1', 'home', '佐藤大和さんの画面でボタンが押しにくい。はなこも迷っていた。空が泣いた。山田より');
   e.T.count('teacher', 'boot'); e.T.count('child', 'err:home.boot');
-  return Object.assign(e, { hub, acc });
+  e.A.saveValues(hub, { 'drop.accDrop': 0.12 });
+  return Object.assign(e, { hub });
 }
-t('改善用の書き出し：気づきの名前は記号に。先生のメールは「先生1」、学級は学年だけ。人数は伏せる。最後の確かめを通る', () => {
-  const { T, hub, acc } = exportEnv();
-  const r = T.exportText({ hub, fy: 2026, today: '2026-11-18', ver: 'abc1234', roster: ROSTER, teachers: TEACHERS, acc, cats: CAT, settings: [{ classKey: '3-1', hidden: 2, now: 1 }] });
+const OPTS = x => ({ hub: x.hub, fy: 2026, today: '2026-11-18', ver: 'abc1234', roster: ROSTER, teachers: TEACHERS, settings: [{ classKey: '3-1', hidden: 2, now: 1 }] });
+t('改善用の書き出し：使い勝手・機能性だけ。今週の3件は反応の割合だけ（件数は書かない・10件未満は「少ない」）。学習状態（候補の数・分布・人数）は入れない', () => {
+  const x = exportEnv(), r = x.T.exportText(OPTS(x));
   assert.ok(r.ok, r.problems.join());
-  ['佐藤', '大和', 'はなこ', '山田', 'yamada', '@', '3-1', ROSTER[0].lid].forEach(s => assert.ok(!r.text.includes(s), '残っている：' + s));
-  assert.match(r.text, /先生1・3年・home：〔[a-z0-9]{2,3}〕さんの「伸びが止まった」は外れ。〔[a-z0-9]{2,3}〕は家で練習している/);
-  assert.match(r.text, /空が泣いた/, '1文字の名前は単独では置き換えない');
-  assert.ok(r.notes.some(x => x.includes('「空」')), '…代わりに画面で目の確かめを頼む');
-  assert.match(r.text, /## 3\. 閾値を1つ変えたら/); assert.match(r.text, /\| stall\.minN \| 20 \| 10 \|/);
-  assert.match(r.text, /\| 3年 \| 8 \| 8 \| 48 \|/);
-  assert.match(r.text, /\| 週 \| 種類 \| 出た/); assert.match(r.text, /伸びが止まった \| 1 \| 0 \| 0 \| 1/);
+  assert.match(r.text, /\| 急に崩れた \| 変わった 33%・見た 50%・押されていない 17% \| 少ない \|/);
+  assert.match(r.text, /\| 伸びが止まった \| 少ない \| 少ない \|/);
+  ['候補', '分布', '正答率', '取り組んだ児童', '問題数', '5人未満', '| 12 |', '| 3 |'].forEach(w => assert.ok(!r.text.includes(w), '学習状態が入っている：' + w));
+  assert.match(r.text, /閾値（所有者が初期値から変えたもの）：drop\.accDrop 0\.15→0\.12/);
   assert.match(r.text, /child \| err:home\.boot \| 1 \| 0/); assert.match(r.text, /teacher \| boot \| 1 \| 0/);
   assert.match(r.text, /かくしたページ：計 2 件（1 学級）/);
 });
-t('改善用の書き出し：技能の名前が児童の名前と同じ表記でも記号に置き換え、画面で知らせる。置き換えを外すと最後の確かめで止まる', () => {
-  const { T, hub, acc } = exportEnv();
-  const r = T.exportText({ hub, fy: 2026, today: '2026-11-18', ver: '佐藤大和', roster: ROSTER, teachers: TEACHERS, acc, cats: CAT, settings: [] });
+t('改善用の書き出し：気づきの名前は記号に。先生のメールは「先生1」、学級は学年だけ。名前があった気づきは目で確かめるよう画面で頼む', () => {
+  const x = exportEnv(), r = x.T.exportText(OPTS(x));
+  ['佐藤', '大和', 'はなこ', '山田', 'yamada', '@', '3-1', ROSTER[0].lid].forEach(w => assert.ok(!r.text.includes(w), '残っている：' + w));
+  assert.match(r.text, /先生1・3年・home：〔[a-z0-9]{2,3}〕さんの画面でボタンが押しにくい。〔[a-z0-9]{2,3}〕も迷っていた/);
+  assert.match(r.text, /空が泣いた/, '1文字の名前は単独では置き換えない');
+  assert.ok(r.notes.some(n => n.includes('「空」')));
+  assert.ok(r.notes.some(n => n.includes('学習のようす')), '名前があった気づきは、学習のようすが書かれていないか確かめるよう頼む');
+});
+t('改善用の書き出し：ページの名前などが児童の名前と同じ表記でも記号に置き換え、画面で知らせる。置き換えを外すと最後の確かめで止まる', () => {
+  const x = exportEnv(), o = OPTS(x); o.ver = '佐藤大和';
+  const r = x.T.exportText(o);
   assert.ok(r.ok); assert.ok(!r.text.includes('佐藤'));
-  assert.ok(r.notes.some(x => x.includes('気づき以外')));
-  // 置き換えが壊れた時の備え：置き換えを何もしない関数にすると、確かめで止まり、文を返さない
+  assert.ok(r.notes.some(n => n.includes('気づき以外')));
   const e2 = exportEnv(), real = e2.ctx.LbPseudo.replace;
   let calls = 0;
   e2.ctx.LbPseudo.replace = (text, tbl) => (++calls <= 2 ? { text, hits: [], skipped1: [], warn: [] } : real(text, tbl));
-  const r2 = e2.T.exportText({ hub: e2.hub, fy: 2026, today: '2026-11-18', ver: 'v', roster: ROSTER, teachers: TEACHERS, acc: e2.acc, cats: CAT, settings: [] });
+  const r2 = e2.T.exportText(OPTS(e2));
   assert.strictEqual(r2.ok, false); assert.strictEqual(r2.text, ''); assert.match(r2.problems.join(), /名前/);
+});
+t('閾値を見直す画面の材料：項目・いまの値・初期値・変えているか、候補の数、1つずつ変えたら、分布、出た件数（学校の中だけ）', () => {
+  const x = exportEnv(), acc = {};
+  for (let k = 0; k < 8; k++) ROSTER.forEach(r => f(acc, W(x.F, k), r.lid, 'm', 6, 4, 2500));
+  const tu = x.T.tuning({ hub: x.hub, today: '2026-11-18', roster: ROSTER, acc, cats: CAT });
+  const sp = tu.spec.find(s => s.path === 'drop.accDrop');
+  assert.strictEqual(sp.value, 0.12); assert.strictEqual(sp.def, 0.15); assert.strictEqual(sp.changed, true);
+  assert.strictEqual(tu.counts.stall, 8);
+  assert.ok(tu.sens.length > 10); assert.ok(tu.dist.hist.stallAcc.length);
+  assert.strictEqual(tu.perf.find(r => r.kind === 'drop').fired, 12);
 });
 
 console.log('tune', n, '件 ok');

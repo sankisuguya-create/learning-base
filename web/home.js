@@ -11,7 +11,8 @@
  * 児童の画面：いまの学習（教師が選んだ最大3件）を最上部に大きく、その下に教科。教科を押すと単元ごとのページ。
  * 教師の画面：同じ画面の上に帯（学級・先生モード・代わりに取り組む）。先生モードでは、児童が見るカードの上で
  *   公開（✓ みせる／✕ かくす）と いまの学習（★）を押して切り替える。押すたびに保存し、保存したら知らせる。
- *   名前をかくす：児童の名前を記号〔k3m〕で出す（画面を撮って AI に見せる時）。下に「学習BASE への気づき」、所有者には「改善用に書き出す」。
+ *   撮影用：配置はそのまま、児童の名前と数字を見本に差し替える（画面を撮って使い勝手を相談する時。学習状態を写さない）。
+ *   下に「学習BASE への気づき」。所有者には「閾値を見直す」（学校の中だけ）と「改善用に書き出す」（使い勝手・機能性だけ）。
  */
 (function () {
   'use strict';
@@ -19,8 +20,8 @@
   var P = window.LB_PLATFORM;
   if (!window.LbPages) throw new Error('pages.js（Pages.gs の写し）を先に読み込んでください');
   var root = document.getElementById('lb');
-  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, hide: store('lb-hide') === '1', fb: '', exp: null };
-  /** この端末だけの覚え（名前をかくす・前回の往復の時間）。使えない時（シークレットなど）は覚えないだけ */
+  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, shot: false, fb: '', exp: null, tune: null };
+  /** この端末だけの覚え（前回の往復の時間）。使えない時（シークレットなど）は覚えないだけ */
   function store(k, v) {
     try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, String(v)); } catch (e) { return null; }
     return null;
@@ -98,7 +99,7 @@
     if (S.boot.message && S.boot.role !== 'teacher') { root.innerHTML = top() + '<div class="lb-msg">' + esc(S.boot.message) + '</div>'; return; }
     if (!S.cat) { root.innerHTML = top() + '<div class="lb-msg">よみこみ中…</div>'; return; }
     root.classList.toggle('lb-edit', !!S.edit);
-    root.innerHTML = top() + teacherBar() + (S.view === 'subject' ? subjectView() : homeView());
+    root.innerHTML = top() + teacherBar() + (S.view === 'subject' ? subjectView() : S.view === 'tuning' ? tuningView() : homeView());
     if (S.view === 'subject') {
       loadMincho(Array.prototype.map.call(root.querySelectorAll('.lb-mincho'), function (e) { return e.textContent; }).join(''));
       fitTiles();
@@ -116,24 +117,34 @@
     var opts = (S.boot.classes || []).map(function (c) {
       return '<option value="' + esc(c.key) + '"' + (c.key === S.boot.classKey ? ' selected' : '') + '>' + esc(c.grade + '年' + c.cls + '組') + '</option>';
     }).join('');
-    var mem = '<option value="">（先生として見る）</option>' + (S.boot.members || []).map(function (m) {
-      return '<option value="' + esc(m.lid) + '"' + (S.as && S.as.lid === m.lid ? ' selected' : '') + '>' + esc(m.no + ' ' + who(m) + (m.provisional ? '（メールなし）' : '')) + '</option>';
+    var mem = '<option value="">（先生として見る）</option>' + members().map(function (m) {
+      return '<option value="' + esc(m.lid) + '"' + (S.as && S.as.lid === m.lid ? ' selected' : '') + '>' + esc(m.no + ' ' + m.name + (m.provisional ? '（メールなし）' : '')) + '</option>';
     }).join('');
     var off = S.cat ? S.cat.pages.filter(function (p) { return p.grades.indexOf(S.grade) >= 0 && !isOn(p); }).length : 0;
     var status = S.edit ? '<span class="lb-tstatus">かくしている：' + off + '件　いまの学習：' + nowIds().length + '／3件</span>' +
       (off ? '<button class="lb-link" data-act="reset">ぜんぶ みせる に もどす</button>' : '') : '';
-    var as = S.as ? '<div class="lb-as" role="status"><strong>代わりに取り組む：</strong>' + esc(who(S.as)) + '　の記録になります <button class="lb-link" data-act="as-clear">やめる</button></div>' : '';
+    var as = S.as ? '<div class="lb-as" role="status"><strong>代わりに取り組む：</strong>' + esc(S.as.name) + '　の記録になります <button class="lb-link" data-act="as-clear">やめる</button></div>' : '';
     return '<div class="lb-tbar"><label>学級 <select id="lb-class" aria-label="学級">' + opts + '</select></label>' +
       '<button class="lb-toggle" data-act="edit" aria-pressed="' + S.edit + '">先生モード</button>' +
-      '<button class="lb-toggle" data-act="hide" aria-pressed="' + S.hide + '">名前をかくす</button>' +
-      (canActAs() ? '<label>代わりに取り組む <select id="lb-as" aria-label="代わりに取り組む児童">' + mem + '</select></label>' : '') + status + '</div>' + as;
+      '<button class="lb-toggle" data-act="shot" aria-pressed="' + S.shot + '">撮影用</button>' +
+      (canActAs() ? '<label>代わりに取り組む <select id="lb-as" aria-label="代わりに取り組む児童">' + mem + '</select></label>' : '') + status + '</div>' + as +
+      (S.shot ? '<div class="lb-shot" role="status"><strong>撮影用の表示：</strong>児童の名前と数字は見本です（ページは開きません・押しても記録しません） <button class="lb-link" data-act="shot">もどす</button></div>' : '');
   }
   /**
    * 代わりに取り組む（児童の記録にする）に対応しているページ（目録の actAs: true）が1つでもある時だけ、欄を出す。
    * 対応していないページを「〇〇の記録になります」と言って開くと、実際には記録されず、気づかないまま記録が欠けるため
    */
-  /** 児童の名前（名前をかくす時は記号。記号がまだ無い児童は「？」：記号は改善用の書き出しを1回すると全員に付く） */
-  function who(m) { return S.hide ? '〔' + (m.code || '？') + '〕' : m.name; }
+  /**
+   * 撮影用の見本（配置を相談するための画面写真に、児童の学習状態を写さない）。名前・数字は架空
+   */
+  var SAMPLE = {
+    members: [{ lid: 'sample1', no: 1, name: '見本 あおい' }, { lid: 'sample2', no: 2, name: '見本 かいと' }, { lid: 'sample3', no: 3, name: '見本 さくら' }],
+    now3: [
+      { key: 's1', kind: 'drop', label: '▼ 急に崩れた', app: '算数', skill: '見本の技能A', names: ['見本 あおい'], text: '正答率 90% → 60%・時間 1.5秒 → 2.0秒（今週 12問・前の4週と比べて）' },
+      { key: 's2', kind: 'klass', label: '● 学級でつまずき', app: '算数', skill: '見本の技能B', names: ['見本 かいと', '見本 さくら', '見本 ゆうま'], text: '取り組んだ 10人のうち 6人が正答率70%未満（直近2週）' },
+      { key: 's3', kind: 'stall', label: '― 伸びが止まった', app: '算数', skill: '見本の技能C', names: ['見本 さくら'], text: '正答率 65% → 66%・時間 3.0秒 → 3.0秒（前の4週 30問 → 直近4週 28問）' }]
+  };
+  function members() { return S.shot ? SAMPLE.members : (S.boot.members || []); }
   function canActAs() { return !!(S.cat && S.cat.pages.some(function (p) { return p.actAs === true; })); }
   function chips(p) {
     if (!S.edit) return '';
@@ -147,13 +158,13 @@
    */
   function now3View() {
     if (S.boot.role !== 'teacher') return '';
-    var list = S.boot.now3 || [];
+    var list = S.shot ? SAMPLE.now3 : (S.boot.now3 || []);
     var html = '<h2 class="lb-h">今週の3件</h2>';
     if (!list.length) return html + '<div class="lb-nownone">今週は ありません（毎晩、記録から計算します）</div>';
     return html + '<div class="lb-alerts">' + list.map(function (a) {
       return '<div class="lb-alert" data-kind="' + esc(a.kind) + '"><div class="lb-alert-head"><span class="lb-alert-kind">' + esc(a.label) + '</span>' +
         '<span class="lb-alert-skill">' + esc(a.app) + '・' + esc(a.skill) + '</span></div>' +
-        '<div class="lb-alert-who">' + (S.hide ? (a.codes || []).map(function (c) { return '〔' + esc(c) + '〕'; }) : a.names.map(esc)).join('、') + '</div><div class="lb-alert-text">' + esc(a.text) + '</div>' +
+        '<div class="lb-alert-who">' + a.names.map(esc).join('、') + '</div><div class="lb-alert-text">' + esc(a.text) + '</div>' +
         '<div class="lb-alert-acts"><button class="lb-abtn" data-tier="main" data-act="decide" data-how="changed" data-key="' + esc(a.key) + '">判断が変わった</button>' +
         '<button class="lb-abtn sub" data-tier="small" data-act="decide" data-how="seen" data-key="' + esc(a.key) + '">見た</button></div></div>';
     }).join('') + '</div>';
@@ -164,23 +175,81 @@
   function feedbackView() {
     if (S.boot.role !== 'teacher') return '';
     return '<section class="lb-fb"><h2 class="lb-h">学習BASE への気づき</h2>' +
-      '<p class="lb-fbnote">使いにくい所、今週の3件が当たっていた・外れていた例などを短く。学習BASE を直すのに使います（児童の名前は記号に置き換えてから書き出します）。</p>' +
+      '<p class="lb-fbnote">使いにくい所・分かりにくい所・ほしい機能を短く。学習BASE を直すのに使います。児童の学習のようすは書かないでください（名前が入っていたら記号に置き換えて書き出します）。</p>' +
       '<textarea id="lb-fbtext" rows="3" maxlength="1000" aria-label="学習BASE への気づき">' + esc(S.fb) + '</textarea>' +
       '<div class="lb-fbacts"><button class="lb-abtn" data-act="fb">気づきを送る</button></div>' +
-      (S.boot.owner ? '<div class="lb-fbowner"><button class="lb-link" data-act="export">改善用に書き出す（所有者だけ）</button></div>' : '') + '</section>';
+      (S.boot.owner && !S.shot ? '<div class="lb-fbowner">所有者だけ：<button class="lb-link" data-act="tune">閾値を見直す（学校の中だけ）</button>' +
+        '<button class="lb-link" data-act="export">改善用に書き出す（使い勝手・機能性）</button></div>' : '') + '</section>';
   }
   /** 改善用の書き出しの結果。機械の確かめで止めた時は、文を出さずに理由だけ */
   function exportView() {
     var x = S.exp;
     if (!x) return '';
     var html = '<section class="lb-export" aria-label="改善用の書き出し"><div class="lb-exphead"><h2 class="lb-h">改善用の書き出し</h2><button class="lb-link" data-act="export-close">閉じる</button></div>';
-    if (x.busy) return html + '<p>作っています…（30秒ほど かかることがあります）</p></section>';
+    if (x.busy) return html + '<p>作っています…</p></section>';
     if (!x.ok) return html + '<p class="lb-expng">書き出しを止めました：' + esc((x.problems || []).join('／') || x.error || '') + '</p></section>';
-    html += '<p class="lb-fbnote">名前・メール・学習者ID が無いことを機械で確かめました。下の「目で確かめる」がある時は、読んでから使ってください。</p>';
+    html += '<p class="lb-fbnote">使い勝手・機能性だけの書き出しです（児童の学習状態は入れていません）。名前・メール・学習者ID が無いことを機械で確かめました。下の「目で確かめる」がある時は、読んでから使ってください。</p>';
     if ((x.notes || []).length) html += '<ul class="lb-expnotes">' + x.notes.map(function (n) { return '<li>目で確かめる：' + esc(n) + '</li>'; }).join('') + '</ul>';
     return html + '<textarea id="lb-exptext" rows="12" readonly aria-label="書き出した文">' + esc(x.text) + '</textarea>' +
       '<div class="lb-fbacts"><button class="lb-abtn" data-act="export-copy">コピーする</button></div></section>';
   }
+  /* ---------- 閾値を見直す（所有者だけ・学校の中だけ） ---------- */
+  var KIND_JA = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった', all: '全体' };
+  function shown(v, sc) { return Math.round(v * (sc || 1) * 1000) / 1000; }
+  function table(head, rows) {
+    return '<div class="lb-tablewrap"><table class="lb-table"><thead><tr>' + head.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+  }
+  function countsLine(c) { return '急に崩れた ' + c.drop + '・学級でつまずき ' + c.klass + '・伸びが止まった ' + c.stall + '（候補のある学級 ' + c.classes + '）'; }
+  function tuningView() {
+    var T = S.tune, html = '<div class="lb-tune"><div class="lb-shead"><button class="lb-back" data-act="back">← もどる</button><h2>閾値を見直す</h2></div>' +
+      '<p class="lb-fbnote">この画面の数は児童の学習状態です。学校の外（改善用の書き出し・Claude）には出しません。値を変えて「この値で数える」で件数を見てから保存してください。保存した値は今夜の計算から効きます。</p>';
+    if (!T || T.busy) return html + '<div class="lb-msg">数えています…</div></div>';
+    if (T.error) return html + '<p class="lb-expng">' + esc(T.error) + '</p></div>';
+    html += '<p class="lb-tcount"><strong>今週の候補</strong>（学級ごとの' + shown(T.spec.filter(function (x) { return x.path === 'max'; })[0].value) + '件に切る前・判断済みも含む）：' + esc(countsLine(T.counts)) + '</p>';
+    if (T.tried) html += '<p class="lb-tcount lb-tried"><strong>入れた値なら</strong>：' + esc(countsLine(T.tried)) + '</p>';
+    var groups = ['drop', 'klass', 'stall', 'all'];
+    html += '<div class="lb-rules">' + groups.map(function (g) {
+      return '<fieldset class="lb-rgroup"><legend>' + KIND_JA[g] + '</legend>' + T.spec.filter(function (x) { return x.kind === g; }).map(function (x) {
+        return '<label class="lb-rule"><span class="lb-rlabel">' + esc(x.label) + '</span><span class="lb-rinput"><input type="number" inputmode="decimal" step="any" data-path="' + esc(x.path) +
+          '" data-scale="' + x.scale + '" value="' + draftShown(T, x) + '" min="' + shown(x.min, x.scale) + '" max="' + shown(x.max, x.scale) + '"><span class="lb-runit">' + esc(x.unit) + '</span></span>' +
+          '<span class="lb-rdef">初期値 ' + shown(x.def, x.scale) + (x.changed ? '・<strong>変えている</strong>' : '') + '</span></label>';
+      }).join('') + '</fieldset>';
+    }).join('') + '</div>';
+    html += '<div class="lb-fbacts"><button class="lb-abtn lb-wide" data-act="rule-try">この値で数える</button><button class="lb-abtn sub lb-wide" data-act="rule-save">保存する</button>' +
+      '<button class="lb-abtn sub lb-wide" data-act="rule-save-now">保存して今すぐ計算し直す</button></div>' +
+      '<div class="lb-fbowner"><button class="lb-link" data-act="rule-reset">すべて初期値にもどす</button></div>';
+    html += '<h3 class="lb-h">1つずつ変えたら（今週の候補の数）</h3>' + table(['項目', 'いま', '試す値', '急に崩れた', '学級でつまずき', '伸びが止まった', '候補のある学級'],
+      T.sens.map(function (r) { return [r.label, shown(r.now, r.scale) + r.unit, shown(r.value, r.scale) + r.unit, r.drop, r.klass, r.stall, r.classes]; }));
+    var D = T.dist.hist;
+    html += '<h3 class="lb-h">規則が見ている値の散らばり（児童の数・5人未満は伏せる）</h3><div class="lb-dists">' +
+      [['急に崩れた：正答率の下がり幅（ポイント）', D.dropAcc], ['急に崩れた：時間の伸び', D.dropTime], ['伸びが止まった：正答率の伸び（ポイント）', D.stallAcc],
+        ['伸びが止まった：時間の比', D.stallTime], ['学級でつまずき：低い児童の割合（学級×技能のまとまりの数）', D.klassShare]].map(function (d) {
+        return '<div><h4>' + esc(d[0]) + '</h4>' + table(['区間', '数'], d[1]) + '</div>';
+      }).join('') + '</div>';
+    html += '<h3 class="lb-h">画面に出した今週の3件と先生の反応（直近8週）</h3>' + (T.perf.length ? table(['週', '種類', '出た', '判断が変わった', '見た', '押されていない'],
+      T.perf.map(function (r) { return [r.week, KIND_JA[r.kind] || r.kind, r.fired, r.changed, r.seen, r.open]; })) : '<p class="lb-nownone">まだ記録がありません</p>');
+    return html + '</div>';
+  }
+  /** 入れかけの値（「この値で数える」で描き直しても消さない）。無ければ保存してある値 */
+  function draftShown(T, x) {
+    var d = T.draft && Object.prototype.hasOwnProperty.call(T.draft, x.path) ? T.draft[x.path] : x.value;
+    return d === '' ? '' : shown(d, x.scale);
+  }
+  /** 画面の入力 → { 項目: 元の値 }（空は ''＝初期値にもどす） */
+  function ruleValues() {
+    var o = {};
+    Array.prototype.forEach.call(root.querySelectorAll('.lb-rule input'), function (el) {
+      var v = el.value.trim(), sc = Number(el.getAttribute('data-scale')) || 1;
+      o[el.getAttribute('data-path')] = v === '' ? '' : Math.round(Number(v) / sc * 100000) / 100000;
+    });
+    return o;
+  }
+  function loadTuning() {
+    S.tune = { busy: true }; render();
+    P.call('homeTuning').then(function (t) { S.tune = t; render(); }).catch(function (e) { S.tune = { error: '開けませんでした：' + (e && e.message || e) }; render(); });
+  }
+
   function homeView() {
     var h = home(), html = exportView() + now3View();
     html += '<h2 class="lb-h">' + (S.grade <= 2 ? 'いまの がくしゅう' : 'いまの学習') + '</h2>';
@@ -281,7 +350,24 @@
     if (act === 'subject') { S.view = 'subject'; S.subject = id; render(); window.scrollTo(0, 0); return; }
     if (act === 'back') { S.view = 'home'; render(); return; }
     if (act === 'edit') { S.edit = !S.edit; render(); return; }
-    if (act === 'hide') { S.hide = !S.hide; store('lb-hide', S.hide ? '1' : '0'); render(); return; }
+    if (act === 'shot') { S.shot = !S.shot; S.as = null; S.exp = null; if (S.view === 'tuning') S.view = 'home'; render(); return; }
+    if (act === 'tune') { S.view = 'tuning'; S.exp = null; window.scrollTo(0, 0); loadTuning(); return; }
+    if (act === 'rule-try') {
+      var vals = ruleValues();
+      P.call('homeTryRules', vals).then(function (r) {
+        if (r.bad && r.bad.length) { toast('使えない値があります（範囲の外）'); return; }
+        S.tune.tried = r.tried; S.tune.draft = vals; render();
+      }).catch(function (e) { toast('数えられませんでした：' + (e && e.message || e)); });
+      return;
+    }
+    if (act === 'rule-save' || act === 'rule-save-now' || act === 'rule-reset') {
+      var v2 = ruleValues(), now = act === 'rule-save-now';
+      if (act === 'rule-reset') Object.keys(v2).forEach(function (k) { v2[k] = ''; });
+      S.tune = { busy: true }; render();
+      P.call('homeSaveRules', v2, now).then(function (t) { S.tune = t; render(); toast(now ? '保存して、今週の3件を計算し直しました' : act === 'rule-reset' ? '初期値にもどしました（今夜から）' : '保存しました（今夜の計算から効きます）'); })
+        .catch(function (e) { toast('保存できませんでした：' + (e && e.message || e)); loadTuning(); });
+      return;
+    }
     if (act === 'fb') {
       var text = (document.getElementById('lb-fbtext') || {}).value || '';
       if (!text.trim()) { toast('気づきを書いてから送ってください'); return; }
@@ -305,6 +391,7 @@
     }
     if (act === 'as-clear') { S.as = null; render(); return; }
     if (act === 'decide') {
+      if (S.shot) { toast('撮影用の表示では記録しません'); return; }
       var key = b.getAttribute('data-key'), how = b.getAttribute('data-how');
       P.call('homeDecide', S.boot.classKey, key, how, '').then(function (list) {
         S.boot.now3 = list; render(); toast(how === 'changed' ? '「判断が変わった」を記録しました' : '「見た」を記録しました');
@@ -327,7 +414,8 @@
       return;
     }
     if (act === 'open') {
-      if (S.edit) return;                                           // 先生モードでは開かない（切り替えの押し間違いで遷移しない）
+      if (S.edit) return;
+      if (S.shot) { toast('撮影用の表示では開きません'); return; }                                           // 先生モードでは開かない（切り替えの押し間違いで遷移しない）
       var pg = pageById(id);
       if (pg.kind === 'link' && !urlFor(pg)) {
         toast(S.boot.role === 'teacher' ? 'ハブの links シートに、id「' + pg.linkId + '」の行（url）を足してください' : 'まだ ひらけません。せんせいに つたえてね');
@@ -342,7 +430,7 @@
     if (ev.target.id === 'lb-class') { load({ classKey: ev.target.value }); return; }
     if (ev.target.id === 'lb-as') {
       var lid = ev.target.value;
-      S.as = lid ? (S.boot.members || []).filter(function (m) { return m.lid === lid; })[0] || null : null;
+      S.as = lid ? members().filter(function (m) { return m.lid === lid; })[0] || null : null;
       render();
     }
   });

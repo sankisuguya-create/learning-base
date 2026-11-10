@@ -1159,7 +1159,10 @@ var LbFacts = (function () {
  *
  * 正本は learning-base。設計：`-` リポジトリ principles/learning-app-foundation.md §6
  * 毎晩、集計（facts）から学級ごとに候補を計算し、ハブの now3 シートに置く。教師が学習BASE を開くと最上部に出る。
- * 判定の規則と閾値は RULES の1か所だけに置く（初期値は根拠なし。判断の記録の件数で直す）。
+ * 判定の規則と閾値の初期値は RULES の1か所だけに置く（初期値は根拠なし）。
+ * 所有者は学習BASE の「閾値を見直す」画面で値を変えられる（ハブの rules シートに保存。翌晩の計算から効く）。
+ * 変えられる項目と範囲は SPEC。週の数（4週・2週）は規則の形なので変えない。
+ * 閾値を見直す数（候補の数・分布）は児童の学習状態なので学校の中だけで見る（改善用の書き出しには入れない）。
  *
  * 候補の種類（強い順）
  *   drop   急に崩れた児童：今週の正答率が直近4週の平均より15ポイント以上下がった（今週10問以上）、または時間が25%以上長くなった
@@ -1175,6 +1178,25 @@ var LbAlerts = (function () {
     max: 3,
     dismissDays: 14
   };
+  /**
+   * 所有者が変えられる項目。scale：画面での表し方（0.15 → 15 ポイント）。step：見直す画面で試す幅（'x' は半分と1.5倍）
+   */
+  var SPEC = [
+    { path: 'drop.accDrop', kind: 'drop', label: '正答率の下がり幅（これ以上で出す）', unit: 'ポイント', scale: 100, min: 0.03, max: 0.5, step: 0.05 },
+    { path: 'drop.timeRise', kind: 'drop', label: '時間の伸び（これ以上で出す）', unit: '倍', scale: 1, min: 1.05, max: 3, step: 0.15 },
+    { path: 'drop.weekMinN', kind: 'drop', label: '今週の問題数（これ以上の時だけ）', unit: '問', scale: 1, min: 1, max: 200, int: true, step: 'x' },
+    { path: 'drop.baseMinN', kind: 'drop', label: '前の4週の問題数（これ以上の時だけ）', unit: '問', scale: 1, min: 1, max: 400, int: true, step: 'x' },
+    { path: 'klass.accBelow', kind: 'klass', label: '低いとみなす正答率（これ未満）', unit: '%', scale: 100, min: 0.3, max: 0.95, step: 0.1 },
+    { path: 'klass.share', kind: 'klass', label: '低い児童の割合（これ以上で出す）', unit: '%', scale: 100, min: 0.1, max: 1, step: 0.1 },
+    { path: 'klass.minKids', kind: 'klass', label: '取り組んだ児童（これ以上の時だけ）', unit: '人', scale: 1, min: 2, max: 40, int: true, step: 2 },
+    { path: 'klass.kidMinN', kind: 'klass', label: '1人の問題数（これ以上で数に入れる）', unit: '問', scale: 1, min: 1, max: 200, int: true, step: 'x' },
+    { path: 'stall.minN', kind: 'stall', label: '前後4週それぞれの問題数（これ以上の時だけ）', unit: '問', scale: 1, min: 5, max: 400, int: true, step: 'x' },
+    { path: 'stall.accGain', kind: 'stall', label: '正答率の伸び（これ未満なら止まった）', unit: 'ポイント', scale: 100, min: 0, max: 0.3, step: 0.02 },
+    { path: 'stall.timeRatio', kind: 'stall', label: '時間の比（これより大きければ止まった）', unit: '倍', scale: 1, min: 0.5, max: 1.2, step: 0.02 },
+    { path: 'max', kind: 'all', label: '学級ごとに出す数', unit: '件', scale: 1, min: 1, max: 10, int: true },
+    { path: 'dismissDays', kind: 'all', label: '押した項目を出さない日数', unit: '日', scale: 1, min: 1, max: 60, int: true }
+  ];
+  var RULE_SHEET = 'rules', RULE_HEAD = ['項目', '値', '初期値', '説明', '変えた日', '変えた人'];
   var KIND_RANK = { drop: 3, klass: 2, stall: 1 };
   var LABEL = { drop: '▼ 急に崩れた', klass: '● 学級でつまずき', stall: '― 伸びが止まった' };
   var SHEET = 'now3', HEAD = ['学級', '順', 'キー', '種類', '学習者ID', 'アプリ', '技能', '根拠', '週'];
@@ -1234,7 +1256,7 @@ var LbAlerts = (function () {
       if (share < k.share) return;
       var p = key.split('|'), cls = p[0], app = p[1], skill = p.slice(2).join('|');
       add(cls, { key: 'klass|' + cls + '|' + app + '|' + skill + '|' + w0, kind: 'klass', lids: low.map(function (x) { return x.lid; }), app: app, skill: skill, week: w0,
-        mag: share / k.share, ev: { kids: kids.length, low: low.length } });
+        mag: share / k.share, ev: { kids: kids.length, low: low.length, below: k.accBelow } });
     });
     return out;
   }
@@ -1264,7 +1286,7 @@ var LbAlerts = (function () {
     var e = item.ev || {}, pct = function (x) { return x == null ? '—' : Math.round(x * 100) + '%'; }, sec = function (x) { return x ? (x / 1000).toFixed(1) + '秒' : '—'; };
     if (item.kind === 'drop') return '正答率 ' + pct(e.accBase) + ' → ' + pct(e.accNow) + '・時間 ' + sec(e.msBase) + ' → ' + sec(e.msNow) + '（今週 ' + e.nNow + '問・前の4週と比べて）';
     if (item.kind === 'stall') return '正答率 ' + pct(e.accBase) + ' → ' + pct(e.accNow) + '・時間 ' + sec(e.msBase) + ' → ' + sec(e.msNow) + '（前の4週 ' + e.nBase + '問 → 直近4週 ' + e.nNow + '問）';
-    return '取り組んだ ' + e.kids + '人のうち ' + e.low + '人が正答率70%未満（直近2週）';
+    return '取り組んだ ' + e.kids + '人のうち ' + e.low + '人が正答率' + Math.round((e.below || 0.7) * 100) + '%未満（直近2週）';
   }
 
   /* ---------- 保存 ---------- */
@@ -1303,10 +1325,10 @@ var LbAlerts = (function () {
     sh.appendRow([new Date(), by || '', classKey, String(item.key), String(item.kind || ''), action === 'changed' ? '判断が変わった' : '見た', String(memo || '').slice(0, 500)]);
   }
   /** 判断済み・見た キー（直近 dismissDays 日。同じ週のキーは同じなので、次の週にまた条件に当たれば出る） */
-  function decidedKeys(hubSs, now) {
+  function decidedKeys(hubSs, now, days) {
     var sh = hubSs.getSheetByName(DEC_SHEET), out = {};
     if (!sh || sh.getLastRow() < 2) return out;
-    var since = (now || Date.now()) - RULES.dismissDays * 86400000;
+    var since = (now || Date.now()) - (days || active(hubSs).dismissDays) * 86400000;
     sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
       var t = r[0] instanceof Date ? r[0].getTime() : new Date(r[0]).getTime();
       if (!isNaN(t) && t >= since) out[String(r[3])] = true;
@@ -1314,7 +1336,86 @@ var LbAlerts = (function () {
     return out;
   }
 
-  return { RULES: RULES, LABEL: LABEL, KIND_RANK: KIND_RANK, compute: compute, candidates: candidates, index: index, classMap: classMap, weekOfDay: weekOfDay, sum: sum, weeksBack: weeksBack, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
+  /* ---------- 所有者が変えた値（rules シート） ---------- */
+
+  function getPath(o, path) { return path.split('.').reduce(function (x, k) { return x == null ? undefined : x[k]; }, o); }
+  function setPath(o, path, v) { var ks = path.split('.'), x = o; for (var i = 0; i < ks.length - 1; i++) x = x[ks[i]]; x[ks[ks.length - 1]] = v; }
+  function specOf(path) { for (var i = 0; i < SPEC.length; i++) if (SPEC[i].path === path) return SPEC[i]; return null; }
+  /** 値を確かめる。返す：数（直した値）か null（使えない値） */
+  function clean(spec, v) {
+    var x = typeof v === 'number' ? v : Number(String(v == null ? '' : v).trim());
+    if (String(v).trim() === '' || !isFinite(x)) return null;
+    if (spec.int) x = Math.round(x);
+    if (x < spec.min - 1e-9 || x > spec.max + 1e-9) return null;
+    return x;
+  }
+  /**
+   * 初期値に {項目: 値} を重ねた規則（使えない値・知らない項目は捨てる）。
+   * 返す：{ rules, bad: [項目] }
+   */
+  function withValues(values) {
+    var r = JSON.parse(JSON.stringify(RULES)), bad = [];
+    Object.keys(values || {}).forEach(function (path) {
+      var sp = specOf(path), x = sp ? clean(sp, values[path]) : null;
+      if (x == null) { bad.push(path); return; }
+      setPath(r, path, x);
+    });
+    return { rules: r, bad: bad };
+  }
+  /** 所有者が変えた値（rules シート）。{ 項目: 値 }。初期値と同じ行は返さない */
+  function savedValues(hubSs) {
+    var sh = hubSs.getSheetByName(RULE_SHEET), out = {};
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
+      var path = String(r[0] || '').trim(), sp = specOf(path);
+      if (!sp || r[1] === '' || r[1] == null) return;
+      var x = clean(sp, r[1]);
+      if (x != null && x !== getPath(RULES, path)) out[path] = x;
+    });
+    return out;
+  }
+  /** いま効いている規則（初期値＋rules シート）。シートの使えない値は無視する（初期値のまま） */
+  function active(hubSs) { return withValues(savedValues(hubSs)).rules; }
+  /**
+   * 所有者が値を保存する。values：{ 項目: 値 }（初期値に戻す項目は値を空にする）。
+   * 使えない値が1つでもあれば何も保存しない。返す：保存後の { 項目: 値 }
+   */
+  function saveValues(hubSs, values, by) {
+    var cur = savedValues(hubSs), next = {};
+    Object.keys(cur).forEach(function (k) { next[k] = cur[k]; });
+    var bad = [];
+    Object.keys(values || {}).forEach(function (path) {
+      var sp = specOf(path);
+      if (!sp) { bad.push(path); return; }
+      var v = values[path];
+      if (v === '' || v == null) { delete next[path]; return; }
+      var x = clean(sp, v);
+      if (x == null) { bad.push(path); return; }
+      if (x === getPath(RULES, path)) delete next[path]; else next[path] = x;
+    });
+    if (bad.length) throw new Error('使えない値です：' + bad.map(function (p) { var sp = specOf(p); return sp ? sp.label : p; }).join('・'));
+    var sh = hubSs.getSheetByName(RULE_SHEET) || hubSs.insertSheet(RULE_SHEET), now = new Date();
+    var old = {};
+    if (sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) { old[String(r[0])] = r; });
+    var rows = [RULE_HEAD].concat(SPEC.map(function (sp) {
+      var has = Object.prototype.hasOwnProperty.call(next, sp.path), o = old[sp.path];
+      var changed = (has ? next[sp.path] : '') !== (o ? (o[1] === '' ? '' : Number(o[1])) : '');
+      return [sp.path, has ? next[sp.path] : '', getPath(RULES, sp.path), sp.label + '（' + sp.unit + (sp.scale !== 1 ? '・' + sp.scale + '倍して表示' : '') + '）',
+        changed ? now : (o ? o[4] : ''), changed ? String(by || '') : (o ? o[5] : '')];
+    }));
+    sh.clearContents();
+    sh.getRange(1, 1, rows.length, RULE_HEAD.length).setValues(rows);
+    return next;
+  }
+  /** 今週の3件を計算し直して now3 に置く（毎晩・所有者が保存した時）。返す：{ 学級: [...] } */
+  function refresh(hubSs, fy, roster, cats, today) {
+    var R = active(hubSs);
+    var by = compute(LbFacts.read(hubSs, fy), roster, cats, today, decidedKeys(hubSs, null, R.dismissDays), R);
+    store(hubSs, by);
+    return by;
+  }
+
+  return { RULES: RULES, SPEC: SPEC, specOf: specOf, getPath: getPath, setPath: setPath, withValues: withValues, savedValues: savedValues, active: active, saveValues: saveValues, refresh: refresh, LABEL: LABEL, KIND_RANK: KIND_RANK, compute: compute, candidates: candidates, index: index, classMap: classMap, weekOfDay: weekOfDay, sum: sum, weeksBack: weeksBack, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
 })();
 
 // ===== gas/Tune.gs =====
@@ -1323,13 +1424,13 @@ var LbAlerts = (function () {
  *
  * 正本は learning-base。設計：`-` リポジトリ principles/learning-app-foundation.md §15、手順：docs/tuning-log.md
  *
- * 流れ：所有者が先生の画面の「改善用に書き出す」を押す → 文章をコピーして AI（私用 PC の Claude）に渡す
- *   → AI が閾値・設定・画面の直し方を提案 → PR → マージで反映 → 次の書き出しで効いたかを見る。
- * 書き出しは学校の外（私用 PC）に出る前提で作る。だから：
- *   - 児童の名前・メール・学習者ID を書かない（最後に機械で確かめ、残っていれば書き出さない）
- *   - 児童の人数は 5人未満なら「5人未満」と書く（1人・2人の欄から個人が分かるのを防ぐ）
- *   - 先生の気づきの文の中の名前は記号に置き換える（記号表はハブの pseudo_<年度> にだけある）
- *   - 先生のメールは書かない（先生1・先生2）。学級は学年だけ
+ * 2つに分ける（決定 2026-11-10：Claude に渡すのは学習BASE の使い勝手・機能性。個人・集団の学習状態は渡さない）
+ *   - 改善用の書き出し（exportText）：使われ方・速さと失敗・先生の設定・今週の3件への先生の反応（割合だけ）・先生の気づき。
+ *       所有者がコピーして Claude に渡す → Claude が画面・機能の直し方を提案 → PR → マージで反映。
+ *       児童の名前・メール・学習者ID を書かない（気づきの名前は記号に置き換え、最後に機械で確かめ、残っていれば書き出さない）。
+ *       先生のメールは書かない（先生1・先生2）。学級は学年だけ。
+ *   - 閾値を見直す（tuning・tryRules）：候補の数・規則が見る値の分布。児童の学習状態なので、所有者の画面の中だけで見る。
+ *       値はハブの rules シートに保存し、翌晩から効く（LbAlerts.saveValues）。人数は5人未満を伏せる。
  *
  * 使われ方は、1つ起きるたびにスクリプトのプロパティに足す（シートに書くと遅いので）。
  * プロパティは日付と番号（0〜15、くじ）ごとに分け、同じ瞬間に2人が同じ所へ書く確率を下げる（重なると1回分落ちる。目安の数として使う）。
@@ -1343,12 +1444,7 @@ var LbTune = (function () {
   var FB = 'feedback', FB_HEAD = ['日時', '教師', '学級', '画面', '本文'];
   var CODE_HEAD = ['学習者ID・メール', '記号'];
   var KIND_JA = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' };
-  /** 閾値を変えたら：試す値（いまの値の上下）。ここに足せば書き出しに出る */
-  var VARIANTS = [
-    ['drop.accDrop', [0.10, 0.20]], ['drop.timeRise', [1.15, 1.40]], ['drop.weekMinN', [5, 20]],
-    ['klass.accBelow', [0.6, 0.8]], ['klass.share', [0.4, 0.6]], ['klass.minKids', [3, 8]],
-    ['stall.minN', [10, 30]], ['stall.accGain', [0.01, 0.05]], ['stall.timeRatio', [0.95, 0.99]]
-  ];
+  var MIN_RATE = 10;   // 今週の3件への反応の割合は、出た件数がこれ未満なら書かない（数が少なく割合が揺れる・件数を書かないため）
   var SPEED = { srv: [[1000, '1秒未満'], [2000, '1〜2秒'], [4000, '2〜4秒'], [Infinity, '4秒以上']],
     rt: [[2000, '2秒未満'], [4000, '2〜4秒'], [8000, '4〜8秒'], [Infinity, '8秒以上']] };
 
@@ -1465,26 +1561,46 @@ var LbTune = (function () {
 
   /* ---------- 閾値を変えたら ---------- */
 
-  function getPath(o, path) { return path.split('.').reduce(function (x, k) { return x == null ? undefined : x[k]; }, o); }
-  function setPath(o, path, v) { var ks = path.split('.'), x = o; for (var i = 0; i < ks.length - 1; i++) x = x[ks[i]]; x[ks[ks.length - 1]] = v; }
-  /** 今週の候補の数（上位3件に切る前・判断済みも含む）を、いまの値と、1つずつ値を変えた時とで比べる */
-  function sensitivity(acc, roster, cats, today) {
+  function round(x) { return Math.round(x * 1000) / 1000; }
+  /** 試す値：いまの値から step だけ上下（'x' は半分と1.5倍）。範囲の外と、いまの値と同じものは除く */
+  function variants(sp, cur) {
+    if (!sp.step) return [];
+    var v = sp.step === 'x' ? [cur * 0.5, cur * 1.5] : [cur - sp.step, cur + sp.step];
+    return v.map(function (x) { return sp.int ? Math.round(x) : round(x); })
+      .filter(function (x, i, a) { return x >= sp.min - 1e-9 && x <= sp.max + 1e-9 && x !== cur && a.indexOf(x) === i; });
+  }
+  /** 規則で候補を数える（3件に切る前・判断済みも含む）。{ drop, klass, stall, classes } */
+  function counter(acc, roster, cats, today) {
     var ix = LbAlerts.index(acc), clsOf = LbAlerts.classMap(roster), w0 = LbAlerts.weekOfDay(today);
-    function run(rules) {
+    return function (rules) {
       var c = { drop: 0, klass: 0, stall: 0 }, cls = {};
       LbAlerts.candidates(ix, clsOf, cats, w0, rules).forEach(function (x) { c[x.kind]++; cls[x.cls] = true; });
       c.classes = Object.keys(cls).length;
       return c;
-    }
-    var rows = [Object.assign({ rule: 'いまの値', value: '', now: '' }, run(LbAlerts.RULES))];
-    VARIANTS.forEach(function (v) {
-      v[1].forEach(function (val) {
-        var r = JSON.parse(JSON.stringify(LbAlerts.RULES));
-        setPath(r, v[0], val);
-        rows.push(Object.assign({ rule: v[0], value: val, now: getPath(LbAlerts.RULES, v[0]) }, run(r)));
+    };
+  }
+  /** いまの規則（base）と、項目を1つずつ上下に変えた時の候補の数。学校の中だけで見る */
+  function sensitivity(acc, roster, cats, today, base) {
+    base = base || LbAlerts.RULES;
+    var run = counter(acc, roster, cats, today);
+    var rows = [Object.assign({ rule: 'いまの値', label: 'いまの値', value: '', now: '' }, run(base))];
+    LbAlerts.SPEC.forEach(function (sp) {
+      var cur = LbAlerts.getPath(base, sp.path);
+      variants(sp, cur).forEach(function (val) {
+        var r = JSON.parse(JSON.stringify(base));
+        LbAlerts.setPath(r, sp.path, val);
+        rows.push(Object.assign({ rule: sp.path, label: sp.label, unit: sp.unit, scale: sp.scale, value: val, now: cur }, run(r)));
       });
     });
     return rows;
+  }
+  /** 所有者が画面で入れた値で数える（保存しない）。values は { 項目: 値 }（画面の表し方ではなく元の値）。返す：{ now, tried, bad } */
+  function tryRules(acc, roster, cats, today, base, values) {
+    var run = counter(acc, roster, cats, today), cur = {};
+    LbAlerts.SPEC.forEach(function (sp) { cur[sp.path] = LbAlerts.getPath(base, sp.path); });
+    Object.keys(values || {}).forEach(function (k) { cur[k] = values[k]; });
+    var w = LbAlerts.withValues(cur);
+    return { now: run(base), tried: run(w.rules), bad: w.bad };
   }
 
   /* ---------- 記録の分布（人数は5人未満を伏せる） ---------- */
@@ -1502,8 +1618,8 @@ var LbTune = (function () {
    * 規則が見ている値が、全校でどう散らばっているか（閾値がどこを切っているかを見るため）。
    * 児童の数は区間ごとに数え（同じ児童が別の技能で別の区間に入ることはある）、5人未満は伏せる。合計は書かない（引き算で伏せた欄が分かるため）
    */
-  function distributions(acc, roster, cats, today) {
-    var R = LbAlerts.RULES, ix = LbAlerts.index(acc), clsOf = LbAlerts.classMap(roster), w0 = LbAlerts.weekOfDay(today);
+  function distributions(acc, roster, cats, today, rules) {
+    var R = rules || LbAlerts.RULES, ix = LbAlerts.index(acc), clsOf = LbAlerts.classMap(roster), w0 = LbAlerts.weekOfDay(today);
     var sets = {}; Object.keys(BINS).forEach(function (k) { sets[k] = {}; BINS[k].forEach(function (b) { sets[k][b[1]] = {}; }); });
     var grade = {}, groups = {};
     roster.forEach(function (r) { if (r.lid && r.grade) grade[r.grade] = grade[r.grade] || { week: {}, month: {}, n: 0 }; });
@@ -1589,13 +1705,6 @@ var LbTune = (function () {
       return tbl;
     } finally { lock.releaseLock(); }
   }
-  /** 名前をかくす用：{ 学習者ID: 記号 }（記号表を作らずに読むだけ。無い人は出さない） */
-  function codeOf(hub, fy) {
-    var sh = hub.getSheetByName('pseudo_' + fy), out = {};
-    if (sh && sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) { if (r[0] && r[1]) out[String(r[0])] = String(r[1]); });
-    return out;
-  }
-
   /* ---------- 改善用の書き出し ---------- */
 
   /**
@@ -1613,43 +1722,55 @@ var LbTune = (function () {
     return { ok: !probs.length, problems: probs };
   }
 
-  function pct(x) { return x == null ? '—' : Math.round(x * 100) + '%'; }
   function table(head, rows) {
     return '| ' + head.join(' | ') + ' |\n|' + head.map(function () { return '---'; }).join('|') + '|\n' +
       rows.map(function (r) { return '| ' + r.map(function (c) { return String(c).replace(/\|/g, '／').replace(/\n/g, ' '); }).join(' | ') + ' |'; }).join('\n');
   }
 
   /**
-   * 改善用の書き出し（Markdown）。
-   * o: { hub, fy, today, ver, roster, teachers, acc, cats, settings: [{ classKey, hidden, now }], days }
+   * 今週の3件への先生の反応（割合だけ。出た件数は書かない）。直近4週とその前の4週、種類ごと。
+   * 出た件数が MIN_RATE 未満の欄は「少ない」（割合が揺れる・件数が分かるため）
+   */
+  function reactionRates(hub, today) {
+    var w0 = LbAlerts.weekOfDay(today), mid = LbFacts.addWeeks(w0, -3);
+    var rows = performance(hub, today, 8), agg = {};
+    rows.forEach(function (r) {
+      var half = r.week >= mid ? 'a' : 'b', k = r.kind + '|' + half, o = agg[k] || (agg[k] = { fired: 0, changed: 0, seen: 0, open: 0 });
+      o.fired += r.fired; o.changed += r.changed; o.seen += r.seen; o.open += r.open;
+    });
+    function cell(o) {
+      if (!o || o.fired < MIN_RATE) return '少ない';
+      var p = function (x) { return Math.round(x / o.fired * 100) + '%'; };
+      return '変わった ' + p(o.changed) + '・見た ' + p(o.seen) + '・押されていない ' + p(o.open);
+    }
+    return ['drop', 'klass', 'stall'].map(function (k) { return [KIND_JA[k], cell(agg[k + '|a']), cell(agg[k + '|b'])]; });
+  }
+
+  /**
+   * 閾値を見直す画面の材料（所有者だけ・学校の中だけ）。
+   * o: { hub, today, roster, acc, cats }。返す：{ spec: [...], counts, sens, dist, perf }
+   */
+  function tuning(o) {
+    var base = LbAlerts.active(o.hub), saved = LbAlerts.savedValues(o.hub);
+    var spec = LbAlerts.SPEC.map(function (sp) {
+      return { path: sp.path, kind: sp.kind, label: sp.label, unit: sp.unit, scale: sp.scale, int: !!sp.int, min: sp.min, max: sp.max,
+        value: LbAlerts.getPath(base, sp.path), def: LbAlerts.getPath(LbAlerts.RULES, sp.path), changed: Object.prototype.hasOwnProperty.call(saved, sp.path) };
+    });
+    var sens = sensitivity(o.acc, o.roster, o.cats, o.today, base);
+    return { spec: spec, counts: sens[0], sens: sens.slice(1), dist: distributions(o.acc, o.roster, o.cats, o.today, base), perf: performance(o.hub, o.today, 8) };
+  }
+
+  /**
+   * 改善用の書き出し（Markdown。所有者が Claude に渡す）。学習BASE の使い勝手・機能性だけ。児童の学習状態（候補の数・分布・取り組んだ人数）は入れない。
+   * o: { hub, fy, today, ver, roster, teachers, settings: [{ classKey, hidden, now }], days }
    * 返す：{ ok, text（ok の時だけ）, problems, notes: [目で確かめてほしいこと（画面にだけ出す。書き出しには入れない）] }
    */
   function exportText(o) {
     var today = o.today || day(), days = o.days || 14;
     var sinceDay = day(new Date(new Date(today + 'T12:00:00+09:00').getTime() - (days - 1) * 86400000));
     var out = [], notes = [];
-    out.push('# 学習BASE 改善用の書き出し');
-    out.push('書き出した日：' + today + '／版：' + (o.ver || '不明') + '／年度：' + o.fy + '／人数の欄は ' + MIN_CELL + '人未満を伏せています');
-
-    out.push('\n## 1. 今週の3件の規則（gas/Alerts.gs の RULES）\n```json\n' + JSON.stringify(LbAlerts.RULES) + '\n```');
-
-    var perf = performance(o.hub, today, 8);
-    out.push('\n## 2. 今週の3件の働き（直近8週・全校）\n出た＝画面に出した件数。押されていない＝出たが「判断が変わった」「見た」のどちらも押されていない。');
-    out.push(perf.length ? table(['週', '種類', '出た', '判断が変わった', '見た', '押されていない'], perf.map(function (r) { return [r.week, KIND_JA[r.kind] || r.kind, r.fired, r.changed, r.seen, r.open]; })) : '（まだ記録がありません）');
-
-    var sens = sensitivity(o.acc, o.roster, o.cats, today);
-    out.push('\n## 3. 閾値を1つ変えたら（今週の候補の数・3件に切る前・判断済みも含む）');
-    out.push(table(['規則', 'いまの値', '試す値', '急に崩れた', '学級でつまずき', '伸びが止まった', '候補のある学級'], sens.map(function (r) { return [r.rule, r.now, r.value, r.drop, r.klass, r.stall, r.classes]; })));
-
-    var dist = distributions(o.acc, o.roster, o.cats, today);
-    out.push('\n## 4. 記録の分布（今週。児童の数。同じ児童が別の技能で別の区間に入ることがある）');
-    out.push('### 学年ごと\n' + table(['学年', '今週 取り組んだ児童', '直近4週 取り組んだ児童', '今週の問題数'], dist.grades.map(function (g) { return [g.grade + '年', g.week, g.month, g.n]; })));
-    var R = LbAlerts.RULES;
-    out.push('### 急に崩れた：正答率の下がり幅（ポイント。いまの閾値 ' + Math.round(R.drop.accDrop * 100) + '）\n' + table(['区間', '児童'], dist.hist.dropAcc));
-    out.push('### 急に崩れた：時間の伸び（今週÷前の4週。いまの閾値 ' + R.drop.timeRise + '倍）\n' + table(['区間', '児童'], dist.hist.dropTime));
-    out.push('### 伸びが止まった：正答率の伸び（ポイント。いまの閾値 ' + Math.round(R.stall.accGain * 100) + ' 未満で止まった扱い）\n' + table(['区間', '児童'], dist.hist.stallAcc));
-    out.push('### 伸びが止まった：時間の比（直近4週÷その前。いまの閾値 ' + R.stall.timeRatio + ' より大きいと止まった扱い）\n' + table(['区間', '児童'], dist.hist.stallTime));
-    out.push('### 学級でつまずき：70%未満の児童の割合（学級×技能のまとまりの数。いまの閾値 ' + Math.round(R.klass.share * 10) + '割）\n' + table(['区間', 'まとまり'], dist.hist.klassShare));
+    out.push('# 学習BASE 改善用の書き出し（使い勝手・機能性）');
+    out.push('書き出した日：' + today + '／版：' + (o.ver || '不明') + '／年度：' + o.fy + '／児童の学習状態は入れていません');
 
     var u = usage(o.hub, sinceDay), last7 = day(new Date(new Date(today + 'T12:00:00+09:00').getTime() - 6 * 86400000));
     var ev = {};
@@ -1660,44 +1781,49 @@ var LbTune = (function () {
     var rowsOf = function (f) {
       return Object.keys(ev).filter(f).sort().map(function (e) { var i = e.indexOf('|'); return [e.slice(0, i), e.slice(i + 1), ev[e].a, ev[e].b]; });
     };
-    out.push('\n## 5. 使われ方（直近7日と、その前の7日。回数）\nboot＝学習BASE を開いた／open:＝ページを開いた／act:＝先生の操作');
+    out.push('\n## 1. 使われ方（直近7日と、その前の7日。回数）\nboot＝学習BASE を開いた／open:＝ページを開いた／act:＝先生の操作（decide-changed＝判断が変わった、show・hide＝公開、now＝いまの学習、feedback＝気づき、tuning＝閾値を見直す画面）');
     var useRows = rowsOf(function (e) { return !isSpeed(e) && !isErr(e); });
     out.push(useRows.length ? table(['区分', '出来事', '直近7日', 'その前7日'], useRows) : '（まだ記録がありません）');
-    out.push('\n## 6. 速さと失敗\nsrv＝サーバーでの処理時間／rt＝開いてから表示までの往復（前回分）／err＝サーバーの失敗／client＝画面の読み込みの失敗');
+    out.push('\n## 2. 速さと失敗\nsrv＝サーバーでの処理時間／rt＝開いてから表示までの往復（前回分）／err＝サーバーの失敗／client＝画面の読み込みの失敗');
     var spRows = rowsOf(function (e) { return isSpeed(e) || isErr(e); });
     out.push(spRows.length ? table(['区分', '出来事', '直近7日', 'その前7日'], spRows) : '（まだ記録がありません）');
 
-    var s = o.settings || [];
+    out.push('\n## 3. 今週の3件への先生の反応（割合。出た件数が' + MIN_RATE + '件未満の欄は「少ない」）');
+    out.push(table(['種類', '直近4週', 'その前の4週'], reactionRates(o.hub, today)));
+
+    var s = o.settings || [], saved = LbAlerts.savedValues(o.hub);
     var hidCls = s.filter(function (x) { return x.hidden > 0; }).length, nowCls = s.filter(function (x) { return x.now > 0; }).length;
-    out.push('\n## 7. 先生の設定\n- 学級：' + s.length + '／かくしたページ：計 ' + s.reduce(function (a, x) { return a + x.hidden; }, 0) + ' 件（' + hidCls + ' 学級）' +
+    out.push('\n## 4. 先生の設定\n- 学級：' + s.length + '／かくしたページ：計 ' + s.reduce(function (a, x) { return a + x.hidden; }, 0) + ' 件（' + hidCls + ' 学級）' +
       '／いまの学習：計 ' + s.reduce(function (a, x) { return a + x.now; }, 0) + ' 件（' + nowCls + ' 学級）');
+    out.push('- 閾値（所有者が初期値から変えたもの）：' + (Object.keys(saved).length ? Object.keys(saved).map(function (k) { return k + ' ' + LbAlerts.getPath(LbAlerts.RULES, k) + '→' + saved[k]; }).join('・') : 'なし'));
 
     // 気づき：先生のメールは「先生n」に、学級は学年だけに、文の中の名前は記号に
     var tbl = codes(o.hub, o.fy, o.roster, o.teachers);
     var fb = readFeedback(o.hub, new Date(sinceDay + 'T00:00:00+09:00').getTime()), tno = {}, tn = 0;
-    out.push('\n## 8. 先生の気づき（直近' + days + '日。文の中の名前は記号〔…〕に置き換え済み）');
+    out.push('\n## 5. 先生の気づき（直近' + days + '日。文の中の名前は記号〔…〕に置き換え済み）');
     if (!fb.length) out.push('（ありません）');
     fb.forEach(function (f) {
       if (!tno[f.by]) tno[f.by] = '先生' + (++tn);
       var r = LbPseudo.replace(f.text, tbl);
       r.skipped1.forEach(function (x) { notes.push('1文字の名前かもしれない「' + x.name + '」を置き換えていません（' + day(new Date(f.t)) + ' の気づき）'); });
       r.warn.forEach(function (x) { notes.push('「' + x.name + '」を名前として ' + x.count + ' か所 置き換えました。普通の言葉なら、元の文を言い換えてください'); });
+      if (r.hits.length) notes.push(day(new Date(f.t)) + ' の気づきに児童・先生の名前がありました（記号に置き換え済み）。児童の学習のようすが書かれていないか読んでください');
       var g = String(f.cls).split('-')[0];
       out.push('- ' + day(new Date(f.t)) + '・' + tno[f.by] + '・' + (Number(g) ? g + '年' : '学級なし') + '・' + (f.view || '—') + '：' + r.text);
     });
 
-    // 全体にも置き換えをかける（技能の名前などが名前と同じ表記の時のため）。置き換えた所は画面で知らせる
+    // 全体にも置き換えをかける（ページの名前などが名前と同じ表記の時のため）。置き換えた所は画面で知らせる
     var text = out.join('\n'), all = LbPseudo.replace(text, tbl);
-    var fbStart = text.indexOf('\n## 8. ');
-    all.hits.filter(function (h) { return h.start < fbStart; }).forEach(function (h) { notes.push('気づき以外の所で「' + h.from + '」を記号に置き換えました（技能の名前などと重なっています）'); });
+    var fbStart = text.indexOf('\n## 5. ');
+    all.hits.filter(function (h) { return h.start < fbStart; }).forEach(function (h) { notes.push('気づき以外の所で「' + h.from + '」を記号に置き換えました（ページの名前などと重なっています）'); });
     text = all.text;
     var g = guard(text, tbl, o.roster);
     return { ok: g.ok, text: g.ok ? text : '', problems: g.problems, notes: notes.filter(function (v, i, a) { return a.indexOf(v) === i; }) };
   }
 
-  return { MIN_CELL: MIN_CELL, VARIANTS: VARIANTS, count: count, speed: speed, pending: pending, flush: flush, usage: usage,
-    logAlerts: logAlerts, performance: performance, sensitivity: sensitivity, distributions: distributions, people: people,
-    saveFeedback: saveFeedback, readFeedback: readFeedback, codes: codes, codeOf: codeOf, guard: guard, exportText: exportText };
+  return { MIN_CELL: MIN_CELL, MIN_RATE: MIN_RATE, count: count, speed: speed, pending: pending, flush: flush, usage: usage,
+    logAlerts: logAlerts, performance: performance, variants: variants, sensitivity: sensitivity, tryRules: tryRules, distributions: distributions, people: people,
+    reactionRates: reactionRates, tuning: tuning, saveFeedback: saveFeedback, readFeedback: readFeedback, codes: codes, guard: guard, exportText: exportText };
 })();
 
 // ===== gas/Pages.gs =====
@@ -1996,10 +2122,8 @@ var LbHome = (function () {
       if (pick) {
         out.classKey = pick.key;
         out.settings = LbPages.readSettings(Base.hub(), pick.key);
-        var code = {};
-        try { code = LbTune.codeOf(Base.hub(), Base.fy()); } catch (e) { code = {}; }
         out.members = Base.members(pick.grade, pick.cls).map(function (r) {
-          return { lid: r.lid, no: r.no, name: r.name, code: code[r.lid] || '', provisional: !!r.provisional };
+          return { lid: r.lid, no: r.no, name: r.name, provisional: !!r.provisional };
         });
         try { out.now3 = now3(pick.key); } catch (e) { out.now3 = []; console.error('今週の3件を読めません: ' + e.message); }
       }
@@ -2009,15 +2133,13 @@ var LbHome = (function () {
     return out;
   }
 
-  /** 今週の3件（名前・技能の名前・根拠の一文を付ける）。名前は教師にだけ渡す。codes は「名前をかくす」の時に出す記号 */
+  /** 今週の3件（名前・技能の名前・根拠の一文を付ける）。名前は教師にだけ渡す */
   function now3(classKey) {
-    var hub = Base.hub(), cats = LbCatalog.readAll(hub), code = {};
-    try { code = LbTune.codeOf(hub, Base.fy()); } catch (e) { code = {}; }
+    var hub = Base.hub(), cats = LbCatalog.readAll(hub);
     return LbAlerts.read(hub, classKey).map(function (x) {
       var cat = cats[x.app], sk = cat ? LbCatalog.index(cat)[x.skill] : null;
       return { key: x.key, kind: x.kind, label: LbAlerts.LABEL[x.kind] || x.kind, skill: sk ? sk.label : x.skill, app: cat ? cat.title : x.app,
-        names: x.lids.map(function (l) { var r = Base.learner(l); return r ? r.name : '（名簿にない）'; }),
-        codes: x.lids.map(function (l) { return code[l] || '？'; }), text: LbAlerts.describe(x) };
+        names: x.lids.map(function (l) { var r = Base.learner(l); return r ? r.name : '（名簿にない）'; }), text: LbAlerts.describe(x) };
     });
   }
   /** 判断の記録（判断が変わった／見た）。押した項目は今週の3件から消える */
@@ -2061,7 +2183,7 @@ var LbHome = (function () {
       return !!a && a === e;
     } catch (err) { return false; }
   }
-  /** 先生の気づき（学習BASE の使い勝手・今週の3件の当たり外れ）。ハブの feedback シートに1行 */
+  /** 先生の気づき（学習BASE の使い勝手・機能。児童の学習のようすは書かない）。ハブの feedback シートに1行 */
   function feedback(classKey, view, text) {
     var m = Base.me();
     if (m.role !== 'teacher') throw new Error('先生だけが送れます');
@@ -2080,9 +2202,10 @@ var LbHome = (function () {
     LbTune.count(role, 'client:' + kind);
     return true;
   }
-  /** 改善用の書き出し（所有者だけ）。{ ok, text, problems, notes } */
+  function requireOwner() { if (!isOwnerView()) throw new Error('スプレッドシートの所有者だけが使えます'); }
+  /** 改善用の書き出し（所有者だけ。使い勝手・機能性だけ）。{ ok, text, problems, notes } */
   function exportForTuning() {
-    if (!isOwnerView()) throw new Error('改善用の書き出しは、スプレッドシートの所有者だけが使えます');
+    requireOwner();
     var hub = Base.hub(), fy = Base.fy(), roster = Base.roster(), t = today();
     var settings = classesFor(String(Session.getActiveUser().getEmail() || '').toLowerCase()).map(function (c) {
       var st = LbPages.readSettings(hub, c.key), hidden = 0;
@@ -2091,12 +2214,35 @@ var LbHome = (function () {
     });
     var ver = '';
     try { ver = typeof LB_LOADER !== 'undefined' ? LB_LOADER.ver() : ''; } catch (e) {}
-    var r = LbTune.exportText({ hub: hub, fy: fy, today: t, ver: ver, roster: roster, teachers: Base.teachers(), acc: LbFacts.read(hub, fy), cats: LbCatalog.readAll(hub), settings: settings });
+    var r = LbTune.exportText({ hub: hub, fy: fy, today: t, ver: ver, roster: roster, teachers: Base.teachers(), settings: settings });
     LbTune.count('teacher', 'act:export');
     return r;
   }
 
-  return { boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
+  /* 閾値を見直す（所有者だけ・学校の中だけ。児童の学習状態を扱うので書き出しには入れない） */
+  function tuningInput() { var hub = Base.hub(), fy = Base.fy(); return { hub: hub, today: today(), roster: Base.roster(), acc: LbFacts.read(hub, fy), cats: LbCatalog.readAll(hub) }; }
+  function tuning() {
+    requireOwner();
+    LbTune.count('teacher', 'act:tuning');
+    return LbTune.tuning(tuningInput());
+  }
+  /** 入れた値で数える（保存しない）。values：{ 項目: 値 }（元の値。0.15 など） */
+  function tryRules(values) {
+    requireOwner();
+    var o = tuningInput();
+    return LbTune.tryRules(o.acc, o.roster, o.cats, o.today, LbAlerts.active(o.hub), values || {});
+  }
+  /** 値を保存する（翌晩から効く）。now が true なら今週の3件をすぐ計算し直す。返す：見直す画面の材料 */
+  function saveRules(values, now) {
+    requireOwner();
+    var o = tuningInput();
+    LbAlerts.saveValues(o.hub, values || {}, String(Session.getActiveUser().getEmail() || ''));
+    if (now) LbTune.logAlerts(o.hub, LbAlerts.refresh(o.hub, Base.fy(), o.roster, o.cats, o.today), o.today);
+    LbTune.count('teacher', 'act:rules' + (now ? '-now' : ''));
+    return LbTune.tuning(o);
+  }
+
+  return { boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();
 
 /* 画面（google.script.run）から呼ぶ入口 */
@@ -2108,6 +2254,9 @@ function homeDecide(classKey, key, action, memo) { return LbHome.decide(classKey
 function homeFeedback(classKey, view, text) { return LbHome.feedback(classKey, view, text); }
 function homeReport(kind) { return LbHome.report(kind); }
 function homeExport() { return LbHome.exportForTuning(); }
+function homeTuning() { return LbHome.tuning(); }
+function homeTryRules(values) { return LbHome.tryRules(values); }
+function homeSaveRules(values, now) { return LbHome.saveRules(values, now); }
 
 // ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@c3ee013） =====
 LB_MODULES["tamath"] = (function () {
@@ -9645,7 +9794,8 @@ var LbPlatform = (function () {
       setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
       resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); },
       feedback: function (k, v, t) { return LbHome.feedback(k, v, t); }, report: function (kind) { return LbHome.report(kind); },
-      exportForTuning: function () { return LbHome.exportForTuning(); } }
+      exportForTuning: function () { return LbHome.exportForTuning(); }, tuning: function () { return LbHome.tuning(); },
+      tryRules: function (v) { return LbHome.tryRules(v); }, saveRules: function (v, now) { return LbHome.saveRules(v, now); } }
   };
   function roleNow() { try { return Base.me().role; } catch (e) { return '-'; } }
 
@@ -9717,8 +9867,8 @@ var LbPlatform = (function () {
     try {
       var hub = Base.hub(), fy = Base.fy();
       var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
-      var by = LbAlerts.compute(LbFacts.read(hub, fy), Base.roster(), LbCatalog.readAll(hub), today, LbAlerts.decidedKeys(hub));
-      console.log('今週の3件：' + LbAlerts.store(hub, by) + ' 件（初めて出た ' + LbTune.logAlerts(hub, by, today) + ' 件）');
+      var by = LbAlerts.refresh(hub, fy, Base.roster(), LbCatalog.readAll(hub), today);   // 所有者が変えた閾値（rules シート）で
+      console.log('今週の3件：' + Object.keys(by).reduce(function (t, c) { return t + by[c].length; }, 0) + ' 件（初めて出た ' + LbTune.logAlerts(hub, by, today) + ' 件）');
       return [];
     } catch (e) { console.error('今週の3件 失敗: ' + e.message); return ['alerts: ' + e.message]; }
   }
@@ -9805,7 +9955,7 @@ var LbPlatform = (function () {
   function platformScript(baseUrl) {
     return 'window.LB_PLATFORM={baseUrl:' + JSON.stringify(baseUrl) + ',' +
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
-      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide",homeFeedback:"feedback",homeReport:"report",homeExport:"exportForTuning"};' +
+      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide",homeFeedback:"feedback",homeReport:"report",homeExport:"exportForTuning",homeTuning:"tuning",homeTryRules:"tryRules",homeSaveRules:"saveRules"};' +
       'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",map[name]||name,a);});},' +
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +

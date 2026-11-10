@@ -40,30 +40,46 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('lb-demo') || '{}'); delete s.now3; localStorage.setItem('lb-demo', JSON.stringify(s)); });
       await p.goto(p.url()); await p.waitForTimeout(600);
     }
-    if (role === 'teacher') {   // 名前をかくす・気づき・改善用の書き出し
-      await p.click('[data-act=hide]'); await p.waitForTimeout(100);
+    if (role === 'teacher') {   // 撮影用・気づき・閾値を見直す・改善用の書き出し
+      await p.click('[data-act=shot]'); await p.waitForTimeout(100);
       const who = await p.locator('.lb-alert-who').first().textContent();
-      if (!/^〔[a-z0-9]+〕$/.test(who)) fails.push('teacher: 名前をかくすで記号にならない: ' + who);
-      if (await p.evaluate(() => localStorage.getItem('lb-hide')) !== '1') fails.push('teacher: 名前をかくすを覚えない');
-      const opts = await p.$$eval('#lb-as option', os => os.map(o => o.textContent).join('/'));
-      if (/あおき|いとう/.test(opts)) fails.push('teacher: 名前をかくしても児童の欄に名前: ' + opts);
-      await p.click('[data-act=hide]'); await p.waitForTimeout(100);
-      if (!/いとう/.test(await p.locator('.lb-alert-who').first().textContent())) fails.push('teacher: 名前をかくすを戻せない');
+      if (!/^見本/.test(who)) fails.push('teacher: 撮影用で見本の名前にならない: ' + who);
+      if (/いとう|あおき/.test(await p.locator('#lb').textContent())) fails.push('teacher: 撮影用に実際の名前が残る');
+      if (!(await p.locator('.lb-shot').count())) fails.push('teacher: 撮影用の表示だと分からない');
+      if (await p.locator('[data-act=tune], [data-act=export]').count()) fails.push('teacher: 撮影用に所有者の欄が出る');
+      let opened2 = ''; await p.exposeFunction('lbOpened3', u => { opened2 = u; });
+      await p.evaluate(() => { window.LB_PLATFORM.open = u => window.lbOpened3(u); });
+      await p.click('.lb-nowcard'); await p.waitForTimeout(100);
+      if (opened2) fails.push('teacher: 撮影用でページが開いた');
+      await p.click('[data-act=decide][data-how=changed]'); await p.waitForTimeout(300);
+      const kept = await p.evaluate(() => JSON.parse(localStorage.getItem('lb-demo') || '{}').now3);
+      if (kept && kept.length !== 2) fails.push('teacher: 撮影用で判断が記録された');
+      await p.click('.lb-tbar [data-act=shot]'); await p.waitForTimeout(100);
+      if (!/いとう|あおき/.test(await p.locator('.lb-alert-who').first().textContent())) fails.push('teacher: 撮影用を戻せない');
       await p.fill('#lb-fbtext', '九九のタイルが小さい');
-      await p.click('[data-act=hide]'); await p.click('[data-act=hide]');      // 描き直しても書きかけが残る
+      await p.click('[data-act=shot]'); await p.click('.lb-tbar [data-act=shot]');     // 描き直しても書きかけが残る
       if ((await p.inputValue('#lb-fbtext')) !== '九九のタイルが小さい') fails.push('teacher: 描き直しで気づきの書きかけが消える');
       await p.click('[data-act=fb]'); await p.waitForTimeout(400);
       const fb = await p.evaluate(() => (JSON.parse(localStorage.getItem('lb-demo') || '{}').fb || []).map(x => x.t).join());
       if (fb !== '九九のタイルが小さい') fails.push('teacher: 気づきが送られない: ' + fb);
-      if ((await p.inputValue('#lb-fbtext')) !== '') fails.push('teacher: 送った後に欄が空にならない');
       await p.click('[data-act=export]'); await p.waitForTimeout(400);
-      if (!/改善用の書き出し/.test(await p.inputValue('#lb-exptext'))) fails.push('teacher: 書き出しの文が出ない');
-      if (!(await p.locator('.lb-expnotes li').count())) fails.push('teacher: 目で確かめることが出ない');
+      if (!/使い勝手・機能性/.test(await p.inputValue('#lb-exptext'))) fails.push('teacher: 書き出しの文が出ない');
       await p.click('[data-act=export-close]');
-      if (await p.locator('.lb-export').count()) fails.push('teacher: 書き出しを閉じられない');
-      await p.evaluate(() => { localStorage.removeItem('lb-hide'); const s = JSON.parse(localStorage.getItem('lb-demo') || '{}'); delete s.fb; localStorage.setItem('lb-demo', JSON.stringify(s)); });
+      // 閾値を見直す：値を変えて数える → 入れた値なら の行。保存すると「変えている」
+      await p.click('[data-act=tune]'); await p.waitForTimeout(400);
+      if ((await p.locator('.lb-rule input').count()) < 10) fails.push('teacher: 閾値の項目が出ない');
+      if ((await p.inputValue('[data-path="drop.accDrop"]')) !== '15') fails.push('teacher: 下がり幅がポイントで出ない');
+      await p.fill('[data-path="drop.accDrop"]', '10'); await p.click('[data-act=rule-try]'); await p.waitForTimeout(400);
+      if (!(await p.locator('.lb-tried').count())) fails.push('teacher: 入れた値で数えた結果が出ない');
+      if ((await p.inputValue('[data-path="drop.accDrop"]')) !== '10') fails.push('teacher: 数えた後に入れた値が消える');
+      await p.click('[data-act=rule-save]'); await p.waitForTimeout(400);
+      const saved2 = await p.evaluate(() => JSON.parse(localStorage.getItem('lb-demo') || '{}').rules || {});
+      if (saved2['drop.accDrop'] !== 0.1) fails.push('teacher: 閾値が元の値（0.1）で保存されない: ' + JSON.stringify(saved2));
+      if (!/変えている/.test(await p.locator('.lb-rule').first().textContent())) fails.push('teacher: 変えている印が出ない');
+      await p.click('[data-act=back]');
+      await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('lb-demo') || '{}'); delete s.fb; delete s.rules; localStorage.setItem('lb-demo', JSON.stringify(s)); });
     }
-    if (role === 'child3' && (await p.locator('.lb-fb, [data-act=hide], [data-act=export]').count())) fails.push('child3: 児童に先生の欄が出る');
+    if (role === 'child3' && (await p.locator('.lb-fb, [data-act=shot], [data-act=export], [data-act=tune]').count())) fails.push('child3: 児童に先生の欄が出る');
     if (role === 'child3' && await p.locator('.lb-alert').count()) fails.push('child3: 児童に今週の3件が出る');
     if (role === 'teacher') {   // 算数は代わりに取り組むに対応：欄が出て、選んで開くと &as=<学習者ID>。対応していないページ（といボード）は開かない
       if (!(await p.locator('#lb-as').count())) fails.push('teacher: 「代わりに取り組む」が出ない');

@@ -20,7 +20,22 @@
   function put(s) { try { localStorage.setItem('lb-demo', JSON.stringify(s)); } catch (e) {} }
   function settings(k) { var s = store(); return s[k] || { publish: {}, now: [{ page: 'tamath-kuku', order: 1 }, { page: 'kanzi', order: 2 }] }; }
   function setSettings(k, v) { var s = store(); s[k] = v; put(s); return v; }
-  var members = [{ lid: 'La', no: 1, name: 'あおき そら', code: 'k3m' }, { lid: 'Lb', no: 2, name: 'いとう はな', code: 'r7t' }, { lid: 'Lc', no: 30, name: 'てんにゅう たろう', code: '', provisional: true }];
+  var members = [{ lid: 'La', no: 1, name: 'あおき そら' }, { lid: 'Lb', no: 2, name: 'いとう はな' }, { lid: 'Lc', no: 30, name: 'てんにゅう たろう', provisional: true }];
+  // 見本の「閾値を見直す」：本物の項目（Alerts.gs の SPEC と同じ）と、値で動く架空の件数
+  var SPEC = [['drop.accDrop', 'drop', '正答率の下がり幅（これ以上で出す）', 'ポイント', 100, 0.15, 0.03, 0.5], ['drop.timeRise', 'drop', '時間の伸び（これ以上で出す）', '倍', 1, 1.25, 1.05, 3],
+    ['drop.weekMinN', 'drop', '今週の問題数（これ以上の時だけ）', '問', 1, 10, 1, 200], ['drop.baseMinN', 'drop', '前の4週の問題数（これ以上の時だけ）', '問', 1, 10, 1, 400],
+    ['klass.accBelow', 'klass', '低いとみなす正答率（これ未満）', '%', 100, 0.7, 0.3, 0.95], ['klass.share', 'klass', '低い児童の割合（これ以上で出す）', '%', 100, 0.5, 0.1, 1],
+    ['klass.minKids', 'klass', '取り組んだ児童（これ以上の時だけ）', '人', 1, 5, 2, 40], ['klass.kidMinN', 'klass', '1人の問題数（これ以上で数に入れる）', '問', 1, 5, 1, 200],
+    ['stall.minN', 'stall', '前後4週それぞれの問題数（これ以上の時だけ）', '問', 1, 20, 5, 400], ['stall.accGain', 'stall', '正答率の伸び（これ未満なら止まった）', 'ポイント', 100, 0.02, 0, 0.3],
+    ['stall.timeRatio', 'stall', '時間の比（これより大きければ止まった）', '倍', 1, 0.97, 0.5, 1.2], ['max', 'all', '学級ごとに出す数', '件', 1, 3, 1, 10], ['dismissDays', 'all', '押した項目を出さない日数', '日', 1, 14, 1, 60]];
+  function demoTuning(vals) {
+    var spec = SPEC.map(function (a) { var has = vals[a[0]] !== undefined && vals[a[0]] !== ''; return { path: a[0], kind: a[1], label: a[2], unit: a[3], scale: a[4], def: a[5], min: a[6], max: a[7], value: has ? Number(vals[a[0]]) : a[5], changed: has && Number(vals[a[0]]) !== a[5] }; });
+    var v = function (p) { return spec.filter(function (x) { return x.path === p; })[0].value; };
+    var c = { drop: Math.max(0, Math.round(40 - v('drop.accDrop') * 200)), klass: Math.max(0, Math.round(10 * v('klass.accBelow') / v('klass.share') - 8)), stall: Math.max(0, Math.round(600 / v('stall.minN'))), classes: 12 };
+    return { spec: spec, counts: c, sens: [{ label: '正答率の下がり幅（これ以上で出す）', unit: 'ポイント', scale: 100, now: 0.15, value: 0.1, drop: 20, klass: c.klass, stall: c.stall, classes: 14 }],
+      dist: { hist: { dropAcc: [['上がった', '41'], ['0〜5', '60'], ['5〜10', '22'], ['10〜15', '9'], ['15〜20', '5人未満'], ['20以上', '5人未満']], dropTime: [['0.9倍未満', '18']], stallAcc: [['0〜2', '12']], stallTime: [['0.97〜1.03倍', '11']], klassShare: [['3割未満', '30']] } },
+      perf: [{ week: '2026-11-09', kind: 'drop', fired: 9, changed: 3, seen: 4, open: 2 }] };
+  }
   var api = {
     homeBoot: function (opt) {
       var b = { role: role.indexOf('child') === 0 ? 'child' : role, today: new Date().toISOString().slice(0, 10), pagesUrl: '../catalog/pages.json', subjects: LbPages.SUBJECTS };
@@ -29,9 +44,9 @@
         'toi-board': { url: 'https://example.com/toi-board', color: 'lavender' } };
       if (b.role === 'child') { var g = role === 'child1' ? 1 : 3; b.learner = { name: 'たなか はなこ', mei: 'はなこ', grade: g, cls: '1' }; b.classKey = g + '-1'; b.settings = settings(b.classKey); }
       if (role === 'teacher') b.now3 = store().now3 || [
-        { key: 'k1', kind: 'drop', label: '▼ 急に崩れた', app: '算数タイムアタック', skill: '九九：7の段', names: ['いとう はな'], codes: ['r7t'], text: '正答率 90% → 62%・時間 1.5秒 → 2.1秒（今週 14問・前の4週と比べて）' },
-        { key: 'k2', kind: 'klass', label: '● 学級でつまずき', app: '算数タイムアタック', skill: '長さ：km→m', names: ['あおき そら', 'いとう はな', 'うえだ けん'], codes: ['k3m', 'r7t', 'b5x'], text: '取り組んだ 9人のうち 5人が正答率70%未満（直近2週）' },
-        { key: 'k3', kind: 'stall', label: '― 伸びが止まった', app: '算数タイムアタック', skill: 'あまりのあるわり算：九九の逆', names: ['あおき そら'], codes: ['k3m'], text: '正答率 64% → 65%・時間 3.2秒 → 3.2秒（前の4週 30問 → 直近4週 28問）' }];
+        { key: 'k1', kind: 'drop', label: '▼ 急に崩れた', app: '算数タイムアタック', skill: '九九：7の段', names: ['いとう はな'], text: '正答率 90% → 62%・時間 1.5秒 → 2.1秒（今週 14問・前の4週と比べて）' },
+        { key: 'k2', kind: 'klass', label: '● 学級でつまずき', app: '算数タイムアタック', skill: '長さ：km→m', names: ['あおき そら', 'いとう はな', 'うえだ けん'], text: '取り組んだ 9人のうち 5人が正答率70%未満（直近2週）' },
+        { key: 'k3', kind: 'stall', label: '― 伸びが止まった', app: '算数タイムアタック', skill: 'あまりのあるわり算：九九の逆', names: ['あおき そら'], text: '正答率 64% → 65%・時間 3.2秒 → 3.2秒（前の4週 30問 → 直近4週 28問）' }];
       if (role === 'teacher') { b.classes = [{ key: '3-1', grade: 3, cls: '1' }, { key: '1-1', grade: 1, cls: '1' }]; b.classKey = (opt && opt.classKey) || '3-1'; b.settings = settings(b.classKey); b.members = members; b.owner = true; }
       if (role === 'guest') b.message = 'なまえが まだ とうろく されていません。せんせいに つたえてね';
       return b;
@@ -42,7 +57,10 @@
     homeFeedback: function (k, v, t) { var s = store(); (s.fb = s.fb || []).push({ k: k, v: v, t: t }); put(s); return true; },
     homeReport: function () { return true; },
     homeExport: function () { return { ok: true, notes: ['1文字の名前かもしれない「空」を置き換えていません（2026-11-10 の気づき）'],
-      text: '# 学習BASE 改善用の書き出し\n書き出した日：（見本）\n\n## 1. 今週の3件の規則\n…（本番では、規則・働き・閾値を変えたら・分布・使われ方・気づきが入ります）' }; },
+      text: '# 学習BASE 改善用の書き出し（使い勝手・機能性）\n書き出した日：（見本）\n\n## 1. 使われ方\n…（本番では、使われ方・速さと失敗・今週の3件への先生の反応（割合）・先生の設定・気づきが入ります）' }; },
+    homeTuning: function () { return demoTuning(store().rules || {}); },
+    homeTryRules: function (v) { var t = demoTuning(v); return { now: demoTuning(store().rules || {}).counts, tried: t.counts, bad: [] }; },
+    homeSaveRules: function (v) { var s = store(), r = s.rules || {}; Object.keys(v).forEach(function (k) { if (v[k] === '') delete r[k]; else r[k] = v[k]; }); s.rules = r; put(s); return demoTuning(r); },
     homeSetNow: function (k, list) { var s = settings(k); s.now = list.map(function (x, i) { return { page: x.page, order: i + 1 }; }); return setSettings(k, s); }
   };
   window.LB_PLATFORM = {

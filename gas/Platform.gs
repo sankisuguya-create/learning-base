@@ -20,7 +20,8 @@ var LbPlatform = (function () {
       setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
       resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); },
       feedback: function (k, v, t) { return LbHome.feedback(k, v, t); }, report: function (kind) { return LbHome.report(kind); },
-      exportForTuning: function () { return LbHome.exportForTuning(); } }
+      exportForTuning: function () { return LbHome.exportForTuning(); }, tuning: function () { return LbHome.tuning(); },
+      tryRules: function (v) { return LbHome.tryRules(v); }, saveRules: function (v, now) { return LbHome.saveRules(v, now); } }
   };
   function roleNow() { try { return Base.me().role; } catch (e) { return '-'; } }
 
@@ -92,8 +93,8 @@ var LbPlatform = (function () {
     try {
       var hub = Base.hub(), fy = Base.fy();
       var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
-      var by = LbAlerts.compute(LbFacts.read(hub, fy), Base.roster(), LbCatalog.readAll(hub), today, LbAlerts.decidedKeys(hub));
-      console.log('今週の3件：' + LbAlerts.store(hub, by) + ' 件（初めて出た ' + LbTune.logAlerts(hub, by, today) + ' 件）');
+      var by = LbAlerts.refresh(hub, fy, Base.roster(), LbCatalog.readAll(hub), today);   // 所有者が変えた閾値（rules シート）で
+      console.log('今週の3件：' + Object.keys(by).reduce(function (t, c) { return t + by[c].length; }, 0) + ' 件（初めて出た ' + LbTune.logAlerts(hub, by, today) + ' 件）');
       return [];
     } catch (e) { console.error('今週の3件 失敗: ' + e.message); return ['alerts: ' + e.message]; }
   }
@@ -180,7 +181,7 @@ var LbPlatform = (function () {
   function platformScript(baseUrl) {
     return 'window.LB_PLATFORM={baseUrl:' + JSON.stringify(baseUrl) + ',' +
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
-      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide",homeFeedback:"feedback",homeReport:"report",homeExport:"exportForTuning"};' +
+      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide",homeFeedback:"feedback",homeReport:"report",homeExport:"exportForTuning",homeTuning:"tuning",homeTryRules:"tryRules",homeSaveRules:"saveRules"};' +
       'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",map[name]||name,a);});},' +
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +

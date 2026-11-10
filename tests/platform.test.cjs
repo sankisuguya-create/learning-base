@@ -308,6 +308,11 @@ t('直すための材料：ページを開くと数え、夜に前日までを u
   assert.ok(r.ok, (r.problems || []).join());
   assert.ok(!/田中|はなこ|@|11111111/.test(r.text)); assert.match(r.text, /〔[a-z0-9]{2,3}〕さんが押し間違えた/);
   assert.match(r.text, new RegExp('版：' + VER));
+  assert.ok(!/候補|分布|正答率/.test(r.text), '学習状態は入れない');
+  // 閾値：所有者が保存した値で夜の計算をする
+  run(S).lbCall('home', 'saveRules', [{ 'drop.accDrop': 0.2 }, false]);
+  assert.strictEqual(S.hub.sheets.rules.v.find(x => x[0] === 'drop.accDrop')[1], 0.2);
+  assert.throws(() => run(S, 'other@edu.nishi.or.jp').lbCall('home', 'saveRules', [{ max: 5 }, false]), /所有者だけ/);
   assert.ok(S.hub.sheets.pseudo_2026, '記号表はハブに');
   // 夜：前日までの分を usage へ
   for (const k of Object.keys(S.props)) if (k.startsWith('LB_U|')) { S.props[k.replace(/LB_U\|\d{4}-\d{2}-\d{2}/, 'LB_U|2026-01-05')] = S.props[k]; delete S.props[k]; }

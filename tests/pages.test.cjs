@@ -185,17 +185,25 @@ t('窓口：開くたびに役割ごとに数える（前回の往復の時間�
   assert.ok(Object.keys(all).some(k => /^child\|srv:/.test(k)));
   assert.ok(!JSON.stringify(props).match(/田中|はなこ|kyoiku/), '名前・メールは数えるところに入らない');
 });
-t('窓口：名前をかくす用の記号を教師にだけ渡す。所有者かどうか', () => {
+t('窓口：所有者かどうか。閾値を見直す・数える・保存するは所有者だけ。保存した値は次の計算から効く', () => {
   const t1 = homeEnv('na@edu.nishi.or.jp', ROSTER);
-  t1.hub.insertSheet('pseudo_2026').v.push(['学習者ID・メール', '記号'], ['La', 'k3m']);
   t1.ctx.Base.fy = () => 2026;
   const b = t1.ctx.homeBoot({ classKey: '3-1' });
-  assert.strictEqual(b.members.find(m => m.lid === 'La').code, 'k3m');
-  assert.strictEqual(b.members.find(m => m.lid === 'Lc').code, '', '記号がまだ無い児童は空');
   assert.strictEqual(b.owner, false);
+  assert.ok(b.members.every(m => !('code' in m)), '記号は渡さない（撮影用は画面の見本）');
+  assert.throws(() => t1.ctx.homeTuning(), /所有者だけ/); assert.throws(() => t1.ctx.homeTryRules({}), /所有者だけ/); assert.throws(() => t1.ctx.homeSaveRules({ max: 5 }), /所有者だけ/);
+  assert.ok(!t1.hub.sheets.rules, '所有者でなければ何も書かない');
   const own = homeEnv('owner@edu.nishi.or.jp', ROSTER);
-  own.ctx.Base.fy = () => 2026;
+  own.ctx.Base.fy = () => 2026; own.ctx.Base.teachers = () => [];
   assert.strictEqual(own.ctx.homeBoot({}).owner, true);
+  const tu = own.ctx.homeTuning();
+  assert.ok(tu.spec.length >= 10); assert.strictEqual(typeof tu.counts.drop, 'number');
+  assert.strictEqual(own.ctx.homeTryRules({ 'drop.accDrop': 0.1 }).tried.drop, 0);
+  const after = own.ctx.homeSaveRules({ 'drop.accDrop': 0.1 }, true);
+  assert.strictEqual(after.spec.find(x => x.path === 'drop.accDrop').changed, true);
+  assert.strictEqual(own.ctx.LbAlerts.active(own.hub).drop.accDrop, 0.1);
+  assert.ok(own.hub.sheets.now3, '今すぐ計算し直すと now3 を入れ替える');
+  assert.throws(() => own.ctx.homeSaveRules({ 'drop.accDrop': 5 }), /使えない値/);
 });
 t('窓口：気づきは先生だけ（担当外の学級は不可）。書き出しは所有者だけ。画面の失敗は決めた種類だけ数える', () => {
   const kid = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);

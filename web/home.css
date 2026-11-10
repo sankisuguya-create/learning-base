@@ -139,4 +139,28 @@
 .lb-exphead .lb-h{margin:8px 0}
 .lb-expng{color:var(--ink-alert);font-weight:700}
 .lb-expnotes{margin:0 0 8px;padding-left:20px;font-size:15px}
-.lb-fbowner{margin-top:8px}
+.lb-shot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;margin:12px 0 0;border:2px dashed var(--ink);border-radius:var(--radius);font-size:16px}
+.lb-fbowner{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:15px;color:var(--ink-sub)}
+
+/* 所有者：閾値を見直す */
+.lb-tune .lb-shead h2{margin:0;font-size:22px}
+.lb-tcount{margin:8px 0;font-size:16px}
+.lb-tried{padding:8px 12px;border-left:4px solid var(--solid-on);background:var(--card)}
+.lb-rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:12px;margin:12px 0}
+.lb-rgroup{margin:0;padding:8px 12px 12px;border:1px solid var(--line);border-radius:var(--radius)}
+.lb-rgroup legend{font-weight:700;padding:0 4px}
+.lb-rule{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;padding:8px 0;border-top:1px solid var(--card)}
+.lb-rlabel{font-size:15px}
+.lb-rinput{display:inline-flex;align-items:center;gap:8px;font-size:15px;white-space:nowrap}
+.lb-runit{display:inline-block;width:64px}
+.lb-rinput input{font:inherit;font-size:16px;width:96px;min-height:48px;box-sizing:border-box;padding:0 8px;border:1px solid var(--line);border-radius:8px;text-align:right}
+.lb-rdef{grid-column:1 / -1;font-size:13px;color:var(--ink-sub)}
+.lb-rdef strong{color:var(--ink-alert)}
+.lb .lb-abtn.lb-wide,.lb .lb-abtn.sub.lb-wide{width:240px}
+.lb-tablewrap{overflow-x:auto}
+.lb-table{border-collapse:collapse;font-size:14px;margin:4px 0 12px}
+.lb-table th,.lb-table td{border:1px solid var(--line);padding:4px 8px;text-align:left;white-space:nowrap}
+.lb-table th{background:var(--card)}
+.lb-dists{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.lb-dists h4{margin:4px 0;font-size:14px}
+@media (max-width:520px){.lb-rules{grid-template-columns:1fr}}
