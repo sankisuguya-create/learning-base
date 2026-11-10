@@ -14,7 +14,9 @@
  *   { id: 'tamath-kuku', subject: 'sansu', grades: [3], unit: 'かけ算', title: '九九 タイムアタック', ruby: 'くく タイムアタック',
  *     kind: 'app', app: 'tamath', params: { unit: 'kuku' }, order: 10, defaultOn: true },
  *   { id: 'sakubun-1', subject: 'kokugo', grades: [3, 4], unit: '作文', title: '…', kind: 'page',
- *     src: { repo: 'sankisuguya-create/worksheet-platform', path: 'pages/sakubun-1.js', ver: '<コミット>' } }
+ *     src: { repo: 'sankisuguya-create/worksheet-platform', path: 'pages/sakubun-1.js', ver: '<コミット>' } },
+ *   { id: 'toi-board', subject: 'sogo', grades: [3], title: 'といボード', kind: 'link', linkId: 'toi-board' }
+ *     … 別の GAS で動くもの。開く先の URL は公開の目録に書かず、ハブの links シートの id=linkId の行の url を使う
  * ] }
  */
 var LbPages = (function () {
@@ -57,7 +59,9 @@ var LbPages = (function () {
       else if (p.kind === 'page') {
         var s = p.src || {};
         if (!s.repo || !s.path || !/^[0-9a-f]{7,40}$|^v[\w.\-]+$/.test(String(s.ver || ''))) e.push(w + ' の src は repo・path・ver（コミットかタグ）');
-      } else e.push(w + ' の kind は app か page');
+      } else if (p.kind === 'link') {
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(String(p.linkId || ''))) e.push(w + ' の linkId（ハブの links シートの id）が不正');
+      } else e.push(w + ' の kind は app・page・link');
       if (p.actAs != null && typeof p.actAs !== 'boolean') e.push(w + ' の actAs は true / false（代わりに取り組むに対応しているか）');
     });
     return e;

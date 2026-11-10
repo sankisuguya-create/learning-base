@@ -39,6 +39,26 @@
   function icon(id, cls) {
     return '<svg class="' + (cls || 'lb-ico') + '" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[id] || ICONS.other) + '</svg>';
   }
+  /**
+   * タイルの色（算数TA のハブ apps/hub/Code.gs の COLORS と同じ30色）。どのページを何色にするかは、
+   * 先生がハブの links シートの color 列で選んだもの（児童が見慣れた色のまま探せる）。色だけで見分けさせない（題を必ず出す）
+   */
+  var TILE = {
+    mint: ['#12C48B', '#052A1F'], blue: ['#2B4CF2', '#F0F3FF'], amber: ['#FFC400', '#2E2200'], red: ['#FF5C38', '#2C0A02'],
+    purple: ['#6D4AE0', '#F3EEFF'], gray: ['#4A5568', '#EEF1F6'], lavender: ['#D3C9FB', '#1C152F'], olive: ['#696713', '#F6F6EB'],
+    wine: ['#900D2A', '#F7F7F7'], cyan: ['#0DA2C6', '#1A1A1A'], rose: ['#DE5F99', '#2C101C'], teal: ['#13745F', '#EBF9F4'],
+    brown: ['#964D0C', '#FEF3EC'], peach: ['#FCC1B6', '#2E100C'], lime: ['#9EB919', '#181E01'], aqua: ['#2CECF2', '#1A1A1A'],
+    plum: ['#80146F', '#FCF1F9'], periwinkle: ['#6B89F9', '#121932'], ochre: ['#CB7E19', '#1A1A1A'], sky: ['#A8D8FB', '#001D2F'],
+    orchid: ['#CE88F7', '#22132B'], peacock: ['#1C6E80', '#EBF8FC'], green: ['#057918', '#EFF8EF'], pink: ['#FEA4D2', '#2B101F'],
+    mustard: ['#AA9117', '#1A1A1A'], leaf: ['#97EB79', '#0E2007'], apricot: ['#FDB171', '#2B1401'], coral: ['#FB8087', '#2E1012'],
+    turquoise: ['#16A7A3', '#1A1A1A'], cobalt: ['#1468A3', '#EDF6FF']
+  };
+  /** ハブの links シートの行（ページの params.unit・linkId・id の順で探す） */
+  function hubLink(p) {
+    var L = (S.boot && S.boot.links) || {};
+    return L[(p.params && p.params.unit) || ''] || L[p.linkId || ''] || L[p.id] || null;
+  }
+  function tileColor(p) { var h = hubLink(p), k = (h && h.color) || p.color || 'mint'; return TILE[k] || TILE.mint; }
   var PLAY = '<svg class="lb-btn-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
 
   /* ---------- 文字（学年で読み方を変える） ---------- */
@@ -73,6 +93,11 @@
     if (!S.cat) { root.innerHTML = top() + '<div class="lb-msg">よみこみ中…</div>'; return; }
     root.classList.toggle('lb-edit', !!S.edit);
     root.innerHTML = top() + teacherBar() + (S.view === 'subject' ? subjectView() : homeView());
+    if (S.view === 'subject') {
+      loadMincho(Array.prototype.map.call(root.querySelectorAll('.lb-mincho'), function (e) { return e.textContent; }).join(''));
+      fitTiles();
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTiles);
+    }
   }
   function top() {
     var who = '';
@@ -135,25 +160,55 @@
     return html;
   }
   function allOn() { var o = {}; (S.cat.pages || []).forEach(function (p) { o[p.id] = true; }); return o; }
+  /**
+   * 教科の中。算数TA のハブの児童用ページ（apps/hub/links.html）と同じ作り：紙の地に、色の大きなタイル（高さ固定）、
+   * 題は明朝で2行まで（収まらなければ字を縮める）、右端に補足（ハブの links の subtitle）。
+   */
   function subjectView() {
     var s = subjectInfo(S.subject);
     var units = S.edit ? LbPagesView.home(S.cat, S.grade, { publish: allOn(), now: [] }, S.boot.today).bySubject[S.subject] : home().bySubject[S.subject];
-    var html = '<div class="lb-shead" data-subject="' + esc(S.subject) + '"><button class="lb-back" data-act="back">← ' + (S.grade <= 2 ? 'もどる' : 'もどる') + '</button>' + icon(S.subject) + '<h2>' + subjectName(s) + '</h2></div>';
-    if (!units || !units.length) return html + '<div class="lb-msg">' + (S.grade <= 2 ? 'いまは ありません' : 'いまは ありません') + '</div>';
-    units.forEach(function (u) {
-      if (u.unit) html += '<h3 class="lb-unit">' + esc(u.unit) + '</h3>';
-      html += '<div class="lb-pages">' + u.pages.map(function (p) {
-        // 開くボタンと切り替え（先生モード）は兄弟にする（ボタンの中にボタンは置けない）
-        return '<div class="lb-cell"><button class="lb-page' + (isOn(p) ? '' : ' is-off') + '" data-act="open" data-subject="' + esc(p.subject) + '" data-id="' + esc(p.id) + '">' + PLAY +
-          '<span>' + pageTitle(p) + '<br><span class="lb-kind">' + kindLabel(p) + '</span></span></button>' + chips(p) + '</div>';
-      }).join('') + '</div>';
-    });
+    var html = '<div class="lb-paper"><div class="lb-shead" data-subject="' + esc(S.subject) + '"><button class="lb-back" data-act="back">← もどる</button>' +
+      icon(S.subject) + '<h2 class="lb-mincho">' + subjectName(s) + '</h2></div>';
+    var pages = [];
+    (units || []).forEach(function (u) { pages = pages.concat(u.pages); });
+    if (!pages.length) return html + '<div class="lb-msg">いまは ありません</div></div>';
+    html += '<div class="lb-hgrid">' + pages.map(function (p) {
+      var c = tileColor(p), h = hubLink(p), sub = (h && h.subtitle) || '';
+      return '<div class="lb-cell"><button class="lb-htile' + (isOn(p) ? '' : ' is-off') + '" data-act="open" data-id="' + esc(p.id) + '" style="background:' + c[0] + ';color:' + c[1] + '">' +
+        '<span class="t lb-mincho">' + esc(S.grade <= 2 && p.ruby ? p.ruby : p.title) + '</span>' + (sub ? '<span class="s">' + esc(sub) + '</span>' : '') +
+        '</button>' + chips(p) + '</div>';
+    }).join('') + '</div></div>';
     return html;
+  }
+  /** 題を2行に収める（ハブと同じ段の大きさを上から試す。実際の描画の高さで判定する） */
+  var STEPS = [2.35, 2.0, 1.7, 1.45, 1.25, 1.1];
+  function fitTiles() {
+    var list = root.querySelectorAll('.lb-htile .t');
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i], tile = el.parentNode, cs = getComputedStyle(tile);
+      var avail = tile.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      for (var k = 0; k < STEPS.length; k++) {
+        el.style.fontSize = STEPS[k] + 'rem';
+        el.style.letterSpacing = STEPS[k] >= 1.7 ? '.07em' : '.03em';
+        if (el.scrollHeight <= el.clientHeight + 1 && el.offsetHeight <= avail + 1) break;
+      }
+    }
+  }
+  /** 明朝は題に使う字だけを読む（日本語の明朝は全体だと数MB。LTE 機で遅れる。ハブと同じ） */
+  var minchoLoaded = {};
+  function loadMincho(text) {
+    var u = Array.from(new Set(String(text).replace(/\s/g, '').split(''))).filter(function (ch) { return !minchoLoaded[ch]; });
+    if (!u.length) return;
+    u.forEach(function (ch) { minchoLoaded[ch] = true; });
+    var l = document.createElement('link'); l.rel = 'stylesheet';
+    l.href = 'https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@900&display=swap&text=' + encodeURIComponent(u.join(''));
+    document.head.appendChild(l);
   }
 
   /* ---------- 操作 ---------- */
   function pageById(id) { return S.cat.pages.filter(function (p) { return p.id === id; })[0]; }
   function urlFor(p) {
+    if (p.kind === 'link') { var h = hubLink(p); return h && h.url ? h.url : ''; }
     var q = [];
     if (p.kind === 'app') { q.push('app=' + encodeURIComponent(p.app)); for (var k in (p.params || {})) q.push(encodeURIComponent(k) + '=' + encodeURIComponent(p.params[k])); }
     else q.push('doc=' + encodeURIComponent(p.id));   // page= はアプリが使う（算数TA の教師画面）
@@ -196,6 +251,10 @@
     if (act === 'open') {
       if (S.edit) return;                                           // 先生モードでは開かない（切り替えの押し間違いで遷移しない）
       var pg = pageById(id);
+      if (pg.kind === 'link' && !urlFor(pg)) {
+        toast(S.boot.role === 'teacher' ? 'ハブの links シートに、id「' + pg.linkId + '」の行（url）を足してください' : 'まだ ひらけません。せんせいに つたえてね');
+        return;
+      }
       if (S.as && pg.actAs !== true) { toast('このページは まだ 代わりに取り組めません（' + S.as.name + ' の記録になりません）'); return; }
       P.open(urlFor(pg));
     }
@@ -231,5 +290,7 @@
   var LbPagesView = window.LbPages;
   window.LbHomeView = { state: S, judge: LbPagesView };   // 検査用
 
+  var rt;
+  window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(fitTiles, 120); });
   load();
 })();

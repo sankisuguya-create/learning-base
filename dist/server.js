@@ -1140,7 +1140,9 @@ var LbFacts = (function () {
  *   { id: 'tamath-kuku', subject: 'sansu', grades: [3], unit: 'かけ算', title: '九九 タイムアタック', ruby: 'くく タイムアタック',
  *     kind: 'app', app: 'tamath', params: { unit: 'kuku' }, order: 10, defaultOn: true },
  *   { id: 'sakubun-1', subject: 'kokugo', grades: [3, 4], unit: '作文', title: '…', kind: 'page',
- *     src: { repo: 'sankisuguya-create/worksheet-platform', path: 'pages/sakubun-1.js', ver: '<コミット>' } }
+ *     src: { repo: 'sankisuguya-create/worksheet-platform', path: 'pages/sakubun-1.js', ver: '<コミット>' } },
+ *   { id: 'toi-board', subject: 'sogo', grades: [3], title: 'といボード', kind: 'link', linkId: 'toi-board' }
+ *     … 別の GAS で動くもの。開く先の URL は公開の目録に書かず、ハブの links シートの id=linkId の行の url を使う
  * ] }
  */
 var LbPages = (function () {
@@ -1183,7 +1185,9 @@ var LbPages = (function () {
       else if (p.kind === 'page') {
         var s = p.src || {};
         if (!s.repo || !s.path || !/^[0-9a-f]{7,40}$|^v[\w.\-]+$/.test(String(s.ver || ''))) e.push(w + ' の src は repo・path・ver（コミットかタグ）');
-      } else e.push(w + ' の kind は app か page');
+      } else if (p.kind === 'link') {
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(String(p.linkId || ''))) e.push(w + ' の linkId（ハブの links シートの id）が不正');
+      } else e.push(w + ' の kind は app・page・link');
       if (p.actAs != null && typeof p.actAs !== 'boolean') e.push(w + ' の actAs は true / false（代わりに取り組むに対応しているか）');
     });
     return e;
@@ -1371,6 +1375,20 @@ var LbHome = (function () {
   }
 
   /**
+   * ハブの links シート（算数TA のハブのリンク一覧。列：id / title / subtitle / url / grades / color / visible / order / sheet / place）。
+   * ページの色（先生が選んだ色）と、別の GAS で動くページ（kind: link）の URL をここから取る。{ id: { url, color, subtitle } }
+   */
+  function hubLinks() {
+    var sh = Base.hub().getSheetByName('links'), out = {};
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
+      var id = String(r[0] || '').trim();
+      if (id) out[id] = { url: String(r[3] || '').trim(), color: String(r[5] || '').trim(), subtitle: String(r[2] || '').trim() };
+    });
+    return out;
+  }
+
+  /**
    * ホームを開いた時の情報。
    * - 児童：本人の名前・学年・学級と、学級の設定（公開・いまの学習）
    * - 教師：扱える学級の一覧、選んだ学級の設定と児童の一覧（代わりに取り組む児童を選ぶため）
@@ -1379,6 +1397,7 @@ var LbHome = (function () {
   function boot(opt) {
     opt = opt || {};
     var m = Base.me(), out = { role: m.role, today: today(), pagesUrl: pagesUrl(), subjects: LbPages.SUBJECTS };
+    try { out.links = hubLinks(); } catch (e) { out.links = {}; }
     if (m.role === 'child') {
       var c = m.child;
       out.learner = { name: c.name, mei: c.mei, grade: c.grade, cls: c.cls };

@@ -220,10 +220,10 @@
    "unit": "西宮博",
    "title": "といボード",
    "ruby": "といボード",
-   "kind": "app",
-   "app": "toi-board",
+   "kind": "link",
    "order": 10,
-   "defaultOn": false
+   "defaultOn": true,
+   "linkId": "toi-board"
   }
  ]
 }

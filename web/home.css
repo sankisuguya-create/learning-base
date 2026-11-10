@@ -24,13 +24,13 @@
 .lb-brand{font-size:22px;font-weight:700;margin:0}
 .lb-who{color:var(--ink-sub);font-size:16px}
 .lb-spacer{flex:1}
-.lb-h{font-size:18px;font-weight:700;margin:22px 0 10px;color:var(--ink-sub);letter-spacing:.04em}
+.lb-h{font-size:18px;font-weight:700;margin:24px 0 8px;color:var(--ink-sub);letter-spacing:.04em}
 .lb-rb rt{font-size:.5em;color:var(--ink-sub);font-weight:400}
 .lb-reading{display:block;font-size:13px;font-weight:400;line-height:1.2;opacity:.85}
 
 /* いまの学習：画面でいちばん強い塗り（主要な操作は画面に1種類） */
 .lb-now{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
-.lb-nowcard{display:flex;align-items:center;gap:14px;min-height:96px;padding:14px 18px;border:0;border-radius:var(--radius);
+.lb-nowcard{display:flex;align-items:center;gap:16px;min-height:96px;padding:16px 20px;border:0;border-radius:var(--radius);
   background:var(--solid-on);color:#fff;text-align:left;cursor:pointer;position:relative}
 .lb .lb-nowcard,.lb .lb-nowcard .lb-rb rt{color:#fff}
 .lb-badge{display:flex;align-items:center;justify-content:center;width:64px;height:64px;flex:none;border-radius:50%;background:var(--tint,#fff)}
@@ -51,7 +51,7 @@
 
 /* 教科：教科の色の淡い地のタイル。見分けは絵と名前（色は三重目） */
 .lb-subjects{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
-.lb-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:120px;padding:12px;
+.lb-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;height:144px;padding:12px;overflow:hidden;
   border:2px solid rgba(26,26,26,.12);border-radius:var(--radius);background:var(--tint,var(--fill-a));cursor:pointer}
 .lb-tile .lb-name{font-size:20px;font-weight:700}
 .lb-tile .lb-count{font-size:14px;color:var(--ink-sub-on-tint)}
@@ -60,8 +60,8 @@
 .lb-ico{width:44px;height:44px;flex:none;color:var(--ink)}
 
 /* 教科の中 */
-.lb-back{display:inline-flex;align-items:center;gap:6px;min-height:52px;padding:0 18px;border:2px solid var(--line);border-radius:999px;background:#fff;cursor:pointer;font-weight:700}
-.lb-shead{display:flex;align-items:center;gap:12px;margin:14px 0 4px;padding:8px 12px;border-radius:var(--radius);background:var(--tint,transparent)}
+.lb-back{display:inline-flex;align-items:center;gap:8px;min-height:56px;padding:0 20px;border:2px solid var(--line);border-radius:999px;background:#fff;cursor:pointer;font-weight:700}
+.lb-shead{display:flex;align-items:center;gap:12px;margin:16px 0 4px;padding:8px 12px;border-radius:var(--radius);background:var(--tint,transparent)}
 .lb-shead h2{margin:0;font-size:24px}
 .lb-unit{margin:18px 0 8px;font-size:16px;color:var(--ink-sub);font-weight:700;border-bottom:1px solid var(--line);padding-bottom:4px}
 .lb-pages{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
@@ -76,20 +76,35 @@
 .lb-tile:active,.lb-page:active,.lb-nowcard:active{transform:scale(.98)}
 @media (prefers-reduced-motion:reduce){.lb-tile:active,.lb-page:active,.lb-nowcard:active{transform:none}}
 
+/* 教科の中：算数TA のハブの児童用ページ（apps/hub/links.html）と同じタイル */
+.lb-paper{background:#FBF4E6;margin:12px -16px 0;padding:8px 16px 32px;border-radius:var(--radius)}
+.lb-mincho{font-family:"Zen Old Mincho","Noto Serif JP","Noto Serif CJK JP","Hiragino Mincho ProN","Yu Mincho","BIZ UDPMincho",serif;font-weight:900;font-feature-settings:"palt" 1}
+.lb-hgrid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));margin-top:16px}
+.lb-htile{flex:1;display:flex;align-items:center;gap:14px;height:118px;padding:18px 22px;border:0;border-radius:20px;
+  text-align:left;cursor:pointer;box-shadow:0 4px 0 rgba(0,0,0,.18);overflow:hidden;font:inherit}
+.lb .lb-htile{color:inherit}
+.lb-htile:active{transform:translateY(4px);box-shadow:0 0 0 rgba(0,0,0,.18)}
+.lb-htile .t{flex:1 1 auto;min-width:0;font-size:2.35rem;line-height:1.16;letter-spacing:.07em;max-height:2.32em;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;word-break:auto-phrase;overflow-wrap:anywhere}
+.lb-htile .s{margin-left:auto;flex:0 0 auto;font-size:13px;font-weight:600;opacity:.85;white-space:nowrap}
+.lb-htile.is-off{opacity:.45}
+.lb-edit .lb-htile{padding-top:60px;height:166px}
+@media (prefers-reduced-motion:reduce){.lb-htile:active{transform:none}}
+
 /* 先生：上の帯と、カードの上の切り替え */
 .lb-tbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px;margin:10px 0 0;border-radius:var(--radius);background:var(--fill-b)}
 .lb-tbar label{font-size:15px;color:var(--ink)}
-.lb-tbar select{font:inherit;font-size:16px;min-height:44px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
-.lb-toggle{min-height:44px;padding:0 14px;border:2px solid var(--ink);border-radius:999px;background:#fff;cursor:pointer;font-size:15px;font-weight:700}
+.lb-tbar select{font:inherit;font-size:16px;min-height:48px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.lb-toggle{min-height:48px;padding:0 14px;border:2px solid var(--ink);border-radius:999px;background:#fff;cursor:pointer;font-size:15px;font-weight:700}
 .lb-toggle[aria-pressed="true"]{background:var(--ink);color:#fff}
 .lb-tstatus{font-size:14px;color:var(--ink)}
-.lb-link{border:0;background:none;color:var(--ink-link);text-decoration:underline;cursor:pointer;font-size:15px;padding:8px 4px}
+.lb-link{border:0;background:none;color:var(--ink-link);text-decoration:underline;cursor:pointer;font-size:15px;min-height:48px;padding:0 8px}
 .lb-as{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:10px 0 0;border:2px solid var(--ink-alert);border-radius:var(--radius);font-size:16px}
 .lb-as strong{color:var(--ink-alert)}
 .lb-chips{position:absolute;top:8px;right:8px;display:flex;gap:6px}
 .lb-cell .lb-page{padding-right:16px}
 .lb-edit .lb-cell .lb-page{padding-top:52px}
-.lb-chip{min-width:44px;min-height:36px;padding:0 10px;border:2px solid var(--ink);border-radius:999px;background:#fff;color:var(--ink);font-size:14px;font-weight:700;cursor:pointer}
+.lb-chip{min-width:48px;min-height:48px;padding:0 10px;border:2px solid var(--ink);border-radius:999px;background:#fff;color:var(--ink);font-size:14px;font-weight:700;cursor:pointer}
 .lb-chip.off{border-style:dashed;color:var(--ink-alert);border-color:var(--ink-alert)}
 .lb-chip.star{border-color:var(--ink-link);color:var(--ink-link)}
 .lb-chip.star.on{background:var(--solid-on);color:#fff;border-color:var(--solid-on)}

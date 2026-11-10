@@ -10,6 +10,13 @@ const { LbPages } = loadPure(['Pages.gs']);
 t('目録：リポジトリの pages.json は誤りなし', () => {
   assert.strictEqual(J(LbPages.validate(CAT)), '[]');
 });
+t('目録：別の GAS で動くページ（kind: link）は linkId が要る。URL は目録に書かない', () => {
+  assert.ok(LbPages.validate({ pages: [{ id: 'x', subject: 'sogo', grades: [3], title: 't', kind: 'link' }] }).join().includes('linkId'));
+  const tb = CAT.pages.find(p => p.id === 'toi-board');
+  assert.strictEqual(tb.kind, 'link'); assert.strictEqual(tb.url, undefined);
+  assert.ok(!/script\.google\.com|edu\.nishi/.test(JSON.stringify(CAT)), '学校の URL を公開の目録に書かない');
+});
+
 t('目録：誤りを具体的に返す', () => {
   const e = LbPages.validate({ pages: [
     { id: 'A', subject: 'x', grades: [7], kind: 'zzz' },
@@ -21,7 +28,7 @@ t('目録：誤りを具体的に返す', () => {
 
 t('ホーム：その学年の・公開のページだけ。教科は中身のある教科だけ、単元ごとにまとまる', () => {
   const h = LbPages.home(CAT, 3, { publish: {}, now: [] }, '2026-11-10');
-  assert.strictEqual(J(h.subjects.map(s => s.id)), J(['kokugo', 'sansu']), '総合（といボード）は既定で非公開');
+  assert.strictEqual(J(h.subjects.map(s => s.id)), J(['kokugo', 'sansu', 'sogo']), '総合（といボード）も出る');
   const sansu = h.bySubject.sansu;
   assert.strictEqual(sansu[0].unit, 'かけ算');
   assert.ok(sansu.every(u => u.pages.every(p => p.grades.includes(3))));
@@ -32,17 +39,18 @@ t('ページが1つだけの教科は only にそのページ（タイルから�
   const h = LbPages.home(CAT, 3, { publish: {}, now: [] }, '2026-11-10');
   assert.strictEqual(h.subjects.find(s => s.id === 'kokugo').only.id, 'kanzi');
   assert.strictEqual(h.subjects.find(s => s.id === 'sansu').only, undefined);
-  const h2 = LbPages.home(CAT, 3, { publish: { 'toi-board': true }, now: [] }, '2026-11-10');
+  const h2 = LbPages.home(CAT, 3, { publish: {}, now: [] }, '2026-11-10');
   assert.strictEqual(h2.subjects.find(s => s.id === 'sogo').only.id, 'toi-board');
+  assert.strictEqual(h2.subjects.find(s => s.id === 'sogo').only.kind, 'link');
   // 公開を絞って1つになった教科も直接開く
   const off = {}; CAT.pages.filter(p => p.subject === 'sansu' && p.id !== 'tamath-kuku').forEach(p => { off[p.id] = false; });
   assert.strictEqual(LbPages.home(CAT, 3, { publish: off, now: [] }, '2026-11-10').subjects.find(s => s.id === 'sansu').only.id, 'tamath-kuku');
 });
 
 t('ホーム：教師の公開の切り替えが効く（非公開にした・既定で非公開のものを公開にした）', () => {
-  const h = LbPages.home(CAT, 3, { publish: { 'tamath-kuku': false, 'toi-board': true }, now: [] }, '2026-11-10');
+  const h = LbPages.home(CAT, 3, { publish: { 'tamath-kuku': false, 'toi-board': false }, now: [] }, '2026-11-10');
   assert.ok(!h.bySubject.sansu.some(u => u.pages.some(p => p.id === 'tamath-kuku')));
-  assert.ok(h.subjects.some(s => s.id === 'sogo'));
+  assert.ok(!h.subjects.some(s => s.id === 'sogo'), 'かくしたといボードは出ない');
 });
 t('いまの学習：期間内・公開・学年が合うものを順に最大3件', () => {
   const now = [
@@ -57,7 +65,7 @@ t('いまの学習：期間内・公開・学年が合うものを順に最大3�
 t('教師の一覧：公開していないページも出し、公開・いまの学習の状態を添える', () => {
   const v = LbPages.teacherView(CAT, 3, { publish: { 'tamath-kuku': false }, now: [{ page: 'kanzi' }] }, '2026-11-10');
   assert.strictEqual(v.find(x => x.page.id === 'tamath-kuku').on, false);
-  assert.strictEqual(v.find(x => x.page.id === 'toi-board').on, false);
+  assert.strictEqual(v.find(x => x.page.id === 'toi-board').on, true);
   assert.strictEqual(v.find(x => x.page.id === 'kanzi').now, true);
 });
 t('保存：公開を押すたびに保存・学級ごと・全部もどす。いまの学習は学級の分を入れ替え、3件まで', () => {
@@ -113,8 +121,11 @@ t('窓口：児童は自分の学級の設定だけ。目録の置き場（固�
   assert.throws(() => ctx.homeSetNow('3-1', [{ page: 'kanzi' }]), /先生だけ/);
 });
 t('窓口：教師は扱える学級の一覧と、選んだ学級の児童（メールの無い転入生も）を受け取る', () => {
-  const { ctx } = homeEnv('na@edu.nishi.or.jp', ROSTER);
+  const { ctx, hub } = homeEnv('na@edu.nishi.or.jp', ROSTER);
+  hub.insertSheet('links').v.push(['id', 'title', 'subtitle', 'url', 'grades', 'color', 'visible'], ['kuku', '九九', '3年', 'https://x/exec?unit=kuku', '3', 'mint', true], ['toi-board', 'といボード', '', 'https://y/exec', '3', 'lavender', false]);
   const b = ctx.homeBoot({ classKey: '3-1' });
+  assert.strictEqual(b.links['toi-board'].url, 'https://y/exec', 'といボードの URL はハブの links から（表示しない行でも）');
+  assert.strictEqual(b.links.kuku.color, 'mint');
   assert.strictEqual(J(b.classes.map(c => c.key)), J(['3-1', '3-2', '4-1']));
   assert.ok(b.members.some(m => m.name === '転入 太郎' && m.provisional));
   assert.strictEqual(b.members[0].mail, undefined, 'メールは画面に渡さない');

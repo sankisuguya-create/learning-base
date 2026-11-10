@@ -19,6 +19,17 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       const t = p.locator('.lb-tile[data-subject=kokugo]');
       if ((await t.getAttribute('data-act')) !== 'open' || (await t.getAttribute('data-id')) !== 'kanzi') fails.push('child3: 1つだけの教科のタイルが直接開かない');
       if ((await p.locator('.lb-tile[data-subject=sansu]').getAttribute('data-act')) !== 'subject') fails.push('child3: 算数のタイルが教科の画面へ行かない');
+      // 総合（といボード）：タイルが直接開く。開く先はハブの links の url
+      const tb = p.locator('.lb-tile[data-subject=sogo]');
+      if ((await tb.getAttribute('data-id')) !== 'toi-board') fails.push('child3: 総合のタイルがといボードを開かない');
+      let opened = ''; await p.exposeFunction('lbOpened', u => { opened = u; });
+      await p.evaluate(() => { window.LB_PLATFORM.open = u => window.lbOpened(u); });
+      await tb.click(); await p.waitForTimeout(200);
+      if (opened !== 'https://example.com/toi-board') fails.push('child3: といボードの URL が違う: ' + opened);
+      // 算数の中：ハブと同じ色のタイル（先生が選んだ色）
+      await p.click('[data-act=subject][data-id=sansu]'); await p.waitForTimeout(200);
+      const bg = await p.$eval('.lb-htile[data-id=tamath-kuku]', e => getComputedStyle(e).backgroundColor);
+      if (bg !== 'rgb(18, 196, 139)') fails.push('child3: 九九のタイルがハブの色（ミント）でない: ' + bg);
     }
     if (role === 'teacher' && await p.locator('#lb-as').count()) fails.push('teacher: 対応しているページが無いのに「代わりに取り組む」が出る');
     if (role === 'teacher') {

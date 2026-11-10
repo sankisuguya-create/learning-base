@@ -39,6 +39,20 @@ var LbHome = (function () {
   }
 
   /**
+   * ハブの links シート（算数TA のハブのリンク一覧。列：id / title / subtitle / url / grades / color / visible / order / sheet / place）。
+   * ページの色（先生が選んだ色）と、別の GAS で動くページ（kind: link）の URL をここから取る。{ id: { url, color, subtitle } }
+   */
+  function hubLinks() {
+    var sh = Base.hub().getSheetByName('links'), out = {};
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
+      var id = String(r[0] || '').trim();
+      if (id) out[id] = { url: String(r[3] || '').trim(), color: String(r[5] || '').trim(), subtitle: String(r[2] || '').trim() };
+    });
+    return out;
+  }
+
+  /**
    * ホームを開いた時の情報。
    * - 児童：本人の名前・学年・学級と、学級の設定（公開・いまの学習）
    * - 教師：扱える学級の一覧、選んだ学級の設定と児童の一覧（代わりに取り組む児童を選ぶため）
@@ -47,6 +61,7 @@ var LbHome = (function () {
   function boot(opt) {
     opt = opt || {};
     var m = Base.me(), out = { role: m.role, today: today(), pagesUrl: pagesUrl(), subjects: LbPages.SUBJECTS };
+    try { out.links = hubLinks(); } catch (e) { out.links = {}; }
     if (m.role === 'child') {
       var c = m.child;
       out.learner = { name: c.name, mei: c.mei, grade: c.grade, cls: c.cls };
