@@ -24,27 +24,13 @@ var LbTune = (function () {
   var LOG = 'now3_log', LOG_HEAD = ['週', '学級', 'キー', '種類', '初めて出た日'];
   var FB = 'feedback', FB_HEAD = ['日時', '教師', '学級', '画面', '本文'];
   var CODE_HEAD = ['学習者ID・メール', '記号'];
-  var KIND_JA = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' };
   var SPEED = { srv: [[1000, '1秒未満'], [2000, '1〜2秒'], [4000, '2〜4秒'], [Infinity, '4秒以上']],
     rt: [[2000, '2秒未満'], [4000, '2〜4秒'], [8000, '4〜8秒'], [Infinity, '8秒以上']],
     start: [[5000, '5秒未満'], [10000, '5〜10秒'], [20000, '10〜20秒'], [Infinity, '20秒以上']] };
   var PATHS = { now: 'いまの学習', tile: '教科のタイル', subject: '教科の中' };
   var MAX_KEYS = 80;   // 1つのプロパティに置く出来事の種類の上限（エラー文が大量に違う時、9KB を越えないように）
 
-  function day(d) { return Utilities.formatDate(d || new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'); }
-  function ymd(v) {
-    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) return day(v);
-    return String(v == null ? '' : v).trim();
-  }
-  function textCol(sh, col) { sh.getRange(1, col, Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000), 1).setNumberFormat('@'); }
-  function sheet(hub, name, head, textCols) {
-    var sh = hub.getSheetByName(name);
-    if (sh) return sh;
-    sh = hub.insertSheet(name);
-    (textCols || []).forEach(function (c) { textCol(sh, c); });
-    sh.getRange(1, 1, 1, head.length).setValues([head]);
-    return sh;
-  }
+  var day = LbSheets.day, ymd = LbSheets.ymd, sheet = LbSheets.sheet;
   /** 人数の欄：0 はそのまま、1〜4 は「5人未満」 */
   function people(n) { return !n ? '0' : n < MIN_CELL ? MIN_CELL + '人未満' : String(n); }
   function bucket(ms, edges) { for (var i = 0; i < edges.length; i++) if (ms < edges[i][0]) return edges[i][1]; return edges[edges.length - 1][1]; }

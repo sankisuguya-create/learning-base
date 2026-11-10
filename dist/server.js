@@ -2,6 +2,54 @@
 var LB_MODULES = (typeof LB_MODULES !== "undefined" && LB_MODULES) || {};
 var LB_PLATFORM_TRIGGERS = true;   // 自動実行は読み込み係が置く（アプリは置かない）
 
+// ===== gas/Sheets.gs =====
+/**
+ * Sheets.gs — ハブのシートを読み書きする共通の部品（LbSheets）
+ *
+ * 正本は learning-base。共通部品の一番先に読み込む（他の部品はこれを使う）。
+ * スプレッドシートは書いた文字を勝手に変える：「3-1」→ 3月1日、「2026-11-10」→ 日付、「=」「+」で始まる文字 → 数式。
+ * そこで、学級・日付・週を書く列は文字の書式にし（textCol）、読む時も日付に化けた値を元の形に戻す（clsCell・ymd）。
+ * 手で直した行・書式を付ける前の行があるので、読む時の戻しは書式を付けた後も外さない。
+ */
+var LbSheets = (function () {
+  var TZ = 'Asia/Tokyo';
+  function isDate(v) { return Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime()); }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+  /** 'YYYY-MM-DD'（日本時間）。d を省略すると今日 */
+  function day(d) {
+    d = d || new Date();
+    if (typeof Utilities !== 'undefined' && Utilities.formatDate) return Utilities.formatDate(d, TZ, 'yyyy-MM-dd');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+  /** 学級の欄（'3-1'）。日付に化けていれば月-日に戻す */
+  function clsCell(v) { return isDate(v) ? (v.getMonth() + 1) + '-' + v.getDate() : String(v == null ? '' : v).trim(); }
+  /** 日付・週の欄（'2026-11-10'）。日付に化けていれば文字に戻す */
+  function ymd(v) { return isDate(v) ? day(v) : String(v == null ? '' : v).trim(); }
+
+  /** その列を文字の書式にする（行の数は最低1000行分） */
+  function textCol(sh, col) { sh.getRange(1, col, Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000), 1).setNumberFormat('@'); }
+  /**
+   * 表を用意する。無ければ作って見出しを書き、textCols（1から数える列の番号）を文字の書式にする。
+   * opts.always：既にある表にも毎回文字の書式を付け直す（手で列を足した表のため）
+   */
+  function sheet(ss, name, head, textCols, opts) {
+    var sh = ss.getSheetByName(name), made = false;
+    if (!sh) { sh = ss.insertSheet(name); made = true; }
+    if (made || (opts && opts.always)) (textCols || []).forEach(function (c) { textCol(sh, c); });
+    if (made) sh.getRange(1, 1, 1, head.length).setValues([head]);
+    return sh;
+  }
+  /** 見出しの2行目以降を読む（無ければ []）。cols を省略すると見出しの列の数 */
+  function rows(ss, name, cols) {
+    var sh = ss.getSheetByName(name);
+    if (!sh || sh.getLastRow() < 2) return [];
+    return sh.getRange(2, 1, sh.getLastRow() - 1, cols).getValues();
+  }
+
+  return { TZ: TZ, isDate: isDate, day: day, clsCell: clsCell, ymd: ymd, textCol: textCol, sheet: sheet, rows: rows };
+})();
+
 // ===== gas/Base.gs =====
 /**
  * Base.gs — 学習アプリの共通部品（learning-base）
@@ -1198,7 +1246,10 @@ var LbAlerts = (function () {
   ];
   var RULE_SHEET = 'rules', RULE_HEAD = ['項目', '値', '初期値', '説明', '変えた日', '変えた人'];
   var KIND_RANK = { drop: 3, klass: 2, stall: 1 };
-  var LABEL = { drop: '▼ 急に崩れた', klass: '● 学級でつまずき', stall: '― 伸びが止まった' };
+  /** 種類の名前（ここが唯一の置き場。メール・書き出し・先生の画面はここから取る）。LABEL は記号つき（色だけで伝えないため） */
+  var KIND_NAME = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' };
+  var KIND_MARK = { drop: '▼', klass: '●', stall: '―' };
+  var LABEL = {}; Object.keys(KIND_NAME).forEach(function (k) { LABEL[k] = KIND_MARK[k] + ' ' + KIND_NAME[k]; });
   var SHEET = 'now3', HEAD = ['学級', '順', 'キー', '種類', '学習者ID', 'アプリ', '技能', '根拠', '週'];
   var DEC_SHEET = 'decisions', DEC_HEAD = ['日時', '教師', '学級', 'キー', '種類', 'どうした', 'メモ'];
 
@@ -1291,11 +1342,7 @@ var LbAlerts = (function () {
 
   /* ---------- 保存 ---------- */
 
-  function textCol(sh, col) { sh.getRange(1, col, Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000), 1).setNumberFormat('@'); }
-  function clsCell(v) {
-    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) return (v.getMonth() + 1) + '-' + v.getDate();
-    return String(v == null ? '' : v).trim();
-  }
+  var textCol = LbSheets.textCol, clsCell = LbSheets.clsCell;
 
   /** 計算した候補を now3 シートに置く（丸ごと入れ替え） */
   function store(hubSs, byClass) {
@@ -1415,7 +1462,7 @@ var LbAlerts = (function () {
     return by;
   }
 
-  return { RULES: RULES, SPEC: SPEC, specOf: specOf, getPath: getPath, setPath: setPath, withValues: withValues, savedValues: savedValues, active: active, saveValues: saveValues, refresh: refresh, LABEL: LABEL, KIND_RANK: KIND_RANK, compute: compute, candidates: candidates, index: index, classMap: classMap, weekOfDay: weekOfDay, sum: sum, weeksBack: weeksBack, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
+  return { RULES: RULES, SPEC: SPEC, KIND_NAME: KIND_NAME, specOf: specOf, getPath: getPath, setPath: setPath, withValues: withValues, savedValues: savedValues, active: active, saveValues: saveValues, refresh: refresh, LABEL: LABEL, KIND_RANK: KIND_RANK, compute: compute, candidates: candidates, index: index, classMap: classMap, weekOfDay: weekOfDay, sum: sum, weeksBack: weeksBack, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
 })();
 
 // ===== gas/Tune.gs =====
@@ -1445,27 +1492,13 @@ var LbTune = (function () {
   var LOG = 'now3_log', LOG_HEAD = ['週', '学級', 'キー', '種類', '初めて出た日'];
   var FB = 'feedback', FB_HEAD = ['日時', '教師', '学級', '画面', '本文'];
   var CODE_HEAD = ['学習者ID・メール', '記号'];
-  var KIND_JA = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' };
   var SPEED = { srv: [[1000, '1秒未満'], [2000, '1〜2秒'], [4000, '2〜4秒'], [Infinity, '4秒以上']],
     rt: [[2000, '2秒未満'], [4000, '2〜4秒'], [8000, '4〜8秒'], [Infinity, '8秒以上']],
     start: [[5000, '5秒未満'], [10000, '5〜10秒'], [20000, '10〜20秒'], [Infinity, '20秒以上']] };
   var PATHS = { now: 'いまの学習', tile: '教科のタイル', subject: '教科の中' };
   var MAX_KEYS = 80;   // 1つのプロパティに置く出来事の種類の上限（エラー文が大量に違う時、9KB を越えないように）
 
-  function day(d) { return Utilities.formatDate(d || new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'); }
-  function ymd(v) {
-    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) return day(v);
-    return String(v == null ? '' : v).trim();
-  }
-  function textCol(sh, col) { sh.getRange(1, col, Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000), 1).setNumberFormat('@'); }
-  function sheet(hub, name, head, textCols) {
-    var sh = hub.getSheetByName(name);
-    if (sh) return sh;
-    sh = hub.insertSheet(name);
-    (textCols || []).forEach(function (c) { textCol(sh, c); });
-    sh.getRange(1, 1, 1, head.length).setValues([head]);
-    return sh;
-  }
+  var day = LbSheets.day, ymd = LbSheets.ymd, sheet = LbSheets.sheet;
   /** 人数の欄：0 はそのまま、1〜4 は「5人未満」 */
   function people(n) { return !n ? '0' : n < MIN_CELL ? MIN_CELL + '人未満' : String(n); }
   function bucket(ms, edges) { for (var i = 0; i < edges.length; i++) if (ms < edges[i][0]) return edges[i][1]; return edges[edges.length - 1][1]; }
@@ -1993,22 +2026,9 @@ var LbPages = (function () {
     });
     return out;
   }
-  /**
-   * スプレッドシートは「3-1」を日付（3月1日）に、「2026-11-10」を日付に変えてしまう。書く列は文字の書式にしてあるが、
-   * 手で直した行・書式を付ける前の行のために、読む時も日付を元の形に戻す（算数TA の clsCell_ と同じ考え方）
-   */
-  function clsCell(v) {
-    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) return (v.getMonth() + 1) + '-' + v.getDate();
-    return String(v == null ? '' : v).trim();
-  }
-  function ymd(v) {
-    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) {
-      if (typeof Utilities !== 'undefined' && Utilities.formatDate) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
-      return v.getFullYear() + '-' + pad(v.getMonth() + 1) + '-' + pad(v.getDate());
-    }
-    return String(v || '');
-  }
-  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  // 学級・日付が日付に化けた値を戻す（Sheets.gs。保存の関数の中でだけ使う：画面の写し web/pages.js では呼ばれない）
+  function clsCell(v) { return LbSheets.clsCell(v); }
+  function ymd(v) { return LbSheets.ymd(v); }
 
   /** 公開を切り替える（押すたびに保存）。その学級・そのページの行を書き換える（無ければ足す） */
   function setPublish(hubSs, classKey, pageId, on, by) {
@@ -2046,16 +2066,11 @@ var LbPages = (function () {
     sh.getRange(1, 1, keep.length, NOW_HEAD.length).setValues(keep.map(function (r) { var o = r.slice(0, NOW_HEAD.length); while (o.length < NOW_HEAD.length) o.push(''); return o; }));
   }
 
-  /** 表を用意する。学級（1列目）と日付の列は文字の書式にする（「3-1」が日付に化けないように） */
+  /** 表を用意する。学級と日付の列は毎回文字の書式にする（「3-1」が日付に化けないように） */
   function sheet(ss, name, head) {
-    var sh = ss.getSheetByName(name);
-    if (!sh) { sh = ss.insertSheet(name); sh.getRange(1, 1, 1, head.length).setValues([head]); }
-    textCols(sh, head);
-    return sh;
-  }
-  function textCols(sh, head) {
-    var rows = Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000);
-    head.forEach(function (h, i) { if (h === '学級' || h === 'から' || h === 'まで') sh.getRange(1, i + 1, rows, 1).setNumberFormat('@'); });
+    var cols = [];
+    head.forEach(function (h, i) { if (h === '学級' || h === 'から' || h === 'まで') cols.push(i + 1); });
+    return LbSheets.sheet(ss, name, head, cols, { always: true });
   }
 
   return { SUBJECTS: SUBJECTS, NOW_MAX: NOW_MAX, validate: validate, isOn: isOn, inPeriod: inPeriod, home: home, teacherView: teacherView,
@@ -2076,7 +2091,7 @@ var LbHome = (function () {
   var PAGES_REPO = 'sankisuguya-create/learning-base';
   var PAGES_PATH = 'catalog/pages.json';
 
-  function today() { return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'); }
+  function today() { return LbSheets.day(); }
   function pagesUrl() {
     var v = String(PropertiesService.getScriptProperties().getProperty('PAGES_VER') || (typeof LB_LOADER !== 'undefined' ? LB_LOADER.ver() : '') || '');
     if (!v) throw new Error('ページの目録の版が決まりません（読み込み係の版も PAGES_VER もない）');
@@ -2144,6 +2159,7 @@ var LbHome = (function () {
       var cls = classesFor(m.email);
       out.classes = cls;
       out.owner = isOwnerView();
+      out.kinds = { names: LbAlerts.KIND_NAME, labels: LbAlerts.LABEL };   // 今週の3件の種類の名前（Alerts.gs の1か所から）
       var pick = cls.filter(function (x) { return x.key === opt.classKey; })[0] || cls[0];
       if (pick) {
         out.classKey = pick.key;
@@ -2264,21 +2280,16 @@ var LbHome = (function () {
     return LbTune.tuning(o);
   }
 
-  return { boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
-})();
+  /**
+   * 画面から呼べる関数の表（ここが唯一の登録場所）。Platform.gs はこの表だけを lbCall で通し、
+   * 画面は LB_PLATFORM.call('homeXxx', …) で呼ぶ（'home' を外して頭を小文字にした名前でこの表を引く）。
+   * 中で必ず「誰が開いたか」と「その学級・その操作をしてよいか」を確かめる関数だけを置く
+   */
+  var API = { boot: boot, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow,
+    feedback: feedback, report: report, 'export': exportForTuning, tuning: tuning, tryRules: tryRules, saveRules: saveRules };
 
-/* 画面（google.script.run）から呼ぶ入口 */
-function homeBoot(opt) { return LbHome.boot(opt); }
-function homeSetPublish(classKey, pageId, on) { return LbHome.setPublish(classKey, pageId, on); }
-function homeResetPublish(classKey) { return LbHome.resetPublish(classKey); }
-function homeSetNow(classKey, list) { return LbHome.setNow(classKey, list); }
-function homeDecide(classKey, key, action, memo) { return LbHome.decide(classKey, key, action, memo); }
-function homeFeedback(classKey, view, text) { return LbHome.feedback(classKey, view, text); }
-function homeReport(kind, detail) { return LbHome.report(kind, detail); }
-function homeExport() { return LbHome.exportForTuning(); }
-function homeTuning() { return LbHome.tuning(); }
-function homeTryRules(values) { return LbHome.tryRules(values); }
-function homeSaveRules(values, now) { return LbHome.saveRules(values, now); }
+  return { API: API, boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
+})();
 
 // ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@d143829） =====
 LB_MODULES["tamath"] = (function () {
@@ -9810,15 +9821,8 @@ return {
  * 包むので、アプリの関数（doGet・apiCall など）は大域に出ず、読み込み係の入口を上書きしない。
  */
 var LbPlatform = (function () {
-  /** 学習BASE の画面から呼べる関数（lbCall の mod・name）。ここに無いものは呼べない */
-  var API = {
-    home: { boot: function (o) { return LbHome.boot(o); }, decide: function (k, key, a, m) { return LbHome.decide(k, key, a, m); },
-      setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
-      resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); },
-      feedback: function (k, v, t) { return LbHome.feedback(k, v, t); }, report: function (kind, detail) { return LbHome.report(kind, detail); },
-      exportForTuning: function () { return LbHome.exportForTuning(); }, tuning: function () { return LbHome.tuning(); },
-      tryRules: function (v) { return LbHome.tryRules(v); }, saveRules: function (v, now) { return LbHome.saveRules(v, now); } }
-  };
+  /** 学習BASE の画面から呼べる関数（lbCall の mod・name）。ここに無いものは呼べない。表の中身は各窓口が持つ（LbHome.API） */
+  var API = { home: LbHome.API };
   function roleNow() { try { return Base.me().role; } catch (e) { return '-'; } }
 
   function doGet(e) {
@@ -9886,7 +9890,7 @@ var LbPlatform = (function () {
   function alerts() {
     try {
       var hub = Base.hub(), fy = Base.fy();
-      var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+      var today = LbSheets.day();
       var by = LbAlerts.refresh(hub, fy, Base.roster(), LbCatalog.readAll(hub), today);   // 所有者が変えた閾値（rules シート）で
       console.log('今週の3件：' + Object.keys(by).reduce(function (t, c) { return t + by[c].length; }, 0) + ' 件（初めて出た ' + LbTune.logAlerts(hub, by, today) + ' 件）');
       return [];
@@ -9908,7 +9912,7 @@ var LbPlatform = (function () {
     var count = {};
     var done = LbAlerts.decidedKeys(hub);
     if (sh && sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
-      var cls = Object.prototype.toString.call(r[0]) === '[object Date]' ? (r[0].getMonth() + 1) + '-' + r[0].getDate() : String(r[0]);
+      var cls = LbSheets.clsCell(r[0]);
       if (done[r[2]]) return;
       var c = count[cls] || (count[cls] = {}); c[r[3]] = (c[r[3]] || 0) + 1;
     });
@@ -9925,7 +9929,7 @@ var LbPlatform = (function () {
       Base.teachers().forEach(function (t) { if (t.scopes.some(function (s) { return !s.grade || (s.grade === g && (!s.cls || s.cls === c)); })) addTo(t.mail, cls); });
       addTo(owner, cls);
     });
-    var name = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' }, sent = 0;
+    var name = LbAlerts.KIND_NAME, sent = 0;
     Object.keys(to).forEach(function (mail) {
       var lines = to[mail].filter(function (v, i, a) { return a.indexOf(v) === i; }).sort().map(function (cls) {
         var c = count[cls], i = cls.indexOf('-');
@@ -9981,8 +9985,8 @@ var LbPlatform = (function () {
   function platformScript(baseUrl) {
     return 'window.LB_PLATFORM={baseUrl:' + JSON.stringify(baseUrl) + ',' +
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
-      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide",homeFeedback:"feedback",homeReport:"report",homeExport:"exportForTuning",homeTuning:"tuning",homeTryRules:"tryRules",homeSaveRules:"saveRules"};' +
-      'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",map[name]||name,a);});},' +
+      'var fn=String(name).replace(/^home(.)/,function(m,c){return c.toLowerCase();});' +   // homeSetNow → setNow（LbHome.API の名前）
+      'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",fn,a);});},' +
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +
       'function lbLoadFail(){if(window.lbFailed)return;window.lbFailed=1;try{google.script.run.lbCall("home","report",["loadfail"]);}catch(e){}var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';

@@ -12,6 +12,7 @@
   <a href="?role=child3">3年の児童</a><a href="?role=child1">1年の児童</a><a href="?role=teacher">先生</a><a href="?role=guest">名簿にない人</a>
   <a href="#" onclick="localStorage.removeItem('lb-demo');location.reload();return false">見本の設定を消す</a></div>
 <main id="lb" class="lb"></main>
+<script src="demo-data.js"></script>
 <script>
 // 見本の Platform 層：本番の GAS（google.script.run）の代わりに、この端末の localStorage に保存する
 (function () {
@@ -21,15 +22,10 @@
   function settings(k) { var s = store(); return s[k] || { publish: {}, now: [{ page: 'tamath-kuku', order: 1 }, { page: 'kanzi', order: 2 }] }; }
   function setSettings(k, v) { var s = store(); s[k] = v; put(s); return v; }
   var members = [{ lid: 'La', no: 1, name: 'あおき そら' }, { lid: 'Lb', no: 2, name: 'いとう はな' }, { lid: 'Lc', no: 30, name: 'てんにゅう たろう', provisional: true }];
-  // 見本の「閾値を見直す」：本物の項目（Alerts.gs の SPEC と同じ）と、値で動く架空の件数
-  var SPEC = [['drop.accDrop', 'drop', '正答率の下がり幅（これ以上で出す）', 'ポイント', 100, 0.15, 0.03, 0.5], ['drop.timeRise', 'drop', '時間の伸び（これ以上で出す）', '倍', 1, 1.25, 1.05, 3],
-    ['drop.weekMinN', 'drop', '今週の問題数（これ以上の時だけ）', '問', 1, 10, 1, 200], ['drop.baseMinN', 'drop', '前の4週の問題数（これ以上の時だけ）', '問', 1, 10, 1, 400],
-    ['klass.accBelow', 'klass', '低いとみなす正答率（これ未満）', '%', 100, 0.7, 0.3, 0.95], ['klass.share', 'klass', '低い児童の割合（これ以上で出す）', '%', 100, 0.5, 0.1, 1],
-    ['klass.minKids', 'klass', '取り組んだ児童（これ以上の時だけ）', '人', 1, 5, 2, 40], ['klass.kidMinN', 'klass', '1人の問題数（これ以上で数に入れる）', '問', 1, 5, 1, 200],
-    ['stall.minN', 'stall', '前後4週それぞれの問題数（これ以上の時だけ）', '問', 1, 20, 5, 400], ['stall.accGain', 'stall', '正答率の伸び（これ未満なら止まった）', 'ポイント', 100, 0.02, 0, 0.3],
-    ['stall.timeRatio', 'stall', '時間の比（これより大きければ止まった）', '倍', 1, 0.97, 0.5, 1.2], ['max', 'all', '学級ごとに出す数', '件', 1, 3, 1, 10], ['dismissDays', 'all', '押した項目を出さない日数', '日', 1, 14, 1, 60]];
+  // 見本の「閾値を見直す」：本物の項目（web/demo-data.js。gas/Alerts.gs から作る）と、値で動く架空の件数
   function demoTuning(vals) {
-    var spec = SPEC.map(function (a) { var has = vals[a[0]] !== undefined && vals[a[0]] !== ''; return { path: a[0], kind: a[1], label: a[2], unit: a[3], scale: a[4], def: a[5], min: a[6], max: a[7], value: has ? Number(vals[a[0]]) : a[5], changed: has && Number(vals[a[0]]) !== a[5] }; });
+    var spec = LB_DEMO.spec.map(function (a) { var has = vals[a.path] !== undefined && vals[a.path] !== '', o = {}; for (var k in a) o[k] = a[k];
+      o.value = has ? Number(vals[a.path]) : a.def; o.changed = has && Number(vals[a.path]) !== a.def; return o; });
     var v = function (p) { return spec.filter(function (x) { return x.path === p; })[0].value; };
     var c = { drop: Math.max(0, Math.round(40 - v('drop.accDrop') * 200)), klass: Math.max(0, Math.round(10 * v('klass.accBelow') / v('klass.share') - 8)), stall: Math.max(0, Math.round(600 / v('stall.minN'))), classes: 12 };
     return { spec: spec, counts: c, sens: [{ label: '正答率の下がり幅（これ以上で出す）', unit: 'ポイント', scale: 100, now: 0.15, value: 0.1, drop: 20, klass: c.klass, stall: c.stall, classes: 14 }],
@@ -45,10 +41,10 @@
         'toi-board': { url: 'https://example.com/toi-board', color: 'lavender' } };
       if (b.role === 'child') { var g = role === 'child1' ? 1 : 3; b.learner = { name: 'たなか はなこ', mei: 'はなこ', grade: g, cls: '1' }; b.classKey = g + '-1'; b.settings = settings(b.classKey); }
       if (role === 'teacher') b.now3 = store().now3 || [
-        { key: 'k1', kind: 'drop', label: '▼ 急に崩れた', app: '算数タイムアタック', skill: '九九：7の段', names: ['いとう はな'], text: '正答率 90% → 62%・時間 1.5秒 → 2.1秒（今週 14問・前の4週と比べて）' },
-        { key: 'k2', kind: 'klass', label: '● 学級でつまずき', app: '算数タイムアタック', skill: '長さ：km→m', names: ['あおき そら', 'いとう はな', 'うえだ けん'], text: '取り組んだ 9人のうち 5人が正答率70%未満（直近2週）' },
-        { key: 'k3', kind: 'stall', label: '― 伸びが止まった', app: '算数タイムアタック', skill: 'あまりのあるわり算：九九の逆', names: ['あおき そら'], text: '正答率 64% → 65%・時間 3.2秒 → 3.2秒（前の4週 30問 → 直近4週 28問）' }];
-      if (role === 'teacher') { b.classes = [{ key: '3-1', grade: 3, cls: '1' }, { key: '1-1', grade: 1, cls: '1' }]; b.classKey = (opt && opt.classKey) || '3-1'; b.settings = settings(b.classKey); b.members = members; b.owner = true; }
+        { key: 'k1', kind: 'drop', label: LB_DEMO.kinds.labels.drop, app: '算数タイムアタック', skill: '九九：7の段', names: ['いとう はな'], text: '正答率 90% → 62%・時間 1.5秒 → 2.1秒（今週 14問・前の4週と比べて）' },
+        { key: 'k2', kind: 'klass', label: LB_DEMO.kinds.labels.klass, app: '算数タイムアタック', skill: '長さ：km→m', names: ['あおき そら', 'いとう はな', 'うえだ けん'], text: '取り組んだ 9人のうち 5人が正答率70%未満（直近2週）' },
+        { key: 'k3', kind: 'stall', label: LB_DEMO.kinds.labels.stall, app: '算数タイムアタック', skill: 'あまりのあるわり算：九九の逆', names: ['あおき そら'], text: '正答率 64% → 65%・時間 3.2秒 → 3.2秒（前の4週 30問 → 直近4週 28問）' }];
+      if (role === 'teacher') { b.classes = [{ key: '3-1', grade: 3, cls: '1' }, { key: '1-1', grade: 1, cls: '1' }]; b.classKey = (opt && opt.classKey) || '3-1'; b.settings = settings(b.classKey); b.members = members; b.owner = true; b.kinds = LB_DEMO.kinds; }
       if (role === 'guest') b.message = 'なまえが まだ とうろく されていません。せんせいに つたえてね';
       return b;
     },

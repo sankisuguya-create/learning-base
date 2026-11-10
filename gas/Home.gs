@@ -11,7 +11,7 @@ var LbHome = (function () {
   var PAGES_REPO = 'sankisuguya-create/learning-base';
   var PAGES_PATH = 'catalog/pages.json';
 
-  function today() { return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'); }
+  function today() { return LbSheets.day(); }
   function pagesUrl() {
     var v = String(PropertiesService.getScriptProperties().getProperty('PAGES_VER') || (typeof LB_LOADER !== 'undefined' ? LB_LOADER.ver() : '') || '');
     if (!v) throw new Error('ページの目録の版が決まりません（読み込み係の版も PAGES_VER もない）');
@@ -79,6 +79,7 @@ var LbHome = (function () {
       var cls = classesFor(m.email);
       out.classes = cls;
       out.owner = isOwnerView();
+      out.kinds = { names: LbAlerts.KIND_NAME, labels: LbAlerts.LABEL };   // 今週の3件の種類の名前（Alerts.gs の1か所から）
       var pick = cls.filter(function (x) { return x.key === opt.classKey; })[0] || cls[0];
       if (pick) {
         out.classKey = pick.key;
@@ -199,18 +200,13 @@ var LbHome = (function () {
     return LbTune.tuning(o);
   }
 
-  return { boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
-})();
+  /**
+   * 画面から呼べる関数の表（ここが唯一の登録場所）。Platform.gs はこの表だけを lbCall で通し、
+   * 画面は LB_PLATFORM.call('homeXxx', …) で呼ぶ（'home' を外して頭を小文字にした名前でこの表を引く）。
+   * 中で必ず「誰が開いたか」と「その学級・その操作をしてよいか」を確かめる関数だけを置く
+   */
+  var API = { boot: boot, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow,
+    feedback: feedback, report: report, 'export': exportForTuning, tuning: tuning, tryRules: tryRules, saveRules: saveRules };
 
-/* 画面（google.script.run）から呼ぶ入口 */
-function homeBoot(opt) { return LbHome.boot(opt); }
-function homeSetPublish(classKey, pageId, on) { return LbHome.setPublish(classKey, pageId, on); }
-function homeResetPublish(classKey) { return LbHome.resetPublish(classKey); }
-function homeSetNow(classKey, list) { return LbHome.setNow(classKey, list); }
-function homeDecide(classKey, key, action, memo) { return LbHome.decide(classKey, key, action, memo); }
-function homeFeedback(classKey, view, text) { return LbHome.feedback(classKey, view, text); }
-function homeReport(kind, detail) { return LbHome.report(kind, detail); }
-function homeExport() { return LbHome.exportForTuning(); }
-function homeTuning() { return LbHome.tuning(); }
-function homeTryRules(values) { return LbHome.tryRules(values); }
-function homeSaveRules(values, now) { return LbHome.saveRules(values, now); }
+  return { API: API, boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
+})();

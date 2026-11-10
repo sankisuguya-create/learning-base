@@ -305,9 +305,9 @@ t('直すための材料：開いた・往復・始めるまで・失敗（エ�
   assert.throws(() => run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'setNow', ['3-1', []]), /先生だけ/);
   assert.strictEqual(sum()['child|err:home.setNow:先生だけが変えられます'], 1);
   // 書き出し：所有者だけ
-  assert.throws(() => run(S, 'other@edu.nishi.or.jp').lbCall('home', 'exportForTuning', []), /所有者だけ/);
+  assert.throws(() => run(S, 'other@edu.nishi.or.jp').lbCall('home', 'export', []), /所有者だけ/);
   S.hub.insertSheet('feedback').v.push(['日時', '教師', '学級', '画面', '本文'], [new Date(), 'owner@edu.nishi.or.jp', '3-1', 'home', '田中はなこさんが押し間違えた']);
-  const r = run(S).lbCall('home', 'exportForTuning', []);
+  const r = run(S).lbCall('home', 'export', []);
   assert.ok(r.ok, (r.problems || []).join());
   assert.ok(!/田中|はなこ|@|11111111/.test(r.text)); assert.match(r.text, /〔[a-z0-9]{2,3}〕さんが押し間違えた/);
   assert.match(r.text, new RegExp('版：' + VER));
@@ -355,6 +355,13 @@ t('月曜のメール：今週の3件がある週は、失敗の1行を所有者
   const r = await page.LB_PLATFORM.call('homeSetNow', '3-1', [{ page: 'kanzi' }]);
   assert.strictEqual(JSON.stringify(calls[0]), JSON.stringify(['home', 'setNow', ['3-1', [{ page: 'kanzi' }]]]));
   assert.strictEqual(r.echo, 'setNow');
+  await page.LB_PLATFORM.call('homeExport'); await page.LB_PLATFORM.call('homeTryRules', { max: 3 });
+  assert.strictEqual(JSON.stringify(calls.slice(1).map(c => c[1])), JSON.stringify(['export', 'tryRules']), '画面の名前 homeXxx → 窓口の表の名前');
+  // 画面で呼ぶ名前は、すべて窓口の表（LbHome.API）にある（足し忘れると本番だけで「呼べない関数」になる）
+  const homeJs = fs.readFileSync(path.join(R, 'web', 'home.js'), 'utf8');
+  const used = [...new Set([...homeJs.matchAll(/'home([A-Z]\w*)'/g)].map(m => m[1][0].toLowerCase() + m[1].slice(1)))];
+  const c2 = run(school()); c2.doGet({ parameter: {} }); const api = Object.keys(c2.LbHome.API);
+  assert.ok(used.length >= 10); used.forEach(n => assert.ok(api.includes(n), '窓口の表に無い：' + n));
   assert.strictEqual(page.LB_PLATFORM.baseUrl, 'https://script.google.com/a/macros/edu.nishi.or.jp/s/LB/exec');
   console.log('ok ホームの画面の Platform 層（呼び出しの変換）');
   console.log(`platform ${n + 1} 件 ok`);

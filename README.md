@@ -121,7 +121,8 @@ jsDelivr から版で固定して取ってきて実行する。
 |---|---|
 | `catalog/pages.json` | ページの目録（教科・学年・単元・題・読み・種類・読み込み先）。**Claude が足す。教師は編集しない** |
 | `gas/Pages.gs`（`LbPages`） | 児童に見せるページ・いまの学習の判定（学年・公開・期間・最大3件）と、学級の設定の保存（ハブの `class_pages`・`now_learning`） |
-| `gas/Home.gs`（`LbHome`） | 画面から呼ぶ窓口 `homeBoot`・`homeSetPublish`・`homeResetPublish`・`homeSetNow`。教師は担当の学級だけ変えられる |
+| `gas/Home.gs`（`LbHome`） | 画面から呼ぶ窓口。呼べる関数は `LbHome.API` の表だけ（ここが唯一の登録場所。画面は `LB_PLATFORM.call('homeXxx')` で `xxx` を呼ぶ）。教師は担当の学級だけ変えられる |
+| `gas/Sheets.gs`（`LbSheets`） | ハブのシートの共通部品：表を用意する・文字の書式・日付に化けた学級（3-1）と日付を戻す。共通部品の一番先に読み込む |
 | `web/home.js`・`web/home.css` | 画面（jsDelivr から読み込む）。学習BASE → 教科 → ページ。教師は同じ画面で先生モード（✓ みせる／✕ かくす、★ いまの学習）と、代わりに取り組む児童を選べる |
 | `web/pages.js` | `gas/Pages.gs` の写し（`npm run build` が作る）。判定の規則を画面とサーバーで1つにする |
 | `web/demo.html` | 見本（GAS なし）。`?role=child3`・`child1`・`teacher`・`guest` |

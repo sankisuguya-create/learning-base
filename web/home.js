@@ -3,7 +3,7 @@
  *
  * 正本は learning-base。jsDelivr から読み込む画面のプログラム。
  * サーバーとのやりとりは window.LB_PLATFORM に任せる（本番は GAS、見本は web/demo.html の模擬）。
- *   LB_PLATFORM.call(関数名, 引数…) → Promise   … homeBoot / homeSetPublish / homeResetPublish / homeSetNow
+ *   LB_PLATFORM.call(home＋名前, 引数…) → Promise … サーバーの LbHome.API の同じ名前（例：homeSetNow → setNow）（呼べるのは Home.gs の API の表にあるものだけ）
  *   LB_PLATFORM.fetchJson(url)       → Promise   … ページの目録（jsDelivr）
  *   LB_PLATFORM.open(url)                       … ページを開く
  *   LB_PLATFORM.baseUrl                         … 学習BASE の URL（…/exec）
@@ -150,9 +150,9 @@
   var SAMPLE = {
     members: [{ lid: 'sample1', no: 1, name: '見本 あおい' }, { lid: 'sample2', no: 2, name: '見本 かいと' }, { lid: 'sample3', no: 3, name: '見本 さくら' }],
     now3: [
-      { key: 's1', kind: 'drop', label: '▼ 急に崩れた', app: '算数', skill: '見本の技能A', names: ['見本 あおい'], text: '正答率 90% → 60%・時間 1.5秒 → 2.0秒（今週 12問・前の4週と比べて）' },
-      { key: 's2', kind: 'klass', label: '● 学級でつまずき', app: '算数', skill: '見本の技能B', names: ['見本 かいと', '見本 さくら', '見本 ゆうま'], text: '取り組んだ 10人のうち 6人が正答率70%未満（直近2週）' },
-      { key: 's3', kind: 'stall', label: '― 伸びが止まった', app: '算数', skill: '見本の技能C', names: ['見本 さくら'], text: '正答率 65% → 66%・時間 3.0秒 → 3.0秒（前の4週 30問 → 直近4週 28問）' }]
+      { key: 's1', kind: 'drop', app: '算数', skill: '見本の技能A', names: ['見本 あおい'], text: '正答率 90% → 60%・時間 1.5秒 → 2.0秒（今週 12問・前の4週と比べて）' },
+      { key: 's2', kind: 'klass', app: '算数', skill: '見本の技能B', names: ['見本 かいと', '見本 さくら', '見本 ゆうま'], text: '取り組んだ 10人のうち 6人が正答率70%未満（直近2週）' },
+      { key: 's3', kind: 'stall', app: '算数', skill: '見本の技能C', names: ['見本 さくら'], text: '正答率 65% → 66%・時間 3.0秒 → 3.0秒（前の4週 30問 → 直近4週 28問）' }]
   };
   function members() { return S.shot ? SAMPLE.members : (S.boot.members || []); }
   function canActAs() { return !!(S.cat && S.cat.pages.some(function (p) { return p.actAs === true; })); }
@@ -168,7 +168,7 @@
    */
   function now3View() {
     if (S.boot.role !== 'teacher') return '';
-    var list = S.shot ? SAMPLE.now3 : (S.boot.now3 || []);
+    var list = S.shot ? SAMPLE.now3.map(function (a) { var o = {}; for (var k in a) o[k] = a[k]; o.label = kindLabel(a.kind); return o; }) : (S.boot.now3 || []);
     var html = '<h2 class="lb-h">今週の3件</h2>';
     if (!list.length) return html + '<div class="lb-nownone">今週は ありません（毎晩、記録から計算します）</div>';
     return html + '<div class="lb-alerts">' + list.map(function (a) {
@@ -204,13 +204,15 @@
       '<div class="lb-fbacts"><button class="lb-abtn" data-act="export-copy">コピーする</button></div></section>';
   }
   /* ---------- 閾値を見直す（所有者だけ・学校の中だけ） ---------- */
-  var KIND_JA = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった', all: '全体' };
+  /** 今週の3件の種類の名前（サーバーの Alerts.gs の1か所から、先生の起動の情報で届く） */
+  function kindName(k) { return k === 'all' ? '全体' : (((S.boot.kinds || {}).names || {})[k] || k); }
+  function kindLabel(k) { return (((S.boot.kinds || {}).labels || {})[k] || kindName(k)); }
   function shown(v, sc) { return Math.round(v * (sc || 1) * 1000) / 1000; }
   function table(head, rows) {
     return '<div class="lb-tablewrap"><table class="lb-table"><thead><tr>' + head.map(function (h) { return '<th>' + esc(h) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       rows.map(function (r) { return '<tr>' + r.map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
   }
-  function countsLine(c) { return '急に崩れた ' + c.drop + '・学級でつまずき ' + c.klass + '・伸びが止まった ' + c.stall + '（候補のある学級 ' + c.classes + '）'; }
+  function countsLine(c) { return ['drop', 'klass', 'stall'].map(function (k) { return kindName(k) + ' ' + c[k]; }).join('・') + '（候補のある学級 ' + c.classes + '）'; }
   function tuningView() {
     var T = S.tune, html = '<div class="lb-tune"><div class="lb-shead"><button class="lb-back" data-act="back">← もどる</button><h2>閾値を見直す</h2></div>' +
       '<p class="lb-fbnote">この画面の数は児童の学習状態です。学校の外（改善用の書き出し・Claude）には出しません。値を変えて「この値で数える」で件数を見てから保存してください。保存した値は今夜の計算から効きます。</p>';
@@ -220,7 +222,7 @@
     if (T.tried) html += '<p class="lb-tcount lb-tried"><strong>入れた値なら</strong>：' + esc(countsLine(T.tried)) + '</p>';
     var groups = ['drop', 'klass', 'stall', 'all'];
     html += '<div class="lb-rules">' + groups.map(function (g) {
-      return '<fieldset class="lb-rgroup"><legend>' + KIND_JA[g] + '</legend>' + T.spec.filter(function (x) { return x.kind === g; }).map(function (x) {
+      return '<fieldset class="lb-rgroup"><legend>' + esc(kindName(g)) + '</legend>' + T.spec.filter(function (x) { return x.kind === g; }).map(function (x) {
         return '<label class="lb-rule"><span class="lb-rlabel">' + esc(x.label) + '</span><span class="lb-rinput"><input type="number" inputmode="decimal" step="any" data-path="' + esc(x.path) +
           '" data-scale="' + x.scale + '" value="' + draftShown(T, x) + '" min="' + shown(x.min, x.scale) + '" max="' + shown(x.max, x.scale) + '"><span class="lb-runit">' + esc(x.unit) + '</span></span>' +
           '<span class="lb-rdef">初期値 ' + shown(x.def, x.scale) + (x.changed ? '・<strong>変えている</strong>' : '') + '</span></label>';
@@ -229,16 +231,16 @@
     html += '<div class="lb-fbacts"><button class="lb-abtn lb-wide" data-act="rule-try">この値で数える</button><button class="lb-abtn sub lb-wide" data-act="rule-save">保存する</button>' +
       '<button class="lb-abtn sub lb-wide" data-act="rule-save-now">保存して今すぐ計算し直す</button></div>' +
       '<div class="lb-fbowner"><button class="lb-link" data-act="rule-reset">すべて初期値にもどす</button></div>';
-    html += '<h3 class="lb-h">1つずつ変えたら（今週の候補の数）</h3>' + table(['項目', 'いま', '試す値', '急に崩れた', '学級でつまずき', '伸びが止まった', '候補のある学級'],
+    html += '<h3 class="lb-h">1つずつ変えたら（今週の候補の数）</h3>' + table(['項目', 'いま', '試す値', kindName('drop'), kindName('klass'), kindName('stall'), '候補のある学級'],
       T.sens.map(function (r) { return [r.label, shown(r.now, r.scale) + r.unit, shown(r.value, r.scale) + r.unit, r.drop, r.klass, r.stall, r.classes]; }));
     var D = T.dist.hist;
     html += '<h3 class="lb-h">規則が見ている値の散らばり（児童の数・5人未満は伏せる）</h3><div class="lb-dists">' +
-      [['急に崩れた：正答率の下がり幅（ポイント）', D.dropAcc], ['急に崩れた：時間の伸び', D.dropTime], ['伸びが止まった：正答率の伸び（ポイント）', D.stallAcc],
-        ['伸びが止まった：時間の比', D.stallTime], ['学級でつまずき：低い児童の割合（学級×技能のまとまりの数）', D.klassShare]].map(function (d) {
+      [[kindName('drop') + '：正答率の下がり幅（ポイント）', D.dropAcc], [kindName('drop') + '：時間の伸び', D.dropTime], [kindName('stall') + '：正答率の伸び（ポイント）', D.stallAcc],
+        [kindName('stall') + '：時間の比', D.stallTime], [kindName('klass') + '：低い児童の割合（学級×技能のまとまりの数）', D.klassShare]].map(function (d) {
         return '<div><h4>' + esc(d[0]) + '</h4>' + table(['区間', '数'], d[1]) + '</div>';
       }).join('') + '</div>';
     html += '<h3 class="lb-h">画面に出した今週の3件と先生の反応（直近8週）</h3>' + (T.perf.length ? table(['週', '種類', '出た', '判断が変わった', '見た', '押されていない'],
-      T.perf.map(function (r) { return [r.week, KIND_JA[r.kind] || r.kind, r.fired, r.changed, r.seen, r.open]; })) : '<p class="lb-nownone">まだ記録がありません</p>');
+      T.perf.map(function (r) { return [r.week, kindName(r.kind), r.fired, r.changed, r.seen, r.open]; })) : '<p class="lb-nownone">まだ記録がありません</p>');
     return html + '</div>';
   }
   /** 入れかけの値（「この値で数える」で描き直しても消さない）。無ければ保存してある値 */
