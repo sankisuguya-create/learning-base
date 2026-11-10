@@ -138,22 +138,9 @@ var LbPages = (function () {
     });
     return out;
   }
-  /**
-   * スプレッドシートは「3-1」を日付（3月1日）に、「2026-11-10」を日付に変えてしまう。書く列は文字の書式にしてあるが、
-   * 手で直した行・書式を付ける前の行のために、読む時も日付を元の形に戻す（算数TA の clsCell_ と同じ考え方）
-   */
-  function clsCell(v) {
-    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) return (v.getMonth() + 1) + '-' + v.getDate();
-    return String(v == null ? '' : v).trim();
-  }
-  function ymd(v) {
-    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) {
-      if (typeof Utilities !== 'undefined' && Utilities.formatDate) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
-      return v.getFullYear() + '-' + pad(v.getMonth() + 1) + '-' + pad(v.getDate());
-    }
-    return String(v || '');
-  }
-  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  // 学級・日付が日付に化けた値を戻す（Sheets.gs。保存の関数の中でだけ使う：画面の写し web/pages.js では呼ばれない）
+  function clsCell(v) { return LbSheets.clsCell(v); }
+  function ymd(v) { return LbSheets.ymd(v); }
 
   /** 公開を切り替える（押すたびに保存）。その学級・そのページの行を書き換える（無ければ足す） */
   function setPublish(hubSs, classKey, pageId, on, by) {
@@ -191,16 +178,11 @@ var LbPages = (function () {
     sh.getRange(1, 1, keep.length, NOW_HEAD.length).setValues(keep.map(function (r) { var o = r.slice(0, NOW_HEAD.length); while (o.length < NOW_HEAD.length) o.push(''); return o; }));
   }
 
-  /** 表を用意する。学級（1列目）と日付の列は文字の書式にする（「3-1」が日付に化けないように） */
+  /** 表を用意する。学級と日付の列は毎回文字の書式にする（「3-1」が日付に化けないように） */
   function sheet(ss, name, head) {
-    var sh = ss.getSheetByName(name);
-    if (!sh) { sh = ss.insertSheet(name); sh.getRange(1, 1, 1, head.length).setValues([head]); }
-    textCols(sh, head);
-    return sh;
-  }
-  function textCols(sh, head) {
-    var rows = Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000);
-    head.forEach(function (h, i) { if (h === '学級' || h === 'から' || h === 'まで') sh.getRange(1, i + 1, rows, 1).setNumberFormat('@'); });
+    var cols = [];
+    head.forEach(function (h, i) { if (h === '学級' || h === 'から' || h === 'まで') cols.push(i + 1); });
+    return LbSheets.sheet(ss, name, head, cols, { always: true });
   }
 
   return { SUBJECTS: SUBJECTS, NOW_MAX: NOW_MAX, validate: validate, isOn: isOn, inPeriod: inPeriod, home: home, teacherView: teacherView,

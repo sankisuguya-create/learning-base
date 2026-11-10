@@ -116,34 +116,34 @@ const ROSTER = [{ lid: 'La', grade: 3, cls: '1', no: 1, name: 'あ' }, { lid: 'L
 
 t('窓口：児童は自分の学級の設定だけ。目録の置き場（固定の版）を受け取る', () => {
   const { ctx } = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);
-  const b = ctx.homeBoot({ classKey: '4-1' });                              // 他の学級を指定しても自分の学級
+  const b = ctx.LbHome.API.boot({ classKey: '4-1' });                              // 他の学級を指定しても自分の学級
   assert.strictEqual(b.role, 'child'); assert.strictEqual(b.classKey, '3-1');
   assert.strictEqual(b.pagesUrl, 'https://cdn.jsdelivr.net/gh/sankisuguya-create/learning-base@abc1234/catalog/pages.json', '読み込み係と同じ版');
   assert.strictEqual(b.members, undefined, '児童に名簿は渡さない');
-  assert.throws(() => ctx.homeSetPublish('3-1', 'kanzi', false), /先生だけ/);
-  assert.throws(() => ctx.homeSetNow('3-1', [{ page: 'kanzi' }]), /先生だけ/);
+  assert.throws(() => ctx.LbHome.API.setPublish('3-1', 'kanzi', false), /先生だけ/);
+  assert.throws(() => ctx.LbHome.API.setNow('3-1', [{ page: 'kanzi' }]), /先生だけ/);
 });
 t('窓口：教師は扱える学級の一覧と、選んだ学級の児童（メールの無い転入生も）を受け取る', () => {
   const { ctx, hub } = homeEnv('na@edu.nishi.or.jp', ROSTER);
   hub.insertSheet('links').v.push(['id', 'title', 'subtitle', 'url', 'grades', 'color', 'visible'], ['kuku', '九九', '3年', 'https://x/exec?unit=kuku', '3', 'mint', true], ['toi-board', 'といボード', '', 'https://y/exec', '3', 'lavender', false]);
-  const b = ctx.homeBoot({ classKey: '3-1' });
+  const b = ctx.LbHome.API.boot({ classKey: '3-1' });
   assert.strictEqual(b.links['toi-board'].url, 'https://y/exec', 'といボードの URL はハブの links から（表示しない行でも）');
   assert.strictEqual(b.links.kuku.color, 'mint');
   assert.strictEqual(J(b.classes.map(c => c.key)), J(['3-1', '3-2', '4-1']));
   assert.ok(b.members.some(m => m.name === '転入 太郎' && m.provisional));
   assert.strictEqual(b.members[0].mail, undefined, 'メールは画面に渡さない');
-  const s = ctx.homeSetPublish('3-1', 'kanzi', false);
+  const s = ctx.LbHome.API.setPublish('3-1', 'kanzi', false);
   assert.strictEqual(s.publish.kanzi, false);
-  assert.throws(() => ctx.homeSetPublish('3-1', 'Bad Id!', false), /ページの名前が不正/);
-  const s2 = ctx.homeSetNow('3-1', [{ page: 'kanzi', from: '2026-11-10', to: 'あした' }, { page: 'Bad Id' }]);
+  assert.throws(() => ctx.LbHome.API.setPublish('3-1', 'Bad Id!', false), /ページの名前が不正/);
+  const s2 = ctx.LbHome.API.setNow('3-1', [{ page: 'kanzi', from: '2026-11-10', to: 'あした' }, { page: 'Bad Id' }]);
   assert.strictEqual(J(s2.now.map(x => [x.page, x.from, x.to])), J([['kanzi', '2026-11-10', '']]), '不正な日付・id は捨てる');
 });
 t('窓口：担当外の学級は変えられない（別ドメインの支援員）。名簿にない人はおためしの案内', () => {
   const { ctx } = homeEnv('sub@example.jp', ROSTER);
-  assert.strictEqual(J(ctx.homeBoot().classes.map(c => c.key)), J(['3-2']));
-  assert.throws(() => ctx.homeSetPublish('3-1', 'kanzi', false), /担当していない/);
-  assert.ok(ctx.homeSetPublish('3-2', 'kanzi', false));
-  const g = homeEnv('9@kyoiku.edu.nishi.or.jp', ROSTER).ctx.homeBoot();
+  assert.strictEqual(J(ctx.LbHome.API.boot().classes.map(c => c.key)), J(['3-2']));
+  assert.throws(() => ctx.LbHome.API.setPublish('3-1', 'kanzi', false), /担当していない/);
+  assert.ok(ctx.LbHome.API.setPublish('3-2', 'kanzi', false));
+  const g = homeEnv('9@kyoiku.edu.nishi.or.jp', ROSTER).ctx.LbHome.API.boot();
   assert.strictEqual(g.role, 'guest'); assert.match(g.message, /とうろく/);
 });
 
@@ -179,7 +179,7 @@ t('保存：日付に化けた学級（3-1 → 3月1日）・日付の欄も、�
 
 t('窓口：開くたびに役割ごとに数える（前回の往復の時間は端末別、始めるまで・行き止まりは学年別）。名前は数えない', () => {
   const { ctx, props } = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);
-  ctx.homeBoot({ lastMs: 3100, mem: 4, start: { path: 'tile', ms: 12000 }, dead: 1 });
+  ctx.LbHome.API.boot({ lastMs: 3100, mem: 4, start: { path: 'tile', ms: 12000 }, dead: 1 });
   const all = Object.values(props).map(v => JSON.parse(v)).reduce((a, o) => Object.assign(a, o), {});
   assert.strictEqual(all['child|boot'], 1); assert.strictEqual(all['child|rt:4GB以下:2〜4秒'], 1);
   assert.strictEqual(all['child|start:3年:教科のタイル:10〜20秒'], 1); assert.strictEqual(all['child|deadend:3年'], 1);
@@ -189,42 +189,59 @@ t('窓口：開くたびに役割ごとに数える（前回の往復の時間�
 t('窓口：所有者かどうか。閾値を見直す・数える・保存するは所有者だけ。保存した値は次の計算から効く', () => {
   const t1 = homeEnv('na@edu.nishi.or.jp', ROSTER);
   t1.ctx.Base.fy = () => 2026;
-  const b = t1.ctx.homeBoot({ classKey: '3-1' });
+  const b = t1.ctx.LbHome.API.boot({ classKey: '3-1' });
   assert.strictEqual(b.owner, false);
   assert.ok(b.members.every(m => !('code' in m)), '記号は渡さない（撮影用は画面の見本）');
-  assert.throws(() => t1.ctx.homeTuning(), /所有者だけ/); assert.throws(() => t1.ctx.homeTryRules({}), /所有者だけ/); assert.throws(() => t1.ctx.homeSaveRules({ max: 5 }), /所有者だけ/);
+  assert.throws(() => t1.ctx.LbHome.API.tuning(), /所有者だけ/); assert.throws(() => t1.ctx.LbHome.API.tryRules({}), /所有者だけ/); assert.throws(() => t1.ctx.LbHome.API.saveRules({ max: 5 }), /所有者だけ/);
   assert.ok(!t1.hub.sheets.rules, '所有者でなければ何も書かない');
   const own = homeEnv('owner@edu.nishi.or.jp', ROSTER);
   own.ctx.Base.fy = () => 2026; own.ctx.Base.teachers = () => [];
-  assert.strictEqual(own.ctx.homeBoot({}).owner, true);
-  const tu = own.ctx.homeTuning();
+  assert.strictEqual(own.ctx.LbHome.API.boot({}).owner, true);
+  const tu = own.ctx.LbHome.API.tuning();
   assert.ok(tu.spec.length >= 10); assert.strictEqual(typeof tu.counts.drop, 'number');
-  assert.strictEqual(own.ctx.homeTryRules({ 'drop.accDrop': 0.1 }).tried.drop, 0);
-  const after = own.ctx.homeSaveRules({ 'drop.accDrop': 0.1 }, true);
+  assert.strictEqual(own.ctx.LbHome.API.tryRules({ 'drop.accDrop': 0.1 }).tried.drop, 0);
+  const after = own.ctx.LbHome.API.saveRules({ 'drop.accDrop': 0.1 }, true);
   assert.strictEqual(after.spec.find(x => x.path === 'drop.accDrop').changed, true);
   assert.strictEqual(own.ctx.LbAlerts.active(own.hub).drop.accDrop, 0.1);
   assert.ok(own.hub.sheets.now3, '今すぐ計算し直すと now3 を入れ替える');
-  assert.throws(() => own.ctx.homeSaveRules({ 'drop.accDrop': 5 }), /使えない値/);
+  assert.throws(() => own.ctx.LbHome.API.saveRules({ 'drop.accDrop': 5 }), /使えない値/);
 });
 t('窓口：気づきは先生だけ（担当外の学級は不可）。書き出しは所有者だけ。画面の失敗は決めた種類だけ数える', () => {
   const kid = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);
-  assert.throws(() => kid.ctx.homeFeedback('3-1', 'home', 'x'), /先生だけ/);
-  assert.throws(() => kid.ctx.homeFeedback('', 'home', 'x'), /先生だけ/, '学級を空にしても児童は送れない');
+  assert.throws(() => kid.ctx.LbHome.API.feedback('3-1', 'home', 'x'), /先生だけ/);
+  assert.throws(() => kid.ctx.LbHome.API.feedback('', 'home', 'x'), /先生だけ/, '学級を空にしても児童は送れない');
   assert.ok(!kid.hub.sheets.feedback);
-  assert.throws(() => kid.ctx.homeExport(), /所有者だけ/);
+  assert.throws(() => kid.ctx.LbHome.API.export(), /所有者だけ/);
   const sub = homeEnv('sub@example.jp', ROSTER);
-  assert.throws(() => sub.ctx.homeFeedback('3-1', 'home', 'x'), /担当していない/);
+  assert.throws(() => sub.ctx.LbHome.API.feedback('3-1', 'home', 'x'), /担当していない/);
   const tc = homeEnv('na@edu.nishi.or.jp', ROSTER);
-  assert.throws(() => tc.ctx.homeFeedback('3-1', 'home', '   '), /空/);
-  assert.strictEqual(tc.ctx.homeFeedback('3-1', 'home', '今週の3件が多すぎる'), true);
+  assert.throws(() => tc.ctx.LbHome.API.feedback('3-1', 'home', '   '), /空/);
+  assert.strictEqual(tc.ctx.LbHome.API.feedback('3-1', 'home', '今週の3件が多すぎる'), true);
   const row = tc.hub.sheets.feedback.v[1];
   assert.strictEqual(row[2], '3-1', '学級は文字のまま'); assert.strictEqual(row[4], '今週の3件が多すぎる');
-  assert.throws(() => tc.ctx.homeExport(), /所有者だけ/);
-  assert.strictEqual(tc.ctx.homeReport('loadfail'), true); assert.strictEqual(tc.ctx.homeReport('<script>'), false);
-  assert.strictEqual(tc.ctx.homeReport('jserror', 'TypeError: a is null at 12345678@kyoiku.edu.nishi.or.jp'), true);
+  assert.throws(() => tc.ctx.LbHome.API.export(), /所有者だけ/);
+  assert.strictEqual(tc.ctx.LbHome.API.report('loadfail'), true); assert.strictEqual(tc.ctx.LbHome.API.report('<script>'), false);
+  assert.strictEqual(tc.ctx.LbHome.API.report('jserror', 'TypeError: a is null at 12345678@kyoiku.edu.nishi.or.jp'), true);
   const pj = JSON.stringify(tc.props);
   assert.ok(pj.includes('teacher|client:loadfail')); assert.ok(!pj.includes('script'));
   assert.ok(pj.includes('teacher|js:TypeError: a is null at ＜メール＞')); assert.ok(!pj.includes('kyoiku'));
+});
+
+t('共通の部品（Sheets.gs）：日付に化けた学級・日付を戻す。表は作った時に見出しと文字の書式', () => {
+  const { LbSheets } = loadPure(['Sheets.gs'], { Utilities: { formatDate: d => d.toISOString().slice(0, 10) } });
+  assert.strictEqual(LbSheets.clsCell(new Date(2026, 2, 1)), '3-1'); assert.strictEqual(LbSheets.clsCell(' 3-2 '), '3-2');
+  assert.strictEqual(LbSheets.ymd('2026-11-10'), '2026-11-10'); assert.strictEqual(LbSheets.ymd(null), '');
+  const ss = makeSS('hub'), sh = LbSheets.sheet(ss, 'x', ['学級', '値'], [1]);
+  sh.getRange(2, 1, 1, 2).setValues([['3-1', '2026-11-10']]);
+  assert.strictEqual(sh.v[1][0], '3-1', '文字の書式の列は化けない'); assert.ok(sh.v[1][1] instanceof Date, '書式の無い列は化ける（模擬も本物と同じ）');
+  assert.strictEqual(LbSheets.sheet(ss, 'x', ['別'], []).v[0][0], '学級', '既にある表の見出しは書き換えない');
+  assert.strictEqual(LbSheets.rows(ss, 'x', 2).length, 1); assert.strictEqual(LbSheets.rows(ss, 'none', 2).length, 0);
+});
+t('窓口：先生の起動の情報に、今週の3件の種類の名前（Alerts.gs の1か所から）', () => {
+  const t1 = homeEnv('na@edu.nishi.or.jp', ROSTER);
+  const b = t1.ctx.LbHome.API.boot({ classKey: '3-1' });
+  assert.strictEqual(b.kinds.names.drop, t1.ctx.LbAlerts.KIND_NAME.drop); assert.strictEqual(b.kinds.labels.drop, '▼ ' + b.kinds.names.drop);
+  assert.strictEqual(homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER).ctx.LbHome.API.boot({}).kinds, undefined, '児童には渡さない');
 });
 
 console.log(`pages ${n} 件 ok`);

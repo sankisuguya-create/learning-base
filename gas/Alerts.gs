@@ -42,7 +42,10 @@ var LbAlerts = (function () {
   ];
   var RULE_SHEET = 'rules', RULE_HEAD = ['項目', '値', '初期値', '説明', '変えた日', '変えた人'];
   var KIND_RANK = { drop: 3, klass: 2, stall: 1 };
-  var LABEL = { drop: '▼ 急に崩れた', klass: '● 学級でつまずき', stall: '― 伸びが止まった' };
+  /** 種類の名前（ここが唯一の置き場。メール・書き出し・先生の画面はここから取る）。LABEL は記号つき（色だけで伝えないため） */
+  var KIND_NAME = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' };
+  var KIND_MARK = { drop: '▼', klass: '●', stall: '―' };
+  var LABEL = {}; Object.keys(KIND_NAME).forEach(function (k) { LABEL[k] = KIND_MARK[k] + ' ' + KIND_NAME[k]; });
   var SHEET = 'now3', HEAD = ['学級', '順', 'キー', '種類', '学習者ID', 'アプリ', '技能', '根拠', '週'];
   var DEC_SHEET = 'decisions', DEC_HEAD = ['日時', '教師', '学級', 'キー', '種類', 'どうした', 'メモ'];
 
@@ -135,11 +138,7 @@ var LbAlerts = (function () {
 
   /* ---------- 保存 ---------- */
 
-  function textCol(sh, col) { sh.getRange(1, col, Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000), 1).setNumberFormat('@'); }
-  function clsCell(v) {
-    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) return (v.getMonth() + 1) + '-' + v.getDate();
-    return String(v == null ? '' : v).trim();
-  }
+  var textCol = LbSheets.textCol, clsCell = LbSheets.clsCell;
 
   /** 計算した候補を now3 シートに置く（丸ごと入れ替え） */
   function store(hubSs, byClass) {
@@ -259,5 +258,5 @@ var LbAlerts = (function () {
     return by;
   }
 
-  return { RULES: RULES, SPEC: SPEC, specOf: specOf, getPath: getPath, setPath: setPath, withValues: withValues, savedValues: savedValues, active: active, saveValues: saveValues, refresh: refresh, LABEL: LABEL, KIND_RANK: KIND_RANK, compute: compute, candidates: candidates, index: index, classMap: classMap, weekOfDay: weekOfDay, sum: sum, weeksBack: weeksBack, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
+  return { RULES: RULES, SPEC: SPEC, KIND_NAME: KIND_NAME, specOf: specOf, getPath: getPath, setPath: setPath, withValues: withValues, savedValues: savedValues, active: active, saveValues: saveValues, refresh: refresh, LABEL: LABEL, KIND_RANK: KIND_RANK, compute: compute, candidates: candidates, index: index, classMap: classMap, weekOfDay: weekOfDay, sum: sum, weeksBack: weeksBack, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
 })();
