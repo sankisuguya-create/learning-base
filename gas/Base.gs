@@ -1,0 +1,425 @@
+/**
+ * Base.gs — 学習アプリの共通部品（learning-base）
+ *
+ * 各アプリの GAS に、このファイルをそのまま貼る。正本は learning-base リポジトリ。
+ * 設計：`-` リポジトリ principles/learning-app-foundation.md
+ *
+ * 持つもの（段階1）：版・ハブの場所・年度・本人確認と役割・名簿・教師の担当
+ * 名前はすべて Base. の下に置く（アプリの大域名とぶつけない）。
+ *
+ * 前提：デプロイは「次のユーザーとして実行：自分」「アクセス：ドメイン内の全員」。
+ */
+var Base = (function () {
+  var VER = 1;   // やりとりの形を変えたら上げる。アプリは Base.VER を見て貼り忘れを知らせる
+
+  /* ---------- 設定 ---------- */
+
+  /**
+   * 教師のドメイン。@ の右側の完全一致でだけ判定する。
+   * 児童は kyoiku.edu.nishi.or.jp で、教師ドメインのサブドメインになっている。
+   * 「含む」で判定すると児童が全員教師になる（算数TA Core.gs の注記と同じ）。
+   */
+  var TEACHER_DOMAIN = 'edu.nishi.or.jp';
+  var CHILD_DOMAIN = 'kyoiku.edu.nishi.or.jp';
+  var STRICT_SCOPE = false;   // true にすると、教師ドメインの人も teachers シートの担当の学級だけを見られる
+
+  var SHEET = { ROSTER: 'roster', TEACHERS: 'teachers' };
+  var TTL = 6 * 60 * 60;          // 名簿の保存時間（秒）。CacheService の上限
+  var CHUNK = 30 * 1000;          // CacheService の1件は100KBまで。日本語は1字3バイトなので3万字で切る
+  var PREFIX = 'base:';
+  var RELOAD_SEC = 600;           // 名簿にない人が開いた時に名簿を読み直す間隔の下限（秒）
+
+  /** 名簿の見出し。左が正規名、右が受け付ける別名（今の算数TAハブの英語見出しも読む） */
+  var ROSTER_HEAD = {
+    lid: ['学習者ID', 'lid'], mail: ['メール', 'email', 'mail'], grade: ['学年'], cls: ['組'], no: ['番号'],
+    sei: ['姓'], mei: ['名'], seiKana: ['せい'], meiKana: ['めい'], name: ['氏名', '名前']
+  };
+  var LID_HEAD = '学習者ID';
+  var LID_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789';   // 紛らわしい 0 O o 1 l I i を除く
+  var TEACHER_HEAD = {
+    mail: ['メール', 'email', 'mail'], sei: ['姓'], mei: ['名'], seiKana: ['せい'], meiKana: ['めい'],
+    grade: ['学年'], cls: ['組']
+  };
+
+  /* ---------- ハブ ---------- */
+
+  /**
+   * ハブのスプレッドシート。スクリプトのプロパティ HUB_ID があればそれを開き、
+   * 無ければ自分（このGASが付いているスプレッドシート）がハブだとみなす。
+   * 同じ実行の中で開き直しても 2ms 程度（実測 2026-11-05）なので、使い回しはしない。
+   */
+  function hub() {
+    var id = hubId();
+    return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  }
+  function hubId() {
+    return String(PropertiesService.getScriptProperties().getProperty('HUB_ID') || '').trim();
+  }
+  /** アプリの設置時に1回だけ実行する（ハブのURLかIDを渡す） */
+  function setHub(urlOrId) {
+    var s = String(urlOrId || '').trim();
+    var m = s.match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+    var id = m ? m[1] : s;
+    if (!/^[a-zA-Z0-9_-]{20,}$/.test(id)) throw new Error('ハブのURLかIDを入れてください: ' + s);
+    SpreadsheetApp.openById(id);   // 開けなければここで止まる（共有・IDの誤り）
+    PropertiesService.getScriptProperties().setProperty('HUB_ID', id);
+    clearCache();
+    return id;
+  }
+
+  /* ---------- 年度（4/1 はじまり） ---------- */
+
+  /** その時刻の年度。月はスクリプトのタイムゾーンで見る。読めなければ 0。年度の境目の正本 */
+  function fyOf(ts) {
+    if (!ts) return 0;
+    var d = ts instanceof Date ? ts : new Date(ts);
+    if (isNaN(d.getTime())) return 0;
+    var tz = Session.getScriptTimeZone();
+    var y = Number(Utilities.formatDate(d, tz, 'yyyy')), m = Number(Utilities.formatDate(d, tz, 'M'));
+    return m >= 4 ? y : y - 1;
+  }
+  function fy() { return fyOf(new Date()); }
+
+  /* ---------- 本人 ---------- */
+
+  function email() {
+    var e = Session.getActiveUser().getEmail();
+    return e ? String(e).trim().toLowerCase() : '';
+  }
+  function domainOf(mail) {
+    var s = String(mail || ''), at = s.lastIndexOf('@');
+    return at < 0 ? '' : s.slice(at + 1).toLowerCase();
+  }
+  function isTeacherDomain(mail) { return domainOf(mail) === TEACHER_DOMAIN; }
+  function isChildDomain(mail) { return domainOf(mail) === CHILD_DOMAIN; }
+
+  /**
+   * 開いた人の役割。
+   *   { email, role: 'teacher' | 'child' | 'guest' | 'none', child, teacher }
+   * - teacher：教師ドメイン、または teachers シートに載っている人（支援員など別ドメインの口）
+   * - child  ：名簿に載っていて、姓か氏名がある児童。記録・分析の対象
+   * - guest  ：ログインしているが名簿にない（転入直後など）。おためしで使えるが記録しない
+   * - none   ：メールが取れない（デプロイの設定が違う）
+   */
+  function me() {
+    var mail = email();
+    if (!mail) return { email: '', role: 'none', child: null, teacher: null };
+    var t = teacher(mail);
+    if (t || isTeacherDomain(mail)) {
+      return { email: mail, role: 'teacher', child: null, teacher: t || { mail: mail, scopes: [] } };
+    }
+    var c = child(mail);
+    if (c) return { email: mail, role: 'child', child: c, teacher: null };
+    return { email: mail, role: 'guest', child: null, teacher: null };
+  }
+
+  /* ---------- 名簿 ---------- */
+
+  /**
+   * 名簿の行。{ mail, grade, cls, no, sei, mei, seiKana, meiKana, name } の配列。
+   * fy を省略すると現在年度（ハブの roster）。過去年度は roster_<fy>（無ければ []）。
+   * - 見出しの名前で列を探す（列の並べ替え・追加に強くする）
+   * - '@' を含まない行（途中に混ざった見出し・空行）は捨てる
+   * - 同じメールが2行あれば先の行。ただし先の行に名前が無く後の行にあれば後の行
+   * - 旧形式（氏名だけ）は空白で姓・名に分ける。空白が無ければ全体を姓に入れる
+   */
+  function roster(year) {
+    var cur = fy();
+    if (year === undefined || year === null) year = cur;
+    var key = 'roster:' + year;
+    var hit = cacheGet(key);
+    if (hit) return hit;
+    var name = year === cur ? SHEET.ROSTER : SHEET.ROSTER + '_' + year;
+    var ss = hub(), s = ss.getSheetByName(name);
+    if (!s) {
+      if (year === cur) throw new Error('ハブに名簿のシート「' + SHEET.ROSTER + '」がありません');
+      return [];
+    }
+    var v = s.getDataRange().getValues();
+    if (year === cur && fillIds(ss, s, v, year)) v = s.getDataRange().getValues();
+    var rows = readRoster(v);
+    cachePut(key, rows);
+    return rows;
+  }
+
+  /**
+   * 学習者ID：児童ごとの、記録をつなぐための内部の番号。
+   * - 乱数で作る（名前・年齢・メール・出席番号など、外の人が知りうる情報からは導けない）
+   * - メールが割り当てられていない転入生にも付く。後でメールを書き足しても同じ ID のまま（記録がつながる）
+   * - 名簿に「学習者ID」の列が無ければ作り、空の行に書き足す。前の年度の名簿に同じメールがあれば、その ID を引き継ぐ
+   * - 教師は ID を書き換えない（書き換えると、その児童の記録が別人になる）
+   * 返す：書き足したか
+   */
+  function fillIds(ss, sheet, v, year) {
+    if (v.length < 2) return false;
+    var col = headerIndex(v[0], ROSTER_HEAD), need = [];
+    for (var i = 1; i < v.length; i++) if (isChildRow(v[i], col) && !cell(v[i], col.lid)) need.push(i);
+    if (!need.length) return false;
+    var lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    try {
+      v = sheet.getDataRange().getValues();             // ロックの中で読み直す
+      col = headerIndex(v[0], ROSTER_HEAD);
+      if (col.lid < 0) { col.lid = v[0].length; sheet.getRange(1, col.lid + 1).setValue(LID_HEAD); }
+      var used = {}, prev = previousIds(ss, year), wrote = false;
+      for (var j = 1; j < v.length; j++) { var x = cell(v[j], col.lid); if (x) used[x] = true; }
+      for (var k = 1; k < v.length; k++) {
+        if (!isChildRow(v[k], col) || cell(v[k], col.lid)) continue;
+        var mail = cell(v[k], col.mail).toLowerCase(), id = mail && prev[mail] && !used[prev[mail]] ? prev[mail] : newId(used);
+        used[id] = true;
+        sheet.getRange(k + 1, col.lid + 1).setValue(id);
+        wrote = true;
+      }
+      return wrote;
+    } finally { lock.releaseLock(); }
+  }
+  /** 前の年度の名簿（roster_<年度-1>）の メール → 学習者ID */
+  function previousIds(ss, year) {
+    var out = {}, s = ss.getSheetByName(SHEET.ROSTER + '_' + (year - 1));
+    if (!s) return out;
+    var v = s.getDataRange().getValues();
+    if (!v.length) return out;
+    var col = headerIndex(v[0], ROSTER_HEAD);
+    if (col.lid < 0 || col.mail < 0) return out;
+    for (var i = 1; i < v.length; i++) { var m = cell(v[i], col.mail).toLowerCase(), id = cell(v[i], col.lid); if (m && id) out[m] = id; }
+    return out;
+  }
+  function newId(used) {
+    for (var tries = 0; tries < 100; tries++) {
+      var hex = Utilities.getUuid().replace(/-/g, ''), id = 'L';
+      for (var i = 0; i < 10; i++) id += LID_CHARS.charAt(parseInt(hex.substr(i * 2, 2), 16) % LID_CHARS.length);
+      if (!used[id]) return id;
+    }
+    throw new Error('学習者IDを作れません');
+  }
+  /** 児童の行か（見出しの混入・空行ではない）。メールがある行、またはメールが空で名前と学年がある行（転入直後） */
+  function isChildRow(r, col) {
+    var mail = cell(r, col.mail);
+    if (mail) return mail.indexOf('@') >= 0;
+    return !!(cell(r, col.sei) || cell(r, col.mei) || cell(r, col.name)) && Number(cell(r, col.grade)) > 0;
+  }
+
+  function readRoster(v) {
+    if (!v.length) return [];
+    var col = headerIndex(v[0], ROSTER_HEAD);
+    if (col.mail < 0) throw new Error('名簿の見出しに「メール」がありません');
+    var out = [], seen = {};
+    for (var i = 1; i < v.length; i++) {
+      if (!isChildRow(v[i], col)) continue;
+      var mail = cell(v[i], col.mail).toLowerCase();
+      var sei = cell(v[i], col.sei), mei = cell(v[i], col.mei), full = cell(v[i], col.name);
+      if (!sei && !mei && full) {
+        var parts = full.split(/[\s　]+/);
+        sei = parts[0]; mei = parts.slice(1).join(' ');
+      }
+      var r = {
+        lid: cell(v[i], col.lid), mail: mail, provisional: !mail, grade: Number(cell(v[i], col.grade)) || 0, cls: normCls(cell(v[i], col.cls)),
+        no: Number(cell(v[i], col.no)) || 0, sei: sei, mei: mei,
+        seiKana: cell(v[i], col.seiKana), meiKana: cell(v[i], col.meiKana)
+      };
+      r.name = (sei + (sei && mei ? ' ' : '') + mei).trim();
+      var dk = mail || ('lid:' + r.lid) || ('row:' + i);   // メールの無い転入生は学習者IDで見分ける
+      if (!mail && !r.lid) dk = 'row:' + i;
+      if (seen[dk] === undefined) { seen[dk] = out.length; out.push(r); }
+      else if (!out[seen[dk]].name && r.name) out[seen[dk]] = r;
+    }
+    return out;
+  }
+
+  /**
+   * 名簿にあって名前のある児童。無ければ null。
+   * 今年度の名簿で見つからない時は、保存分を使わずにハブの名簿を読み直す（転入生を足した日に6時間待たせない）。
+   * 読み直しは10分に1回まで（名簿にない人が何度開いても、ハブを読みに行き続けない）。
+   */
+  function child(mail, year) {
+    mail = String(mail || '').trim().toLowerCase();
+    if (!mail) return null;
+    var hit = find(roster(year), mail);
+    if (hit || (year != null && year !== fy())) return hit;
+    var c = CacheService.getScriptCache();
+    if (c.get(PREFIX + 'roster-reload')) return null;
+    c.put(PREFIX + 'roster-reload', '1', RELOAD_SEC);
+    dropCache('roster:' + fy());
+    return find(roster(), mail);
+  }
+  function find(rows, mail) {
+    for (var i = 0; i < rows.length; i++) if (rows[i].mail && rows[i].mail === mail && rows[i].name) return rows[i];
+    return null;
+  }
+
+  /** 学習者IDで児童を引く（メールの無い転入生も引ける）。名前の無い行・知らない ID は null */
+  function learner(lid, year) {
+    lid = String(lid || '').trim();
+    if (!lid) return null;
+    var rows = roster(year);
+    for (var i = 0; i < rows.length; i++) if (rows[i].lid === lid && rows[i].name) return rows[i];
+    return null;
+  }
+
+  /** 学級の児童（番号順）。教師が「だれが やる？」を選ぶ画面に使う */
+  function members(grade, cls, year) {
+    var g = Number(grade), c = normCls(cls);
+    return roster(year).filter(function (r) { return r.grade === g && r.cls === c && r.name; })
+      .sort(function (a, b) { return a.no - b.no || (a.name < b.name ? -1 : 1); });
+  }
+
+  /**
+   * 教師が児童の代わりに取り組む（メールの無い転入生・端末の故障など）。
+   * 開いた人が教師で、その児童の学級を見てよい時だけ、その児童を返す。記録には操作した教師も残す（by）。
+   */
+  function actAs(lid) {
+    var m = me();
+    if (m.role !== 'teacher') throw new Error('児童の代わりに取り組めるのは教師だけです');
+    var r = learner(lid);
+    if (!r) throw new Error('名簿にいない児童です: ' + lid);
+    if (!canSeeClass(m.email, r.grade, r.cls)) throw new Error('担当していない学級の児童です');
+    return { learner: r, by: m.email };
+  }
+
+  /** 学級のキー「学年-組」。全アプリでこの形に揃える */
+  function classKey(grade, cls) { return Number(grade) + '-' + normCls(cls); }
+
+  /** 組の表記ゆれ（「1組」「１」）を「1」に揃える。数字でない組（A・B）はそのまま */
+  function normCls(x) {
+    var s = String(x == null ? '' : x).trim()
+      .replace(/[０-９]/g, function (d) { return String.fromCharCode(d.charCodeAt(0) - 0xFEE0); })
+      .replace(/組$/, '').trim();
+    return /^\d+$/.test(s) ? String(Number(s)) : s;
+  }
+
+  /* ---------- 教師の担当 ---------- */
+
+  /**
+   * teachers シートの行を人ごとにまとめる。{ mail, sei, mei, seiKana, meiKana, scopes: [{grade, cls}] }
+   * 組が空の行は、その学年の全学級（学年主任など）。学年も空なら全校。
+   */
+  function teachers() {
+    var hit = cacheGet('teachers');
+    if (hit) return hit;
+    var s = hub().getSheetByName(SHEET.TEACHERS);
+    var out = [];
+    if (s) {
+      var v = s.getDataRange().getValues();
+      if (v.length) {
+        var col = headerIndex(v[0], TEACHER_HEAD), by = {};
+        if (col.mail < 0) throw new Error('teachers の見出しに「メール」がありません');
+        for (var i = 1; i < v.length; i++) {
+          var mail = cell(v[i], col.mail).toLowerCase();
+          if (!mail || mail.indexOf('@') < 0) continue;
+          var t = by[mail];
+          if (!t) {
+            t = by[mail] = { mail: mail, sei: cell(v[i], col.sei), mei: cell(v[i], col.mei),
+              seiKana: cell(v[i], col.seiKana), meiKana: cell(v[i], col.meiKana), scopes: [] };
+            out.push(t);
+          }
+          t.scopes.push({ grade: Number(cell(v[i], col.grade)) || 0, cls: normCls(cell(v[i], col.cls)) });
+        }
+      }
+    }
+    cachePut('teachers', out);
+    return out;
+  }
+
+  function teacher(mail) {
+    mail = String(mail || '').trim().toLowerCase();
+    var list = teachers();
+    for (var i = 0; i < list.length; i++) if (list[i].mail === mail) return list[i];
+    return null;
+  }
+
+  /**
+   * その教師がその学級を児童名つきで見てよいか。
+   * - スプレッドシートの所有者：全学級
+   * - 教師ドメインの人：全学級（決定 2026-11-05：今の算数TA と同じ。担当を書かなくても困らない）
+   * - それ以外（支援員など別ドメイン）：teachers シートの担当だけ（学年0＝全校、組''＝その学年の全学級）
+   * 担当で絞る運用に変える時は、STRICT_SCOPE を true にする（教師ドメインの人も担当だけになる）。
+   */
+  function canSeeClass(mail, grade, cls) {
+    mail = String(mail || '').trim().toLowerCase();
+    if (!mail) return false;
+    if (isOwner(mail)) return true;
+    if (!STRICT_SCOPE && isTeacherDomain(mail)) return true;
+    var t = teacher(mail);
+    if (!t) return false;
+    var g = Number(grade), c = normCls(cls);
+    for (var i = 0; i < t.scopes.length; i++) {
+      var s = t.scopes[i];
+      if (!s.grade) return true;
+      if (s.grade === g && (!s.cls || s.cls === c)) return true;
+    }
+    return false;
+  }
+
+  function isOwner(mail) {
+    try { return SpreadsheetApp.getActiveSpreadsheet().getOwner().getEmail().toLowerCase() === mail; }
+    catch (e) { return false; }
+  }
+
+  /* ---------- 下請け ---------- */
+
+  function headerIndex(head, spec) {
+    var norm = head.map(function (h) { return String(h == null ? '' : h).trim().toLowerCase(); });
+    var col = {};
+    for (var k in spec) {
+      col[k] = -1;
+      for (var j = 0; j < spec[k].length && col[k] < 0; j++) col[k] = norm.indexOf(spec[k][j].toLowerCase());
+    }
+    return col;
+  }
+  function cell(row, i) { return i < 0 || row[i] == null ? '' : String(row[i]).trim(); }
+
+  /** CacheService に分けて置く（1件100KBの上限を越える名簿のため） */
+  function cachePut(key, obj) {
+    var c = CacheService.getScriptCache(), s = JSON.stringify(obj), n = Math.ceil(s.length / CHUNK) || 1, m = {};
+    for (var i = 0; i < n; i++) m[PREFIX + key + ':' + i] = s.slice(i * CHUNK, (i + 1) * CHUNK);
+    m[PREFIX + key] = String(n);
+    try { c.putAll(m, TTL); } catch (e) { /* 保存できなくても動く（毎回読むだけ） */ }
+  }
+  function cacheGet(key) {
+    var c = CacheService.getScriptCache(), n = Number(c.get(PREFIX + key));
+    if (!n) return null;
+    var keys = [];
+    for (var i = 0; i < n; i++) keys.push(PREFIX + key + ':' + i);
+    var got = c.getAll(keys), s = '';
+    for (var j = 0; j < n; j++) { if (got[keys[j]] == null) return null; s += got[keys[j]]; }
+    try { return JSON.parse(s); } catch (e) { return null; }
+  }
+  /** 名簿・担当を直した後に実行する（6時間待たずに反映させる） */
+  function clearCache() {
+    var c = CacheService.getScriptCache(), cur = fy(), keys = ['teachers'];
+    for (var y = cur - 6; y <= cur; y++) keys.push('roster:' + y);
+    keys.forEach(dropCache);
+    c.remove(PREFIX + 'roster-reload');
+  }
+  function dropCache(k) {
+    var c = CacheService.getScriptCache(), n = Number(c.get(PREFIX + k)) || 0, del = [PREFIX + k];
+    for (var i = 0; i < n; i++) del.push(PREFIX + k + ':' + i);
+    c.removeAll(del);
+  }
+
+  return {
+    VER: VER, TEACHER_DOMAIN: TEACHER_DOMAIN, CHILD_DOMAIN: CHILD_DOMAIN,
+    hub: hub, hubId: hubId, setHub: setHub,
+    fy: fy, fyOf: fyOf,
+    email: email, domainOf: domainOf, isTeacherDomain: isTeacherDomain, isChildDomain: isChildDomain, me: me,
+    roster: roster, child: child, learner: learner, members: members, actAs: actAs, classKey: classKey, normCls: normCls,
+    teachers: teachers, teacher: teacher, canSeeClass: canSeeClass,
+    clearCache: clearCache,
+    _readRoster: readRoster   // 検査用
+  };
+})();
+
+/**
+ * エディタから実行する関数は、名前が _ で終わらないので画面（google.script.run）からも呼べてしまう。
+ * 所有者がエディタで実行した時だけ動かす（児童・他の教師がハブを付け替えられないように）。
+ * 「自分として実行」のウェブアプリでは、開いた人（getActiveUser）と所有者（getEffectiveUser）が違う。
+ */
+function baseOwnerOnly_() {
+  var a = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  var e = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!a || a !== e) throw new Error('この関数は、スプレッドシートの所有者が Apps Script のエディタから実行してください');
+}
+/** エディタから実行：ハブを設定する（引数の代わりに下の行を書き換えて実行してもよい） */
+function baseSetHub(urlOrId) { baseOwnerOnly_(); return Base.setHub(urlOrId); }
+/** エディタから実行：名簿・担当の保存分を消す */
+function baseClearCache() { baseOwnerOnly_(); Base.clearCache(); }
