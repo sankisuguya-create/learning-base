@@ -31,7 +31,18 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       const bg = await p.$eval('.lb-htile[data-id=tamath-kuku]', e => getComputedStyle(e).backgroundColor);
       if (bg !== 'rgb(18, 196, 139)') fails.push('child3: 九九のタイルがハブの色（ミント）でない: ' + bg);
     }
-    if (role === 'teacher' && await p.locator('#lb-as').count()) fails.push('teacher: 対応しているページが無いのに「代わりに取り組む」が出る');
+    if (role === 'teacher') {   // 算数は代わりに取り組むに対応：欄が出て、選んで開くと &as=<学習者ID>。対応していないページ（といボード）は開かない
+      if (!(await p.locator('#lb-as').count())) fails.push('teacher: 「代わりに取り組む」が出ない');
+      let opened = ''; await p.exposeFunction('lbOpened2', u => { opened = u; });
+      await p.evaluate(() => { window.LB_PLATFORM.open = u => window.lbOpened2(u); });
+      await p.selectOption('#lb-as', 'Lc');
+      await p.click('[data-act=subject][data-id=sansu]'); await p.click('[data-act=open][data-id=tamath-kuku]'); await p.waitForTimeout(200);
+      if (!/app=tamath&unit=kuku&as=Lc$/.test(opened)) fails.push('teacher: 代わりに取り組む時の URL が違う: ' + opened);
+      opened = '';
+      await p.click('[data-act=back]'); await p.click('.lb-tile[data-subject=sogo]'); await p.waitForTimeout(200);
+      if (opened) fails.push('teacher: 代わりに取り組むに対応していないページが開いた');
+      await p.goto(p.url()); await p.waitForTimeout(600);
+    }
     if (role === 'teacher') {
       await p.click('[data-act=edit]'); await p.click('[data-act=subject][data-id=sansu]');
       await p.click('[data-act=pub][data-id=tamath-kuku]'); await p.waitForTimeout(400);
