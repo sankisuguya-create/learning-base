@@ -44,6 +44,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       await p.click('[data-act=shot]'); await p.waitForTimeout(100);
       const who = await p.locator('.lb-alert-who').first().textContent();
       if (!/^見本/.test(who)) fails.push('teacher: 撮影用で見本の名前にならない: ' + who);
+      if ((await p.locator('.lb-alert-kind').first().textContent()) !== '▼ 急に崩れた') fails.push('teacher: 撮影用の種類の名前が出ない');
       if (/いとう|あおき/.test(await p.locator('#lb').textContent())) fails.push('teacher: 撮影用に実際の名前が残る');
       if (!(await p.locator('.lb-shot').count())) fails.push('teacher: 撮影用の表示だと分からない');
       if (await p.locator('[data-act=tune], [data-act=export]').count()) fails.push('teacher: 撮影用に所有者の欄が出る');

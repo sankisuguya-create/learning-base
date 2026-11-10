@@ -14,15 +14,8 @@
  * 包むので、アプリの関数（doGet・apiCall など）は大域に出ず、読み込み係の入口を上書きしない。
  */
 var LbPlatform = (function () {
-  /** 学習BASE の画面から呼べる関数（lbCall の mod・name）。ここに無いものは呼べない */
-  var API = {
-    home: { boot: function (o) { return LbHome.boot(o); }, decide: function (k, key, a, m) { return LbHome.decide(k, key, a, m); },
-      setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
-      resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); },
-      feedback: function (k, v, t) { return LbHome.feedback(k, v, t); }, report: function (kind, detail) { return LbHome.report(kind, detail); },
-      exportForTuning: function () { return LbHome.exportForTuning(); }, tuning: function () { return LbHome.tuning(); },
-      tryRules: function (v) { return LbHome.tryRules(v); }, saveRules: function (v, now) { return LbHome.saveRules(v, now); } }
-  };
+  /** 学習BASE の画面から呼べる関数（lbCall の mod・name）。ここに無いものは呼べない。表の中身は各窓口が持つ（LbHome.API） */
+  var API = { home: LbHome.API };
   function roleNow() { try { return Base.me().role; } catch (e) { return '-'; } }
 
   function doGet(e) {
@@ -90,7 +83,7 @@ var LbPlatform = (function () {
   function alerts() {
     try {
       var hub = Base.hub(), fy = Base.fy();
-      var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+      var today = LbSheets.day();
       var by = LbAlerts.refresh(hub, fy, Base.roster(), LbCatalog.readAll(hub), today);   // 所有者が変えた閾値（rules シート）で
       console.log('今週の3件：' + Object.keys(by).reduce(function (t, c) { return t + by[c].length; }, 0) + ' 件（初めて出た ' + LbTune.logAlerts(hub, by, today) + ' 件）');
       return [];
@@ -112,7 +105,7 @@ var LbPlatform = (function () {
     var count = {};
     var done = LbAlerts.decidedKeys(hub);
     if (sh && sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
-      var cls = Object.prototype.toString.call(r[0]) === '[object Date]' ? (r[0].getMonth() + 1) + '-' + r[0].getDate() : String(r[0]);
+      var cls = LbSheets.clsCell(r[0]);
       if (done[r[2]]) return;
       var c = count[cls] || (count[cls] = {}); c[r[3]] = (c[r[3]] || 0) + 1;
     });
@@ -129,7 +122,7 @@ var LbPlatform = (function () {
       Base.teachers().forEach(function (t) { if (t.scopes.some(function (s) { return !s.grade || (s.grade === g && (!s.cls || s.cls === c)); })) addTo(t.mail, cls); });
       addTo(owner, cls);
     });
-    var name = { drop: '急に崩れた', klass: '学級でつまずき', stall: '伸びが止まった' }, sent = 0;
+    var name = LbAlerts.KIND_NAME, sent = 0;
     Object.keys(to).forEach(function (mail) {
       var lines = to[mail].filter(function (v, i, a) { return a.indexOf(v) === i; }).sort().map(function (cls) {
         var c = count[cls], i = cls.indexOf('-');
@@ -185,8 +178,8 @@ var LbPlatform = (function () {
   function platformScript(baseUrl) {
     return 'window.LB_PLATFORM={baseUrl:' + JSON.stringify(baseUrl) + ',' +
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
-      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide",homeFeedback:"feedback",homeReport:"report",homeExport:"exportForTuning",homeTuning:"tuning",homeTryRules:"tryRules",homeSaveRules:"saveRules"};' +
-      'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",map[name]||name,a);});},' +
+      'var fn=String(name).replace(/^home(.)/,function(m,c){return c.toLowerCase();});' +   // homeSetNow → setNow（LbHome.API の名前）
+      'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",fn,a);});},' +
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +
       'function lbLoadFail(){if(window.lbFailed)return;window.lbFailed=1;try{google.script.run.lbCall("home","report",["loadfail"]);}catch(e){}var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';
