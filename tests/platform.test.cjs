@@ -291,16 +291,19 @@ t('自動実行：夜の処理は各アプリへ（算数TA は未登録の単�
   assert.strictEqual(S.fetches.length, before);
 });
 
-t('直すための材料：ページを開くと数え、夜に前日までを usage へ。所有者は画面から改善用の書き出しを受け取れる（名前は入らない）', () => {
+t('直すための材料：開いた・往復・始めるまで・失敗（エラー文つき）を数え、夜に前日までを usage へ。所有者は画面から失敗と速さの書き出しを受け取れる（名前は入らない）', () => {
   const S = school();
   run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: { app: 'tamath', unit: 'kuku' } });
-  run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'boot', [{ lastMs: 1200 }]);
+  run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'boot', [{ lastMs: 1200, mem: 8, start: { path: 'now', ms: 3000 } }]);
   const sum = () => Object.keys(S.props).filter(k => k.startsWith('LB_U|')).map(k => JSON.parse(S.props[k])).reduce((a, o) => { for (const k in o) a[k] = (a[k] || 0) + o[k]; return a; }, {});
   const all = sum();
-  assert.strictEqual(all['child|open:tamath/kuku'], 1); assert.strictEqual(all['child|boot'], 1); assert.strictEqual(all['child|rt:2秒未満'], 1);
-  // 失敗を数える：呼べる関数が中で失敗した時（児童が学級の設定を変えようとした）
+  assert.strictEqual(all['child|boot'], 1); assert.strictEqual(all['child|rt:8GB:2秒未満'], 1); assert.strictEqual(all['child|start:3年:いまの学習:5秒未満'], 1);
+  assert.ok(!Object.keys(all).some(k => /open:/.test(k)), 'ページを開いた回数は数えない');
+  run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'report', ['jserror', 'TypeError: q is null']);
+  assert.strictEqual(sum()['child|js:TypeError: q is null'], 1, '画面からのエラー文が届く');
+  // 失敗を数える：呼べる関数が中で失敗した時（児童が学級の設定を変えようとした）。エラー文つき
   assert.throws(() => run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'setNow', ['3-1', []]), /先生だけ/);
-  assert.strictEqual(sum()['-|err:home.setNow'], 1);
+  assert.strictEqual(sum()['child|err:home.setNow:先生だけが変えられます'], 1);
   // 書き出し：所有者だけ
   assert.throws(() => run(S, 'other@edu.nishi.or.jp').lbCall('home', 'exportForTuning', []), /所有者だけ/);
   S.hub.insertSheet('feedback').v.push(['日時', '教師', '学級', '画面', '本文'], [new Date(), 'owner@edu.nishi.or.jp', '3-1', 'home', '田中はなこさんが押し間違えた']);
@@ -309,6 +312,7 @@ t('直すための材料：ページを開くと数え、夜に前日までを u
   assert.ok(!/田中|はなこ|@|11111111/.test(r.text)); assert.match(r.text, /〔[a-z0-9]{2,3}〕さんが押し間違えた/);
   assert.match(r.text, new RegExp('版：' + VER));
   assert.ok(!/候補|分布|正答率/.test(r.text), '学習状態は入れない');
+  assert.match(r.text, /err:home\.setNow:先生だけが変えられます \| 1/);
   // 閾値：所有者が保存した値で夜の計算をする
   run(S).lbCall('home', 'saveRules', [{ 'drop.accDrop': 0.2 }, false]);
   assert.strictEqual(S.hub.sheets.rules.v.find(x => x[0] === 'drop.accDrop')[1], 0.2);
@@ -317,8 +321,27 @@ t('直すための材料：ページを開くと数え、夜に前日までを u
   // 夜：前日までの分を usage へ
   for (const k of Object.keys(S.props)) if (k.startsWith('LB_U|')) { S.props[k.replace(/LB_U\|\d{4}-\d{2}-\d{2}/, 'LB_U|2026-01-05')] = S.props[k]; delete S.props[k]; }
   run(S).lbNightly();
-  assert.ok(S.hub.sheets.usage.v.some(r => r[0] === '2026-01-05' && r[2] === 'open:tamath/kuku'));
+  assert.ok(S.hub.sheets.usage.v.some(r => r[0] === '2026-01-05' && r[2] === 'err:home.setNow:先生だけが変えられます'));
   assert.ok(!Object.keys(S.props).some(k => k.startsWith('LB_U|2026-01-05')));
+});
+t('月曜のメール：今週の3件が無い週でも、失敗があれば所有者にだけ件数を1行（名前・エラー文は書かない）', () => {
+  const S = school();
+  assert.strictEqual(run(S).lbWeekly(), 0, '失敗も3件も無ければ送らない');
+  assert.throws(() => run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'setNow', ['3-1', []]));
+  assert.strictEqual(run(S).lbWeekly(), 1);
+  const m = S.mails[S.mails.length - 1];
+  assert.strictEqual(m.to, 'owner@edu.nishi.or.jp'); assert.match(m.body, /直近7日の失敗：1 件/);
+  assert.ok(!/先生だけ|田中|はなこ/.test(m.body));
+});
+t('月曜のメール：今週の3件がある週は、失敗の1行を所有者のメールにだけ足す（担任には足さない）', () => {
+  const S = school();
+  S.hub.insertSheet('teachers').v.push(['メール', '学年', '組'], ['tannin@edu.nishi.or.jp', 3, '1']);
+  S.hub.insertSheet('now3').v.push(['学級', '順', 'キー', '種類'], ['3-1', 1, 'drop|x|2026-11-02', 'drop']);
+  assert.throws(() => run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'setNow', ['3-1', []]));
+  assert.strictEqual(run(S).lbWeekly(), 2);
+  const own = S.mails.find(m => m.to === 'owner@edu.nishi.or.jp'), tan = S.mails.find(m => m.to === 'tannin@edu.nishi.or.jp');
+  assert.match(own.body, /3年1組：急に崩れた 1/); assert.match(own.body, /（所有者へ）直近7日の失敗：1 件/);
+  assert.match(tan.body, /3年1組：急に崩れた 1/); assert.ok(!/失敗/.test(tan.body));
 });
 (async () => {
   const S = school();

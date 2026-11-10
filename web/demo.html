@@ -38,6 +38,7 @@
   }
   var api = {
     homeBoot: function (opt) {
+      if (opt && (opt.start || opt.dead)) { var st = store(); (st.boots = st.boots || []).push({ start: opt.start || null, dead: opt.dead || 0 }); put(st); }
       var b = { role: role.indexOf('child') === 0 ? 'child' : role, today: new Date().toISOString().slice(0, 10), pagesUrl: '../catalog/pages.json', subjects: LbPages.SUBJECTS };
       b.links = { kuku: { color: 'mint', url: '', subtitle: '3年' }, divmod: { color: 'blue', subtitle: '3年' }, length: { color: 'amber' }, weight: { color: 'red' },
         bignum: { color: 'purple' }, decimal: { color: 'teal' }, circle: { color: 'cobalt' }, kakehissan: { color: 'coral' }, bai: { color: 'ochre' },
@@ -55,9 +56,9 @@
     homeResetPublish: function (k) { var s = settings(k); s.publish = {}; return setSettings(k, s); },
     homeDecide: function (k, key) { var s = store(); s.now3 = (s.now3 || api.homeBoot().now3).filter(function (x) { return x.key !== key; }); put(s); return s.now3; },
     homeFeedback: function (k, v, t) { var s = store(); (s.fb = s.fb || []).push({ k: k, v: v, t: t }); put(s); return true; },
-    homeReport: function () { return true; },
+    homeReport: function (k, d) { var s = store(); (s.reports = s.reports || []).push([k, d || '']); put(s); return true; },
     homeExport: function () { return { ok: true, notes: ['1文字の名前かもしれない「空」を置き換えていません（2026-11-10 の気づき）'],
-      text: '# 学習BASE 改善用の書き出し（使い勝手・機能性）\n書き出した日：（見本）\n\n## 1. 使われ方\n…（本番では、使われ方・速さと失敗・今週の3件への先生の反応（割合）・先生の設定・気づきが入ります）' }; },
+      text: '# 学習BASE 失敗と速さ\n書き出した日：（見本）\n\n## 1. 失敗\n…（本番では、失敗・速さ（端末別）・始めるまで・先生の設定・気づきが入ります）' }; },
     homeTuning: function () { return demoTuning(store().rules || {}); },
     homeTryRules: function (v) { var t = demoTuning(v); return { now: demoTuning(store().rules || {}).counts, tried: t.counts, bad: [] }; },
     homeSaveRules: function (v) { var s = store(), r = s.rules || {}; Object.keys(v).forEach(function (k) { if (v[k] === '') delete r[k]; else r[k] = v[k]; }); s.rules = r; put(s); return demoTuning(r); },

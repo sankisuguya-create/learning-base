@@ -51,13 +51,29 @@ t('使われ方：数えた分はプロパティに日付ごと。夜に前日�
   assert.strictEqual(e2.T.flush(hub), 0, '2回目は何も足さない');
   void T; void props; void clock;
 });
-t('使われ方：数えるのに失敗しても止めない。区分・出来事の | や空白は消す', () => {
+t('使われ方：数えるのに失敗しても止めない。出来事の | ・改行は空白に。エラー文のメール・ID・長い数は伏せる。種類が多すぎれば「その他」', () => {
   const { T, props } = env();
-  T.count('child', 'open:tamath/kuku|x y');
-  assert.ok(JSON.stringify(props).includes('child|open:tamath/kukuxy'));
+  T.count('child', 'js:x|y\nz');
+  assert.ok(JSON.stringify(props).includes('child|js:x y z'));
+  assert.strictEqual(T.errText(new Error('名簿にありません: 12345678@kyoiku.edu.nishi.or.jp / L' + 'abcdefghij' + ' / 1234567')), '名簿にありません: ＜メール＞ / ＜ID＞ / ＜数＞');
+  assert.strictEqual(T.err('home.boot', new Error('x')), 'err:home.boot:x');
+  const e3 = env({ random: () => 0 });
+  for (let i = 0; i < 90; i++) e3.T.count('-', 'js:e' + i);
+  const o = JSON.parse(Object.values(e3.props)[0]);
+  assert.strictEqual(Object.keys(o).length, 81); assert.strictEqual(o['-|その他'], 10);
   const broken = env(); broken.ctx.PropertiesService.getScriptProperties = () => { throw new Error('quota'); };
   broken.T.count('child', 'boot');
   assert.strictEqual(T.speed('srv', 1500), 'srv:1〜2秒'); assert.strictEqual(T.speed('rt', 9000), 'rt:8秒以上');
+});
+t('ホームを開いた時に送られる前回分：往復は端末のメモリ別、始めるまで・行き止まりは児童だけ・学年ごと', () => {
+  const { T } = env();
+  assert.strictEqual(J(T.bootEvents('child', 3, { lastMs: 3000, mem: 4, start: { path: 'now', ms: 7000 }, dead: 2 })),
+    J(['rt:4GB以下:2〜4秒', 'start:3年:いまの学習:5〜10秒', 'deadend:3年', 'deadend:3年']));
+  assert.strictEqual(J(T.bootEvents('teacher', 0, { lastMs: 1000, mem: 8, start: { path: 'now', ms: 7000 }, dead: 2 })), J(['rt:8GB:2秒未満']), '先生の始めるまでは数えない');
+  const ev = T.bootEvents('child', 1, { start: { path: 'evil', ms: 5 }, dead: 999 });
+  assert.strictEqual(ev.length, 20, '知らない経路は捨て、行き止まりは20まで'); assert.ok(ev.every(e => e === 'deadend:1年'));
+  assert.strictEqual(T.bootEvents('teacher', 3, { start: { path: 'now', ms: 5 }, dead: 1 }).length, 0, '学年があっても先生は数えない');
+  assert.strictEqual(T.memClass(undefined), '不明');
 });
 t('今週の3件の働き：出た項目は1回だけ残し、週×種類で 出た・判断が変わった・見た・押されていない を数える', () => {
   const { T, A, F } = env();
@@ -176,39 +192,41 @@ t('最後の確かめ：名前・メール・学習者ID が残っていれば�
 function exportEnv() {
   const e = env();
   const hub = makeSS('hub');
-  // 今週の3件：drop が 12件出て、4件「判断が変わった」・6件「見た」。stall は 3件（少ない）
   const w0 = W(e.F, 0), items = [];
   for (let i = 0; i < 12; i++) items.push({ key: 'drop|' + i + '|' + w0, kind: 'drop', week: w0 });
-  for (let i = 0; i < 3; i++) items.push({ key: 'stall|' + i + '|' + w0, kind: 'stall', week: w0 });
   e.T.logAlerts(hub, { '3-1': items }, '2026-11-18');
-  for (let i = 0; i < 10; i++) e.A.decide(hub, '3-1', items[i], i < 4 ? 'changed' : 'seen', '', 't@edu.nishi.or.jp');
   e.T.saveFeedback(hub, 'yamada@edu.nishi.or.jp', '3-1', 'home', '佐藤大和さんの画面でボタンが押しにくい。はなこも迷っていた。空が泣いた。山田より');
-  e.T.count('teacher', 'boot'); e.T.count('child', 'err:home.boot');
+  e.T.count('teacher', ['boot', 'srv:1〜2秒']); e.T.count('child', ['boot', 'rt:4GB以下:4〜8秒', 'start:3年:教科の中:20秒以上', 'deadend:3年']);
+  e.T.count('child', e.T.err('home.boot', new Error('読めません 12345678@kyoiku.edu.nishi.or.jp'))); e.T.count('child', 'js:TypeError: x is undefined');
   e.A.saveValues(hub, { 'drop.accDrop': 0.12 });
   return Object.assign(e, { hub });
 }
 const OPTS = x => ({ hub: x.hub, fy: 2026, today: '2026-11-18', ver: 'abc1234', roster: ROSTER, teachers: TEACHERS, settings: [{ classKey: '3-1', hidden: 2, now: 1 }] });
-t('改善用の書き出し：使い勝手・機能性だけ。今週の3件は反応の割合だけ（件数は書かない・10件未満は「少ない」）。学習状態（候補の数・分布・人数）は入れない', () => {
+t('失敗と速さの書き出し：失敗（エラー文つき・メールは伏せる）・速さ（端末別）・始めるまで・設定・分母の開いた回数。学習状態と今週の3件の数は入れない', () => {
   const x = exportEnv(), r = x.T.exportText(OPTS(x));
   assert.ok(r.ok, r.problems.join());
-  assert.match(r.text, /\| 急に崩れた \| 変わった 33%・見た 50%・押されていない 17% \| 少ない \|/);
-  assert.match(r.text, /\| 伸びが止まった \| 少ない \| 少ない \|/);
-  ['候補', '分布', '正答率', '取り組んだ児童', '問題数', '5人未満', '| 12 |', '| 3 |'].forEach(w => assert.ok(!r.text.includes(w), '学習状態が入っている：' + w));
+  assert.match(r.text, /\| child \| err:home\.boot:読めません ＜メール＞ \| 1 \| 0 \|/);
+  assert.match(r.text, /\| child \| js:TypeError: x is undefined \| 1 \| 0 \|/);
+  assert.match(r.text, /\| child \| rt:4GB以下:4〜8秒 \| 1 \| 0 \|/); assert.match(r.text, /\| teacher \| srv:1〜2秒 \| 1 \| 0 \|/);
+  assert.match(r.text, /\| start:3年:教科の中:20秒以上 \| 1 \| 0 \|/); assert.match(r.text, /\| deadend:3年 \| 1 \| 0 \|/);
+  assert.match(r.text, /開いた回数（分母）：child 1（その前7日 0）・teacher 1/);
+  ['候補', '分布', '正答率', '急に崩れた', '判断が変わった', '取り組んだ児童', '5人未満', '| 12 |'].forEach(w => assert.ok(!r.text.includes(w), '入れないものが入っている：' + w));
   assert.match(r.text, /閾値（所有者が初期値から変えたもの）：drop\.accDrop 0\.15→0\.12/);
-  assert.match(r.text, /child \| err:home\.boot \| 1 \| 0/); assert.match(r.text, /teacher \| boot \| 1 \| 0/);
   assert.match(r.text, /かくしたページ：計 2 件（1 学級）/);
+  assert.strictEqual(x.T.errorCount(x.hub, '2026-11-18'), 2);
 });
-t('改善用の書き出し：気づきの名前は記号に。先生のメールは「先生1」、学級は学年だけ。名前があった気づきは目で確かめるよう画面で頼む', () => {
+t('失敗と速さの書き出し：気づきの名前は記号に。先生のメールは「先生1」、学級は学年だけ。名前があった気づきは目で確かめるよう画面で頼む', () => {
   const x = exportEnv(), r = x.T.exportText(OPTS(x));
   ['佐藤', '大和', 'はなこ', '山田', 'yamada', '@', '3-1', ROSTER[0].lid].forEach(w => assert.ok(!r.text.includes(w), '残っている：' + w));
   assert.match(r.text, /先生1・3年・home：〔[a-z0-9]{2,3}〕さんの画面でボタンが押しにくい。〔[a-z0-9]{2,3}〕も迷っていた/);
   assert.match(r.text, /空が泣いた/, '1文字の名前は単独では置き換えない');
   assert.ok(r.notes.some(n => n.includes('「空」')));
-  assert.ok(r.notes.some(n => n.includes('学習のようす')), '名前があった気づきは、学習のようすが書かれていないか確かめるよう頼む');
+  assert.ok(r.notes.some(n => n.includes('学習のようす')));
 });
-t('改善用の書き出し：ページの名前などが児童の名前と同じ表記でも記号に置き換え、画面で知らせる。置き換えを外すと最後の確かめで止まる', () => {
-  const x = exportEnv(), o = OPTS(x); o.ver = '佐藤大和';
-  const r = x.T.exportText(o);
+t('失敗と速さの書き出し：エラー文などが児童の名前と同じ表記でも記号に置き換え、画面で知らせる。置き換えを外すと最後の確かめで止まる', () => {
+  const x = exportEnv();
+  x.T.count('-', x.T.err('tamath.save', new Error('佐藤大和 の行がありません')));
+  const r = x.T.exportText(OPTS(x));
   assert.ok(r.ok); assert.ok(!r.text.includes('佐藤'));
   assert.ok(r.notes.some(n => n.includes('気づき以外')));
   const e2 = exportEnv(), real = e2.ctx.LbPseudo.replace;

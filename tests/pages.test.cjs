@@ -177,11 +177,12 @@ t('保存：日付に化けた学級（3-1 → 3月1日）・日付の欄も、�
   assert.strictEqual(hub.sheets.class_pages.v[1][0], '3-1', '学級の欄は文字のまま');
 });
 
-t('窓口：開くたびに役割ごとに数える（前回の往復の時間も）。名前は数えない', () => {
+t('窓口：開くたびに役割ごとに数える（前回の往復の時間は端末別、始めるまで・行き止まりは学年別）。名前は数えない', () => {
   const { ctx, props } = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);
-  ctx.homeBoot({ lastMs: 3100 });
+  ctx.homeBoot({ lastMs: 3100, mem: 4, start: { path: 'tile', ms: 12000 }, dead: 1 });
   const all = Object.values(props).map(v => JSON.parse(v)).reduce((a, o) => Object.assign(a, o), {});
-  assert.strictEqual(all['child|boot'], 1); assert.strictEqual(all['child|rt:2〜4秒'], 1);
+  assert.strictEqual(all['child|boot'], 1); assert.strictEqual(all['child|rt:4GB以下:2〜4秒'], 1);
+  assert.strictEqual(all['child|start:3年:教科のタイル:10〜20秒'], 1); assert.strictEqual(all['child|deadend:3年'], 1);
   assert.ok(Object.keys(all).some(k => /^child\|srv:/.test(k)));
   assert.ok(!JSON.stringify(props).match(/田中|はなこ|kyoiku/), '名前・メールは数えるところに入らない');
 });
@@ -220,7 +221,10 @@ t('窓口：気づきは先生だけ（担当外の学級は不可）。書き�
   assert.strictEqual(row[2], '3-1', '学級は文字のまま'); assert.strictEqual(row[4], '今週の3件が多すぎる');
   assert.throws(() => tc.ctx.homeExport(), /所有者だけ/);
   assert.strictEqual(tc.ctx.homeReport('loadfail'), true); assert.strictEqual(tc.ctx.homeReport('<script>'), false);
-  assert.ok(JSON.stringify(tc.props).includes('teacher|client:loadfail')); assert.ok(!JSON.stringify(tc.props).includes('script'));
+  assert.strictEqual(tc.ctx.homeReport('jserror', 'TypeError: a is null at 12345678@kyoiku.edu.nishi.or.jp'), true);
+  const pj = JSON.stringify(tc.props);
+  assert.ok(pj.includes('teacher|client:loadfail')); assert.ok(!pj.includes('script'));
+  assert.ok(pj.includes('teacher|js:TypeError: a is null at ＜メール＞')); assert.ok(!pj.includes('kyoiku'));
 });
 
 console.log(`pages ${n} 件 ok`);

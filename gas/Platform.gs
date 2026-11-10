@@ -19,7 +19,7 @@ var LbPlatform = (function () {
     home: { boot: function (o) { return LbHome.boot(o); }, decide: function (k, key, a, m) { return LbHome.decide(k, key, a, m); },
       setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
       resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); },
-      feedback: function (k, v, t) { return LbHome.feedback(k, v, t); }, report: function (kind) { return LbHome.report(kind); },
+      feedback: function (k, v, t) { return LbHome.feedback(k, v, t); }, report: function (kind, detail) { return LbHome.report(kind, detail); },
       exportForTuning: function () { return LbHome.exportForTuning(); }, tuning: function () { return LbHome.tuning(); },
       tryRules: function (v) { return LbHome.tryRules(v); }, saveRules: function (v, now) { return LbHome.saveRules(v, now); } }
   };
@@ -28,14 +28,12 @@ var LbPlatform = (function () {
   function doGet(e) {
     var p = (e && e.parameter) || {};
     var app = p.app || (p.unit ? 'tamath' : '');
-    if (p.doc && !app) { LbTune.count(roleNow(), 'open:doc'); return message('このページは じゅんび中です'); }
+    if (p.doc && !app) return message('このページは じゅんび中です');
     if (app) {
       var m = LB_MODULES[app];
       if (!m) return message('アプリが見つかりません: ' + app);
-      // ページを開いた回数（どのページが使われているか）。教師の画面（page=teacher）も分けて数える
-      LbTune.count(roleNow(), 'open:' + app + (p.unit ? '/' + p.unit : '') + (p.page ? '/' + p.page : '') + (p.as ? '/as' : ''));
       LB_LOADER.files();                      // アプリの画面のファイルを読む（LB_FILES）
-      try { return m.doGet(e); } catch (err) { LbTune.count('-', 'err:' + app + '.doGet'); throw err; }
+      try { return m.doGet(e); } catch (err) { LbTune.count(roleNow(), LbTune.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
   }
@@ -44,13 +42,13 @@ var LbPlatform = (function () {
     var api = API[String(mod)];
     if (!api || !Object.prototype.hasOwnProperty.call(api, String(name))) throw new Error('呼べない関数です: ' + mod + '.' + name);
     try { return api[name].apply(null, Array.isArray(args) ? args : []); }
-    catch (e) { LbTune.count('-', 'err:' + mod + '.' + name); throw e; }
+    catch (e) { LbTune.count(roleNow(), LbTune.err(mod + '.' + name, e)); throw e; }
   }
   function appApi(app, unit, name, args) {
     var m = LB_MODULES[app];
     if (!m || !m.apiCall) throw new Error('アプリが見つかりません: ' + app);
     try { return m.apiCall(unit, name, args); }
-    catch (e) { LbTune.count('-', 'err:' + app + '.' + String(name).slice(0, 40)); throw e; }
+    catch (e) { LbTune.count(roleNow(), LbTune.err(app + '.' + String(name).slice(0, 40), e)); throw e; }
   }
 
   /** 自動実行：各アプリの夜・朝の処理。1つのアプリが失敗しても他は続ける */
@@ -101,23 +99,29 @@ var LbPlatform = (function () {
 
   /**
    * 月曜の朝：学級の担当の先生（teachers シート）と所有者に「今週の3件」の件数を知らせる。
-   * 児童の名前はメールに書かない（名前は学習BASE の画面の中だけ）
+   * 児童の名前はメールに書かない（名前は学習BASE の画面の中だけ）。
+   * 所有者には、直近7日の失敗の件数も1行（今週の3件が無い週でも、失敗があれば送る）
    */
   function weekly() {
     var hub = Base.hub(), url = '';
     try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
+    var owner = ''; try { owner = Session.getEffectiveUser().getEmail(); } catch (e) {}
+    var ne = 0; try { ne = LbTune.errorCount(hub); } catch (e) {}
+    var errLine = ne ? '直近7日の失敗：' + ne + ' 件。学習BASE の一番下「失敗と速さを見る・書き出す」で確かめてください。' : '';
     var sh = hub.getSheetByName('now3');
-    if (!sh || sh.getLastRow() < 2) return 0;
     var count = {};
     var done = LbAlerts.decidedKeys(hub);
-    sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+    if (sh && sh.getLastRow() >= 2) sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
       var cls = Object.prototype.toString.call(r[0]) === '[object Date]' ? (r[0].getMonth() + 1) + '-' + r[0].getDate() : String(r[0]);
       if (done[r[2]]) return;
       var c = count[cls] || (count[cls] = {}); c[r[3]] = (c[r[3]] || 0) + 1;
     });
     var classes = Object.keys(count);
-    if (!classes.length) return 0;
-    var owner = ''; try { owner = Session.getEffectiveUser().getEmail(); } catch (e) {}
+    if (!classes.length) {
+      if (!errLine || !owner) return 0;
+      MailApp.sendEmail({ to: owner, subject: '学習BASE：失敗の件数', body: errLine + '\n' + url });
+      return 1;
+    }
     var to = {};
     function addTo(mail, cls) { if (mail) (to[mail] = to[mail] || []).push(cls); }
     classes.forEach(function (cls) {
@@ -132,7 +136,7 @@ var LbPlatform = (function () {
         return cls.slice(0, i) + '年' + cls.slice(i + 1) + '組：' + Object.keys(c).map(function (k) { return name[k] + ' ' + c[k]; }).join('・');
       });
       MailApp.sendEmail({ to: mail, subject: '学習BASE：今週の3件', body: '今週、目を向けるとよい相手がいます。\n\n' + lines.join('\n') +
-        '\n\n学習BASE（先生の画面の一番上）で確かめてください。\n' + url + '\n\n（このメールには児童の名前を書いていません）' });
+        '\n\n学習BASE（先生の画面の一番上）で確かめてください。\n' + url + (mail === owner && errLine ? '\n\n（所有者へ）' + errLine : '') + '\n\n（このメールには児童の名前を書いていません）' });
       sent++;
     });
     return sent;

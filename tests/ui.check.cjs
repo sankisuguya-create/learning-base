@@ -63,7 +63,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       const fb = await p.evaluate(() => (JSON.parse(localStorage.getItem('lb-demo') || '{}').fb || []).map(x => x.t).join());
       if (fb !== '九九のタイルが小さい') fails.push('teacher: 気づきが送られない: ' + fb);
       await p.click('[data-act=export]'); await p.waitForTimeout(400);
-      if (!/使い勝手・機能性/.test(await p.inputValue('#lb-exptext'))) fails.push('teacher: 書き出しの文が出ない');
+      if (!/失敗と速さ/.test(await p.inputValue('#lb-exptext'))) fails.push('teacher: 書き出しの文が出ない');
       await p.click('[data-act=export-close]');
       // 閾値を見直す：値を変えて数える → 入れた値なら の行。保存すると「変えている」
       await p.click('[data-act=tune]'); await p.waitForTimeout(400);
@@ -78,6 +78,23 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if (!/変えている/.test(await p.locator('.lb-rule').first().textContent())) fails.push('teacher: 変えている印が出ない');
       await p.click('[data-act=back]');
       await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('lb-demo') || '{}'); delete s.fb; delete s.rules; localStorage.setItem('lb-demo', JSON.stringify(s)); });
+    }
+    if (role === 'child3') {   // 記録：行き止まり・始めるまで（経路）を覚え、次に開いた時に送って消す。画面の JavaScript の失敗を送る
+      await p.evaluate(() => localStorage.clear()); await p.goto(`http://localhost:${port}/web/demo.html?role=child3`); await p.waitForTimeout(700);
+      await p.evaluate(() => { window.LB_PLATFORM.open = () => {}; });
+      await p.click('[data-act=subject][data-id=sansu]'); await p.click('[data-act=back]');
+      if (await p.evaluate(() => localStorage.getItem('lb-dead')) !== '1') fails.push('child3: 行き止まりを覚えない');
+      await p.click('.lb-nowcard'); await p.waitForTimeout(100);
+      const st = await p.evaluate(() => JSON.parse(localStorage.getItem('lb-start') || 'null'));
+      if (!st || st.path !== 'now' || !(st.ms >= 0)) fails.push('child3: 始めるまでを覚えない: ' + JSON.stringify(st));
+      await p.reload(); await p.waitForTimeout(700);
+      const sent = await p.evaluate(() => (JSON.parse(localStorage.getItem('lb-demo') || '{}').boots || []).pop());
+      if (!sent || !sent.start || sent.start.path !== 'now' || sent.dead !== 1) fails.push('child3: 前回分が次に開いた時に送られない: ' + JSON.stringify(sent));
+      if (await p.evaluate(() => localStorage.getItem('lb-dead')) !== '0') fails.push('child3: 送った分が消えない');
+      await p.evaluate(() => setTimeout(() => { throw new Error('見本の失敗'); }, 0)); await p.waitForTimeout(400);
+      const rep = await p.evaluate(() => JSON.parse(localStorage.getItem('lb-demo') || '{}').reports || []);
+      if (!rep.some(r => r[0] === 'jserror' && /見本の失敗/.test(r[1]))) fails.push('child3: 画面の失敗が送られない: ' + JSON.stringify(rep));
+      await p.evaluate(() => localStorage.clear());
     }
     if (role === 'child3' && (await p.locator('.lb-fb, [data-act=shot], [data-act=export], [data-act=tune]').count())) fails.push('child3: 児童に先生の欄が出る');
     if (role === 'child3' && await p.locator('.lb-alert').count()) fails.push('child3: 児童に今週の3件が出る');

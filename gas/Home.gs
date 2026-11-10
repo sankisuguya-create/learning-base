@@ -61,8 +61,8 @@ var LbHome = (function () {
   function boot(opt) {
     opt = opt || {};
     var t0 = Date.now(), out = bootInner(opt), ev = ['boot', LbTune.speed('srv', Date.now() - t0)];
-    if (Number(opt.lastMs) > 0) ev.push(LbTune.speed('rt', opt.lastMs));   // 前回開いた時の往復（画面が覚えて次に送る。呼び出しを増やさない）
-    LbTune.count(out.role, ev);
+    // 前回分（往復の時間・端末のメモリ・始めるまで・行き止まり）は画面が覚えて次に送る（呼び出しを増やさない）
+    LbTune.count(out.role, ev.concat(LbTune.bootEvents(out.role, out.learner ? out.learner.grade : 0, opt)));
     return out;
   }
   function bootInner(opt) {
@@ -109,7 +109,6 @@ var LbHome = (function () {
     var item = LbAlerts.read(Base.hub(), classKey).filter(function (x) { return x.key === String(key); })[0];
     if (!item) throw new Error('もう ない項目です（ページを開き直してください）');
     LbAlerts.decide(Base.hub(), classKey, item, action === 'changed' ? 'changed' : 'seen', memo, m.email);
-    LbTune.count('teacher', 'act:decide-' + (action === 'changed' ? 'changed' : 'seen'));
     return now3(classKey);
   }
 
@@ -117,7 +116,6 @@ var LbHome = (function () {
     var m = requireClass(classKey);
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(String(pageId))) throw new Error('ページの名前が不正です');
     LbPages.setPublish(Base.hub(), classKey, String(pageId), !!on, m.email);
-    LbTune.count('teacher', 'act:' + (on ? 'show' : 'hide'));
     return LbPages.readSettings(Base.hub(), classKey);
   }
   function resetPublish(classKey) {
@@ -131,7 +129,6 @@ var LbHome = (function () {
       return { page: String(n.page || ''), from: /^\d{4}-\d{2}-\d{2}$/.test(n.from || '') ? n.from : '', to: /^\d{4}-\d{2}-\d{2}$/.test(n.to || '') ? n.to : '' };
     }).filter(function (n) { return /^[a-z0-9][a-z0-9-]*$/.test(n.page); });
     LbPages.setNow(Base.hub(), classKey, clean, m.email);
-    LbTune.count('teacher', 'act:now');
     return LbPages.readSettings(Base.hub(), classKey);
   }
 
@@ -151,20 +148,22 @@ var LbHome = (function () {
     var ck = '';
     if (classKey) { requireClass(classKey); ck = String(classKey); }
     LbTune.saveFeedback(Base.hub(), m.email, ck, view, text);
-    LbTune.count('teacher', 'act:feedback');
     return true;
   }
-  /** 画面の失敗を数える（画面のファイルが読めない・ホームの情報が取れない・目録が取れない） */
-  var REPORT = { loadfail: 1, bootfail: 1, catfail: 1 };
-  function report(kind) {
+  /**
+   * 画面の失敗を数える。loadfail：画面のファイルが読めない／bootfail：ホームの情報が取れない／catfail：目録が取れない／
+   * jserror：画面の JavaScript の失敗（detail にエラー文。メール・ID・長い数は伏せて記録）
+   */
+  var REPORT = { loadfail: 1, bootfail: 1, catfail: 1, jserror: 1 };
+  function report(kind, detail) {
     if (!REPORT[kind]) return false;
     var role = '-';
     try { role = Base.me().role; } catch (e) {}
-    LbTune.count(role, 'client:' + kind);
+    LbTune.count(role, kind === 'jserror' ? 'js:' + LbTune.errText(detail) : 'client:' + kind);
     return true;
   }
   function requireOwner() { if (!isOwnerView()) throw new Error('スプレッドシートの所有者だけが使えます'); }
-  /** 改善用の書き出し（所有者だけ。使い勝手・機能性だけ）。{ ok, text, problems, notes } */
+  /** 失敗と速さの書き出し（所有者だけ。観察では見えないものだけ・学習状態は入れない）。{ ok, text, problems, notes } */
   function exportForTuning() {
     requireOwner();
     var hub = Base.hub(), fy = Base.fy(), roster = Base.roster(), t = today();
@@ -176,7 +175,6 @@ var LbHome = (function () {
     var ver = '';
     try { ver = typeof LB_LOADER !== 'undefined' ? LB_LOADER.ver() : ''; } catch (e) {}
     var r = LbTune.exportText({ hub: hub, fy: fy, today: t, ver: ver, roster: roster, teachers: Base.teachers(), settings: settings });
-    LbTune.count('teacher', 'act:export');
     return r;
   }
 
@@ -184,7 +182,6 @@ var LbHome = (function () {
   function tuningInput() { var hub = Base.hub(), fy = Base.fy(); return { hub: hub, today: today(), roster: Base.roster(), acc: LbFacts.read(hub, fy), cats: LbCatalog.readAll(hub) }; }
   function tuning() {
     requireOwner();
-    LbTune.count('teacher', 'act:tuning');
     return LbTune.tuning(tuningInput());
   }
   /** 入れた値で数える（保存しない）。values：{ 項目: 値 }（元の値。0.15 など） */
@@ -199,7 +196,6 @@ var LbHome = (function () {
     var o = tuningInput();
     LbAlerts.saveValues(o.hub, values || {}, String(Session.getActiveUser().getEmail() || ''));
     if (now) LbTune.logAlerts(o.hub, LbAlerts.refresh(o.hub, Base.fy(), o.roster, o.cats, o.today), o.today);
-    LbTune.count('teacher', 'act:rules' + (now ? '-now' : ''));
     return LbTune.tuning(o);
   }
 
@@ -213,7 +209,7 @@ function homeResetPublish(classKey) { return LbHome.resetPublish(classKey); }
 function homeSetNow(classKey, list) { return LbHome.setNow(classKey, list); }
 function homeDecide(classKey, key, action, memo) { return LbHome.decide(classKey, key, action, memo); }
 function homeFeedback(classKey, view, text) { return LbHome.feedback(classKey, view, text); }
-function homeReport(kind) { return LbHome.report(kind); }
+function homeReport(kind, detail) { return LbHome.report(kind, detail); }
 function homeExport() { return LbHome.exportForTuning(); }
 function homeTuning() { return LbHome.tuning(); }
 function homeTryRules(values) { return LbHome.tryRules(values); }
