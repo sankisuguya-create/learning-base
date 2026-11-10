@@ -25,7 +25,7 @@ function run(S, user = 'owner@edu.nishi.or.jp') {
     CacheService: { getScriptCache: () => ({ get: k => (k in store ? store[k] : null), put: (k, v) => { store[k] = String(v); }, remove: k => { delete store[k]; },
       getAll: ks => { const o = {}; ks.forEach(k => { if (k in store) o[k] = store[k]; }); return o; }, putAll: m => { for (const k in m) store[k] = String(m[k]); },
       removeAll: ks => ks.forEach(k => delete store[k]) }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = String(v); }, deleteProperty: k => { delete S.props[k]; } }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = String(v); }, deleteProperty: k => { delete S.props[k]; }, getProperties: () => Object.assign({}, S.props) }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
     SpreadsheetApp: { openById: id => { if (id === S.props.HUB_ID) return S.hub; if (S.units && S.units[id]) return S.units[id]; throw new Error('開けません ' + id); }, getActiveSpreadsheet: () => { throw new Error('付属のスプレッドシートは無い'); } },
     UrlFetchApp: { fetch: url => {
@@ -291,6 +291,30 @@ t('自動実行：夜の処理は各アプリへ（算数TA は未登録の単�
   assert.strictEqual(S.fetches.length, before);
 });
 
+t('直すための材料：ページを開くと数え、夜に前日までを usage へ。所有者は画面から改善用の書き出しを受け取れる（名前は入らない）', () => {
+  const S = school();
+  run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: { app: 'tamath', unit: 'kuku' } });
+  run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'boot', [{ lastMs: 1200 }]);
+  const sum = () => Object.keys(S.props).filter(k => k.startsWith('LB_U|')).map(k => JSON.parse(S.props[k])).reduce((a, o) => { for (const k in o) a[k] = (a[k] || 0) + o[k]; return a; }, {});
+  const all = sum();
+  assert.strictEqual(all['child|open:tamath/kuku'], 1); assert.strictEqual(all['child|boot'], 1); assert.strictEqual(all['child|rt:2秒未満'], 1);
+  // 失敗を数える：呼べる関数が中で失敗した時（児童が学級の設定を変えようとした）
+  assert.throws(() => run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'setNow', ['3-1', []]), /先生だけ/);
+  assert.strictEqual(sum()['-|err:home.setNow'], 1);
+  // 書き出し：所有者だけ
+  assert.throws(() => run(S, 'other@edu.nishi.or.jp').lbCall('home', 'exportForTuning', []), /所有者だけ/);
+  S.hub.insertSheet('feedback').v.push(['日時', '教師', '学級', '画面', '本文'], [new Date(), 'owner@edu.nishi.or.jp', '3-1', 'home', '田中はなこさんが押し間違えた']);
+  const r = run(S).lbCall('home', 'exportForTuning', []);
+  assert.ok(r.ok, (r.problems || []).join());
+  assert.ok(!/田中|はなこ|@|11111111/.test(r.text)); assert.match(r.text, /〔[a-z0-9]{2,3}〕さんが押し間違えた/);
+  assert.match(r.text, new RegExp('版：' + VER));
+  assert.ok(S.hub.sheets.pseudo_2026, '記号表はハブに');
+  // 夜：前日までの分を usage へ
+  for (const k of Object.keys(S.props)) if (k.startsWith('LB_U|')) { S.props[k.replace(/LB_U\|\d{4}-\d{2}-\d{2}/, 'LB_U|2026-01-05')] = S.props[k]; delete S.props[k]; }
+  run(S).lbNightly();
+  assert.ok(S.hub.sheets.usage.v.some(r => r[0] === '2026-01-05' && r[2] === 'open:tamath/kuku'));
+  assert.ok(!Object.keys(S.props).some(k => k.startsWith('LB_U|2026-01-05')));
+});
 (async () => {
   const S = school();
   const html = run(S).doGet({ parameter: {} }).html;

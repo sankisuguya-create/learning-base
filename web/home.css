@@ -107,10 +107,10 @@
 .lb .lb-abtn.sub{background:#fff;color:var(--solid-on);width:96px}   /* 主（判断が変わった）168px・従（見た）96px：比 1.75 で重要度の差と読める */
 
 /* 先生：上の帯と、カードの上の切り替え */
-.lb-tbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px;margin:10px 0 0;border-radius:var(--radius);background:var(--fill-b)}
+.lb-tbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:8px 12px;margin:12px 0 0;border-radius:var(--radius);background:var(--fill-b)}
 .lb-tbar label{font-size:15px;color:var(--ink)}
 .lb-tbar select{font:inherit;font-size:16px;min-height:48px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
-.lb-toggle{min-height:48px;padding:0 14px;border:2px solid var(--ink);border-radius:999px;background:#fff;cursor:pointer;font-size:15px;font-weight:700}
+.lb-toggle{min-height:48px;min-width:136px;padding:0 16px;border:2px solid var(--ink);border-radius:999px;background:#fff;cursor:pointer;font-size:15px;font-weight:700}
 .lb-toggle[aria-pressed="true"]{background:var(--ink);color:#fff}
 .lb-tstatus{font-size:14px;color:var(--ink)}
 .lb-link{border:0;background:none;color:var(--ink-link);text-decoration:underline;cursor:pointer;font-size:15px;min-height:48px;padding:0 8px}
@@ -127,3 +127,16 @@
 .lb-msg{padding:24px;font-size:20px;text-align:center;color:var(--ink-sub)}
 .lb-toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:999px;font-size:15px}
 @media (max-width:520px){.lb{font-size:17px}.lb-nowcard .lb-title{font-size:20px}}
+
+/* 先生：学習BASE への気づき・改善用の書き出し */
+.lb-fb{margin:32px 0 16px;padding-top:8px;border-top:1px solid var(--line)}
+.lb-fbnote{font-size:15px;color:var(--ink-sub);margin:0 0 8px}
+.lb-fb textarea,.lb-export textarea{box-sizing:border-box;width:100%;font:inherit;font-size:16px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}
+.lb-export textarea{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+.lb-fbacts{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:8px}
+.lb-export{margin:16px 0;padding:12px 16px;border:2px solid var(--solid-on);border-radius:var(--radius);background:var(--card)}
+.lb-exphead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.lb-exphead .lb-h{margin:8px 0}
+.lb-expng{color:var(--ink-alert);font-weight:700}
+.lb-expnotes{margin:0 0 8px;padding-left:20px;font-size:15px}
+.lb-fbowner{margin-top:8px}

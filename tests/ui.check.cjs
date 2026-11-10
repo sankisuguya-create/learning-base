@@ -40,6 +40,30 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('lb-demo') || '{}'); delete s.now3; localStorage.setItem('lb-demo', JSON.stringify(s)); });
       await p.goto(p.url()); await p.waitForTimeout(600);
     }
+    if (role === 'teacher') {   // 名前をかくす・気づき・改善用の書き出し
+      await p.click('[data-act=hide]'); await p.waitForTimeout(100);
+      const who = await p.locator('.lb-alert-who').first().textContent();
+      if (!/^〔[a-z0-9]+〕$/.test(who)) fails.push('teacher: 名前をかくすで記号にならない: ' + who);
+      if (await p.evaluate(() => localStorage.getItem('lb-hide')) !== '1') fails.push('teacher: 名前をかくすを覚えない');
+      const opts = await p.$$eval('#lb-as option', os => os.map(o => o.textContent).join('/'));
+      if (/あおき|いとう/.test(opts)) fails.push('teacher: 名前をかくしても児童の欄に名前: ' + opts);
+      await p.click('[data-act=hide]'); await p.waitForTimeout(100);
+      if (!/いとう/.test(await p.locator('.lb-alert-who').first().textContent())) fails.push('teacher: 名前をかくすを戻せない');
+      await p.fill('#lb-fbtext', '九九のタイルが小さい');
+      await p.click('[data-act=hide]'); await p.click('[data-act=hide]');      // 描き直しても書きかけが残る
+      if ((await p.inputValue('#lb-fbtext')) !== '九九のタイルが小さい') fails.push('teacher: 描き直しで気づきの書きかけが消える');
+      await p.click('[data-act=fb]'); await p.waitForTimeout(400);
+      const fb = await p.evaluate(() => (JSON.parse(localStorage.getItem('lb-demo') || '{}').fb || []).map(x => x.t).join());
+      if (fb !== '九九のタイルが小さい') fails.push('teacher: 気づきが送られない: ' + fb);
+      if ((await p.inputValue('#lb-fbtext')) !== '') fails.push('teacher: 送った後に欄が空にならない');
+      await p.click('[data-act=export]'); await p.waitForTimeout(400);
+      if (!/改善用の書き出し/.test(await p.inputValue('#lb-exptext'))) fails.push('teacher: 書き出しの文が出ない');
+      if (!(await p.locator('.lb-expnotes li').count())) fails.push('teacher: 目で確かめることが出ない');
+      await p.click('[data-act=export-close]');
+      if (await p.locator('.lb-export').count()) fails.push('teacher: 書き出しを閉じられない');
+      await p.evaluate(() => { localStorage.removeItem('lb-hide'); const s = JSON.parse(localStorage.getItem('lb-demo') || '{}'); delete s.fb; localStorage.setItem('lb-demo', JSON.stringify(s)); });
+    }
+    if (role === 'child3' && (await p.locator('.lb-fb, [data-act=hide], [data-act=export]').count())) fails.push('child3: 児童に先生の欄が出る');
     if (role === 'child3' && await p.locator('.lb-alert').count()) fails.push('child3: 児童に今週の3件が出る');
     if (role === 'teacher') {   // 算数は代わりに取り組むに対応：欄が出て、選んで開くと &as=<学習者ID>。対応していないページ（といボード）は開かない
       if (!(await p.locator('#lb-as').count())) fails.push('teacher: 「代わりに取り組む」が出ない');

@@ -106,6 +106,8 @@ jsDelivr から版で固定して取ってきて実行する。
 | `gas/LbSession.gs` | `LbSession` | 1回の取り組みを1行で記録する（全問を JSON で1セルに＋技能ごとの統計）。アプリの `sessions_<年度>` シートに書く |
 | `gas/Facts.gs` | `LbFacts` | 全アプリのセッションを「児童×技能×週」に集計する（毎晩、新しい行だけ読む）。状態（未着手・練習中・到達）を目録の基準で判定する |
 | `gas/Pseudo.gs` | `LbPseudo` | 名前を記号に置き換える・戻す（Gemini・NotebookLM に渡す前） |
+| `gas/Alerts.gs` | `LbAlerts` | 今週の3件（規則と閾値は `RULES` の1か所）。ハブの `now3`・`decisions` |
+| `gas/Tune.gs` | `LbTune` | 直すための材料：使われ方（ハブの `usage`）・出た記録（`now3_log`）・先生の気づき（`feedback`）・記号表（`pseudo_<年度>`）・改善用の書き出し（所有者だけ。手順は `docs/tuning-log.md`） |
 
 - GAS には組み込みの `Session` があるので、名前はすべて `Lb` で始める
 - アプリが書くのは「出題と画面」と「目録」だけ。記録・集計・状態の判定は共通の部品が行う

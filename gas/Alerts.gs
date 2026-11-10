@@ -36,23 +36,23 @@ var LbAlerts = (function () {
   function weeksBack(w0, from, to) { var out = []; for (var i = from; i <= to; i++) out.push(LbFacts.addWeeks(w0, -i)); return out; }
   function sum(byWeek, weeks) { return LbFacts.combine(weeks.map(function (w) { return byWeek[w]; }).filter(Boolean)); }
 
+  /** 名簿 → { 学習者ID: 学級キー } */
+  function classMap(roster) { var m = {}; roster.forEach(function (r) { if (r.lid) m[r.lid] = r.grade + '-' + r.cls; }); return m; }
+
   /**
-   * 候補を計算する（純粋な計算）。
-   * acc：集計（LbFacts.read の返り値）／roster：名簿（lid・grade・cls）／cats：{ アプリ: 目録 }／today：'YYYY-MM-DD'
-   * 返す：{ 学級: [{ key, kind, lids, app, skill, ev, week }] }（強い順に最大3件）
+   * 規則に当たる候補を全部返す（上位3件に切る前。判断済みも含む）。
+   * ix：index(acc)／clsOf：classMap(roster)／rules：RULES と同じ形（閾値を変えたらどうなるかを数える時に別の値を渡す）
+   * 返す：[{ cls, key, kind, lids, app, skill, week, mag, ev }]
    */
-  function compute(acc, roster, cats, today, dismissed) {
-    dismissed = dismissed || {};
-    var w0 = LbFacts.weekOf(new Date(today + 'T12:00:00+09:00')), ix = index(acc), cand = {};
-    var clsOf = {};
-    roster.forEach(function (r) { if (r.lid) clsOf[r.lid] = r.grade + '-' + r.cls; });
-    function add(cls, item) { if (!cls || dismissed[item.key]) return; (cand[cls] = cand[cls] || []).push(item); }
-    var perSkill = {};   // 学級|アプリ|技能 → [{ lid, n, acc }]
+  function candidates(ix, clsOf, cats, w0, rules) {
+    var R = rules || RULES, out = [];
+    function add(cls, item) { item.cls = cls; out.push(item); }
+    var perSkill = {};   // 学級|アプリ|技能 → [{ lid, acc }]
     Object.keys(ix).forEach(function (key) {
       var p = key.split('|'), lid = p[0], app = p[1], skill = p.slice(2).join('|'), byWeek = ix[key], cls = clsOf[lid];
       if (!cls) return;
       // drop
-      var d = RULES.drop, now = sum(byWeek, [w0]), base = sum(byWeek, weeksBack(w0, 1, d.baseWeeks));
+      var d = R.drop, now = sum(byWeek, [w0]), base = sum(byWeek, weeksBack(w0, 1, d.baseWeeks));
       if (now.n >= d.weekMinN && base.n >= d.baseMinN) {
         var sn = LbFacts.stats(now), sb = LbFacts.stats(base);
         var accDrop = sb.acc - sn.acc, rise = (sn.gmMs && sb.gmMs) ? sn.gmMs / sb.gmMs : 1;
@@ -60,7 +60,7 @@ var LbAlerts = (function () {
           mag: Math.max(accDrop / d.accDrop, rise / d.timeRise), ev: { accNow: sn.acc, accBase: sb.acc, msNow: sn.gmMs, msBase: sb.gmMs, nNow: now.n } });
       }
       // stall
-      var st = RULES.stall, rec = sum(byWeek, weeksBack(w0, 0, st.weeks - 1)), prev = sum(byWeek, weeksBack(w0, st.weeks, 2 * st.weeks - 1));
+      var st = R.stall, rec = sum(byWeek, weeksBack(w0, 0, st.weeks - 1)), prev = sum(byWeek, weeksBack(w0, st.weeks, 2 * st.weeks - 1));
       if (rec.n >= st.minN && prev.n >= st.minN && LbFacts.state(rec, LbCatalog.mastery(cats[app], skill)) !== '到達') {
         var sr = LbFacts.stats(rec), sp = LbFacts.stats(prev);
         var noGain = (sr.acc - sp.acc) < st.accGain, noFaster = (sr.gmMs && sp.gmMs) ? sr.gmMs / sp.gmMs > st.timeRatio : true;
@@ -68,11 +68,11 @@ var LbAlerts = (function () {
           mag: rec.n / st.minN, ev: { accNow: sr.acc, accBase: sp.acc, msNow: sr.gmMs, msBase: sp.gmMs, nNow: rec.n, nBase: prev.n } });
       }
       // klass の材料
-      var k = RULES.klass, two = sum(byWeek, weeksBack(w0, 0, k.weeks - 1));
+      var k = R.klass, two = sum(byWeek, weeksBack(w0, 0, k.weeks - 1));
       if (two.n >= k.kidMinN) (perSkill[cls + '|' + app + '|' + skill] = perSkill[cls + '|' + app + '|' + skill] || []).push({ lid: lid, acc: LbFacts.stats(two).acc });
     });
     Object.keys(perSkill).forEach(function (key) {
-      var k = RULES.klass, kids = perSkill[key];
+      var k = R.klass, kids = perSkill[key];
       if (kids.length < k.minKids) return;
       var low = kids.filter(function (x) { return x.acc < k.accBelow; }), share = low.length / kids.length;
       if (share < k.share) return;
@@ -80,13 +80,28 @@ var LbAlerts = (function () {
       add(cls, { key: 'klass|' + cls + '|' + app + '|' + skill + '|' + w0, kind: 'klass', lids: low.map(function (x) { return x.lid; }), app: app, skill: skill, week: w0,
         mag: share / k.share, ev: { kids: kids.length, low: low.length } });
     });
+    return out;
+  }
+
+  /**
+   * 候補を計算する（純粋な計算）。
+   * acc：集計（LbFacts.read の返り値）／roster：名簿（lid・grade・cls）／cats：{ アプリ: 目録 }／today：'YYYY-MM-DD'
+   * 返す：{ 学級: [{ key, kind, lids, app, skill, ev, week }] }（強い順に最大3件）
+   */
+  function compute(acc, roster, cats, today, dismissed, rules) {
+    dismissed = dismissed || {};
+    var R = rules || RULES, cand = {};
+    candidates(index(acc), classMap(roster), cats, weekOfDay(today), R).forEach(function (x) {
+      if (!dismissed[x.key]) (cand[x.cls] = cand[x.cls] || []).push(x);
+    });
     var out = {};
     Object.keys(cand).forEach(function (cls) {
       out[cls] = cand[cls].sort(function (a, b) { return KIND_RANK[b.kind] - KIND_RANK[a.kind] || b.mag - a.mag || (a.key < b.key ? -1 : 1); })
-        .slice(0, RULES.max).map(function (x) { return { key: x.key, kind: x.kind, lids: x.lids, app: x.app, skill: x.skill, ev: x.ev, week: x.week }; });
+        .slice(0, R.max).map(function (x) { return { key: x.key, kind: x.kind, lids: x.lids, app: x.app, skill: x.skill, ev: x.ev, week: x.week }; });
     });
     return out;
   }
+  function weekOfDay(today) { return LbFacts.weekOf(new Date(today + 'T12:00:00+09:00')); }
 
   /** 根拠の一文（教師の画面に出す。名前は含めない） */
   function describe(item) {
@@ -143,5 +158,5 @@ var LbAlerts = (function () {
     return out;
   }
 
-  return { RULES: RULES, LABEL: LABEL, compute: compute, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
+  return { RULES: RULES, LABEL: LABEL, KIND_RANK: KIND_RANK, compute: compute, candidates: candidates, index: index, classMap: classMap, weekOfDay: weekOfDay, sum: sum, weeksBack: weeksBack, describe: describe, store: store, read: read, decide: decide, decidedKeys: decidedKeys };
 })();

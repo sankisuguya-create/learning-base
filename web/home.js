@@ -11,6 +11,7 @@
  * 児童の画面：いまの学習（教師が選んだ最大3件）を最上部に大きく、その下に教科。教科を押すと単元ごとのページ。
  * 教師の画面：同じ画面の上に帯（学級・先生モード・代わりに取り組む）。先生モードでは、児童が見るカードの上で
  *   公開（✓ みせる／✕ かくす）と いまの学習（★）を押して切り替える。押すたびに保存し、保存したら知らせる。
+ *   名前をかくす：児童の名前を記号〔k3m〕で出す（画面を撮って AI に見せる時）。下に「学習BASE への気づき」、所有者には「改善用に書き出す」。
  */
 (function () {
   'use strict';
@@ -18,7 +19,12 @@
   var P = window.LB_PLATFORM;
   if (!window.LbPages) throw new Error('pages.js（Pages.gs の写し）を先に読み込んでください');
   var root = document.getElementById('lb');
-  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false };
+  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, hide: store('lb-hide') === '1', fb: '', exp: null };
+  /** この端末だけの覚え（名前をかくす・前回の往復の時間）。使えない時（シークレットなど）は覚えないだけ */
+  function store(k, v) {
+    try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, String(v)); } catch (e) { return null; }
+    return null;
+  }
 
   /* ---------- 教科の絵（線だけ。色では見分けない） ---------- */
   var ICONS = {
@@ -111,20 +117,23 @@
       return '<option value="' + esc(c.key) + '"' + (c.key === S.boot.classKey ? ' selected' : '') + '>' + esc(c.grade + '年' + c.cls + '組') + '</option>';
     }).join('');
     var mem = '<option value="">（先生として見る）</option>' + (S.boot.members || []).map(function (m) {
-      return '<option value="' + esc(m.lid) + '"' + (S.as && S.as.lid === m.lid ? ' selected' : '') + '>' + esc(m.no + ' ' + m.name + (m.provisional ? '（メールなし）' : '')) + '</option>';
+      return '<option value="' + esc(m.lid) + '"' + (S.as && S.as.lid === m.lid ? ' selected' : '') + '>' + esc(m.no + ' ' + who(m) + (m.provisional ? '（メールなし）' : '')) + '</option>';
     }).join('');
     var off = S.cat ? S.cat.pages.filter(function (p) { return p.grades.indexOf(S.grade) >= 0 && !isOn(p); }).length : 0;
     var status = S.edit ? '<span class="lb-tstatus">かくしている：' + off + '件　いまの学習：' + nowIds().length + '／3件</span>' +
       (off ? '<button class="lb-link" data-act="reset">ぜんぶ みせる に もどす</button>' : '') : '';
-    var as = S.as ? '<div class="lb-as" role="status"><strong>代わりに取り組む：</strong>' + esc(S.as.name) + '　の記録になります <button class="lb-link" data-act="as-clear">やめる</button></div>' : '';
+    var as = S.as ? '<div class="lb-as" role="status"><strong>代わりに取り組む：</strong>' + esc(who(S.as)) + '　の記録になります <button class="lb-link" data-act="as-clear">やめる</button></div>' : '';
     return '<div class="lb-tbar"><label>学級 <select id="lb-class" aria-label="学級">' + opts + '</select></label>' +
       '<button class="lb-toggle" data-act="edit" aria-pressed="' + S.edit + '">先生モード</button>' +
+      '<button class="lb-toggle" data-act="hide" aria-pressed="' + S.hide + '">名前をかくす</button>' +
       (canActAs() ? '<label>代わりに取り組む <select id="lb-as" aria-label="代わりに取り組む児童">' + mem + '</select></label>' : '') + status + '</div>' + as;
   }
   /**
    * 代わりに取り組む（児童の記録にする）に対応しているページ（目録の actAs: true）が1つでもある時だけ、欄を出す。
    * 対応していないページを「〇〇の記録になります」と言って開くと、実際には記録されず、気づかないまま記録が欠けるため
    */
+  /** 児童の名前（名前をかくす時は記号。記号がまだ無い児童は「？」：記号は改善用の書き出しを1回すると全員に付く） */
+  function who(m) { return S.hide ? '〔' + (m.code || '？') + '〕' : m.name; }
   function canActAs() { return !!(S.cat && S.cat.pages.some(function (p) { return p.actAs === true; })); }
   function chips(p) {
     if (!S.edit) return '';
@@ -144,13 +153,36 @@
     return html + '<div class="lb-alerts">' + list.map(function (a) {
       return '<div class="lb-alert" data-kind="' + esc(a.kind) + '"><div class="lb-alert-head"><span class="lb-alert-kind">' + esc(a.label) + '</span>' +
         '<span class="lb-alert-skill">' + esc(a.app) + '・' + esc(a.skill) + '</span></div>' +
-        '<div class="lb-alert-who">' + a.names.map(esc).join('、') + '</div><div class="lb-alert-text">' + esc(a.text) + '</div>' +
+        '<div class="lb-alert-who">' + (S.hide ? (a.codes || []).map(function (c) { return '〔' + esc(c) + '〕'; }) : a.names.map(esc)).join('、') + '</div><div class="lb-alert-text">' + esc(a.text) + '</div>' +
         '<div class="lb-alert-acts"><button class="lb-abtn" data-tier="main" data-act="decide" data-how="changed" data-key="' + esc(a.key) + '">判断が変わった</button>' +
         '<button class="lb-abtn sub" data-tier="small" data-act="decide" data-how="seen" data-key="' + esc(a.key) + '">見た</button></div></div>';
     }).join('') + '</div>';
   }
+  /**
+   * 学習BASE への気づき（先生）。ホームの一番下：毎日使う物の邪魔をしない。所有者には書き出しのボタンも
+   */
+  function feedbackView() {
+    if (S.boot.role !== 'teacher') return '';
+    return '<section class="lb-fb"><h2 class="lb-h">学習BASE への気づき</h2>' +
+      '<p class="lb-fbnote">使いにくい所、今週の3件が当たっていた・外れていた例などを短く。学習BASE を直すのに使います（児童の名前は記号に置き換えてから書き出します）。</p>' +
+      '<textarea id="lb-fbtext" rows="3" maxlength="1000" aria-label="学習BASE への気づき">' + esc(S.fb) + '</textarea>' +
+      '<div class="lb-fbacts"><button class="lb-abtn" data-act="fb">気づきを送る</button></div>' +
+      (S.boot.owner ? '<div class="lb-fbowner"><button class="lb-link" data-act="export">改善用に書き出す（所有者だけ）</button></div>' : '') + '</section>';
+  }
+  /** 改善用の書き出しの結果。機械の確かめで止めた時は、文を出さずに理由だけ */
+  function exportView() {
+    var x = S.exp;
+    if (!x) return '';
+    var html = '<section class="lb-export" aria-label="改善用の書き出し"><div class="lb-exphead"><h2 class="lb-h">改善用の書き出し</h2><button class="lb-link" data-act="export-close">閉じる</button></div>';
+    if (x.busy) return html + '<p>作っています…（30秒ほど かかることがあります）</p></section>';
+    if (!x.ok) return html + '<p class="lb-expng">書き出しを止めました：' + esc((x.problems || []).join('／') || x.error || '') + '</p></section>';
+    html += '<p class="lb-fbnote">名前・メール・学習者ID が無いことを機械で確かめました。下の「目で確かめる」がある時は、読んでから使ってください。</p>';
+    if ((x.notes || []).length) html += '<ul class="lb-expnotes">' + x.notes.map(function (n) { return '<li>目で確かめる：' + esc(n) + '</li>'; }).join('') + '</ul>';
+    return html + '<textarea id="lb-exptext" rows="12" readonly aria-label="書き出した文">' + esc(x.text) + '</textarea>' +
+      '<div class="lb-fbacts"><button class="lb-abtn" data-act="export-copy">コピーする</button></div></section>';
+  }
   function homeView() {
-    var h = home(), html = now3View();
+    var h = home(), html = exportView() + now3View();
     html += '<h2 class="lb-h">' + (S.grade <= 2 ? 'いまの がくしゅう' : 'いまの学習') + '</h2>';
     if (h.now.length) {
       html += '<div class="lb-now">' + h.now.map(function (p) {
@@ -174,7 +206,7 @@
       return '<button class="lb-tile' + (s.hidden ? ' is-off' : '') + '" data-act="subject" data-subject="' + esc(s.id) + '" data-id="' + esc(s.id) + '">' + icon(s.id) +
         '<span class="lb-name">' + subjectName(s) + '</span><span class="lb-count">' + s.count + (S.grade <= 2 ? ' こ' : '件') + '</span></button>';
     }).join('') + '</div>';
-    return html;
+    return html + feedbackView();
   }
   function allOn() { var o = {}; (S.cat.pages || []).forEach(function (p) { o[p.id] = true; }); return o; }
   /**
@@ -249,6 +281,28 @@
     if (act === 'subject') { S.view = 'subject'; S.subject = id; render(); window.scrollTo(0, 0); return; }
     if (act === 'back') { S.view = 'home'; render(); return; }
     if (act === 'edit') { S.edit = !S.edit; render(); return; }
+    if (act === 'hide') { S.hide = !S.hide; store('lb-hide', S.hide ? '1' : '0'); render(); return; }
+    if (act === 'fb') {
+      var text = (document.getElementById('lb-fbtext') || {}).value || '';
+      if (!text.trim()) { toast('気づきを書いてから送ってください'); return; }
+      P.call('homeFeedback', S.boot.classKey || '', 'home', text).then(function () { S.fb = ''; render(); toast('気づきを送りました。ありがとうございます'); })
+        .catch(function (e) { toast('送れませんでした：' + (e && e.message || e)); });
+      return;
+    }
+    if (act === 'export') {
+      S.exp = { busy: true }; render(); window.scrollTo(0, 0);
+      P.call('homeExport').then(function (r) { S.exp = r; render(); })
+        .catch(function (e) { S.exp = { ok: false, error: String(e && e.message || e) }; render(); });
+      return;
+    }
+    if (act === 'export-close') { S.exp = null; render(); return; }
+    if (act === 'export-copy') {
+      var ta = document.getElementById('lb-exptext');
+      var done = function () { toast('コピーしました'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(done, function () { ta.select(); document.execCommand('copy'); done(); });
+      else { ta.select(); document.execCommand('copy'); done(); }
+      return;
+    }
     if (act === 'as-clear') { S.as = null; render(); return; }
     if (act === 'decide') {
       var key = b.getAttribute('data-key'), how = b.getAttribute('data-how');
@@ -283,6 +337,7 @@
       P.open(urlFor(pg));
     }
   });
+  root.addEventListener('input', function (ev) { if (ev.target.id === 'lb-fbtext') S.fb = ev.target.value; });   // 書きかけを描き直しで消さない
   root.addEventListener('change', function (ev) {
     if (ev.target.id === 'lb-class') { load({ classKey: ev.target.value }); return; }
     if (ev.target.id === 'lb-as') {
@@ -299,13 +354,19 @@
   }
   function load(opt) {
     S.boot = S.boot && opt ? S.boot : null; render();
-    var keepEdit = S.edit;
-    return P.call('homeBoot', opt || {}).then(function (b) {
+    var keepEdit = S.edit, t0 = Date.now(), o = {};
+    for (var k in (opt || {})) o[k] = opt[k];
+    o.lastMs = Number(store('lb-rt')) || 0;          // 前回の往復の時間を送る（使われ方の記録。呼び出しは増やさない）
+    var stage = 'boot';
+    return P.call('homeBoot', o).then(function (b) {
+      store('lb-rt', Date.now() - t0);
       S.boot = b; S.grade = gradeOf(b); S.as = null; S.edit = keepEdit && b.role === 'teacher';
       if (!b.settings) b.settings = { publish: {}, now: [] };
       render();
+      stage = 'cat';
       return S.cat || P.fetchJson(b.pagesUrl).then(function (c) { S.cat = c; });
     }).then(render).catch(function (e) {
+      try { P.call('homeReport', stage === 'cat' ? 'catfail' : 'bootfail').catch(function () {}); } catch (x) {}
       root.innerHTML = '<div class="lb-msg">よみこめませんでした。ページを ひらきなおしてね（' + esc(e && e.message || e) + '）</div>';
     });
   }

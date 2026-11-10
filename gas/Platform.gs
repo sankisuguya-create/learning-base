@@ -18,18 +18,23 @@ var LbPlatform = (function () {
   var API = {
     home: { boot: function (o) { return LbHome.boot(o); }, decide: function (k, key, a, m) { return LbHome.decide(k, key, a, m); },
       setPublish: function (k, p, on) { return LbHome.setPublish(k, p, on); },
-      resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); } }
+      resetPublish: function (k) { return LbHome.resetPublish(k); }, setNow: function (k, l) { return LbHome.setNow(k, l); },
+      feedback: function (k, v, t) { return LbHome.feedback(k, v, t); }, report: function (kind) { return LbHome.report(kind); },
+      exportForTuning: function () { return LbHome.exportForTuning(); } }
   };
+  function roleNow() { try { return Base.me().role; } catch (e) { return '-'; } }
 
   function doGet(e) {
     var p = (e && e.parameter) || {};
     var app = p.app || (p.unit ? 'tamath' : '');
-    if (p.doc && !app) return message('このページは じゅんび中です');
+    if (p.doc && !app) { LbTune.count(roleNow(), 'open:doc'); return message('このページは じゅんび中です'); }
     if (app) {
       var m = LB_MODULES[app];
       if (!m) return message('アプリが見つかりません: ' + app);
+      // ページを開いた回数（どのページが使われているか）。教師の画面（page=teacher）も分けて数える
+      LbTune.count(roleNow(), 'open:' + app + (p.unit ? '/' + p.unit : '') + (p.page ? '/' + p.page : '') + (p.as ? '/as' : ''));
       LB_LOADER.files();                      // アプリの画面のファイルを読む（LB_FILES）
-      return m.doGet(e);
+      try { return m.doGet(e); } catch (err) { LbTune.count('-', 'err:' + app + '.doGet'); throw err; }
     }
     return homePage();
   }
@@ -37,12 +42,14 @@ var LbPlatform = (function () {
   function call(mod, name, args) {
     var api = API[String(mod)];
     if (!api || !Object.prototype.hasOwnProperty.call(api, String(name))) throw new Error('呼べない関数です: ' + mod + '.' + name);
-    return api[name].apply(null, Array.isArray(args) ? args : []);
+    try { return api[name].apply(null, Array.isArray(args) ? args : []); }
+    catch (e) { LbTune.count('-', 'err:' + mod + '.' + name); throw e; }
   }
   function appApi(app, unit, name, args) {
     var m = LB_MODULES[app];
     if (!m || !m.apiCall) throw new Error('アプリが見つかりません: ' + app);
-    return m.apiCall(unit, name, args);
+    try { return m.apiCall(unit, name, args); }
+    catch (e) { LbTune.count('-', 'err:' + app + '.' + String(name).slice(0, 40)); throw e; }
   }
 
   /** 自動実行：各アプリの夜・朝の処理。1つのアプリが失敗しても他は続ける */
@@ -86,7 +93,7 @@ var LbPlatform = (function () {
       var hub = Base.hub(), fy = Base.fy();
       var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
       var by = LbAlerts.compute(LbFacts.read(hub, fy), Base.roster(), LbCatalog.readAll(hub), today, LbAlerts.decidedKeys(hub));
-      console.log('今週の3件：' + LbAlerts.store(hub, by) + ' 件');
+      console.log('今週の3件：' + LbAlerts.store(hub, by) + ' 件（初めて出た ' + LbTune.logAlerts(hub, by, today) + ' 件）');
       return [];
     } catch (e) { console.error('今週の3件 失敗: ' + e.message); return ['alerts: ' + e.message]; }
   }
@@ -130,6 +137,12 @@ var LbPlatform = (function () {
     return sent;
   }
 
+  /** 前日までの使われ方を usage シートへ（1日×区分×出来事で1行） */
+  function usage() {
+    try { console.log('使われ方：' + LbTune.flush(Base.hub()) + ' 行'); return []; }
+    catch (e) { console.error('使われ方 失敗: ' + e.message); return ['usage: ' + e.message]; }
+  }
+
   /** 全アプリの新しい形の記録を「児童×技能×週」に足す（ハブの facts_<年度>）。時間切れなら残りは次の夜 */
   function facts() {
     var sources = [];
@@ -167,11 +180,11 @@ var LbPlatform = (function () {
   function platformScript(baseUrl) {
     return 'window.LB_PLATFORM={baseUrl:' + JSON.stringify(baseUrl) + ',' +
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
-      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide"};' +
+      'var map={homeBoot:"boot",homeSetPublish:"setPublish",homeResetPublish:"resetPublish",homeSetNow:"setNow",homeDecide:"decide",homeFeedback:"feedback",homeReport:"report",homeExport:"exportForTuning"};' +
       'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",map[name]||name,a);});},' +
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +
-      'function lbLoadFail(){var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';
+      'function lbLoadFail(){if(window.lbFailed)return;window.lbFailed=1;try{google.script.run.lbCall("home","report",["loadfail"]);}catch(e){}var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';
   }
   function message(text) {
     return HtmlService.createHtmlOutput('<meta name="viewport" content="width=device-width, initial-scale=1"><div lang="ja" style="font-family:\'BIZ UDPGothic\',\'Noto Sans CJK JP\',sans-serif;font-size:20px;padding:24px">' +
@@ -179,7 +192,7 @@ var LbPlatform = (function () {
   }
 
   return { doGet: doGet, call: call, appApi: appApi, setup: setup,
-    nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); return e.concat(alerts()); },
+    nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); e = e.concat(alerts()); return e.concat(usage()); },
     weekly: weekly, daily: function () { return each('daily'); },
     rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };
 })();

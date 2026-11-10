@@ -20,7 +20,7 @@
   function put(s) { try { localStorage.setItem('lb-demo', JSON.stringify(s)); } catch (e) {} }
   function settings(k) { var s = store(); return s[k] || { publish: {}, now: [{ page: 'tamath-kuku', order: 1 }, { page: 'kanzi', order: 2 }] }; }
   function setSettings(k, v) { var s = store(); s[k] = v; put(s); return v; }
-  var members = [{ lid: 'La', no: 1, name: 'あおき そら' }, { lid: 'Lb', no: 2, name: 'いとう はな' }, { lid: 'Lc', no: 30, name: 'てんにゅう たろう', provisional: true }];
+  var members = [{ lid: 'La', no: 1, name: 'あおき そら', code: 'k3m' }, { lid: 'Lb', no: 2, name: 'いとう はな', code: 'r7t' }, { lid: 'Lc', no: 30, name: 'てんにゅう たろう', code: '', provisional: true }];
   var api = {
     homeBoot: function (opt) {
       var b = { role: role.indexOf('child') === 0 ? 'child' : role, today: new Date().toISOString().slice(0, 10), pagesUrl: '../catalog/pages.json', subjects: LbPages.SUBJECTS };
@@ -29,16 +29,20 @@
         'toi-board': { url: 'https://example.com/toi-board', color: 'lavender' } };
       if (b.role === 'child') { var g = role === 'child1' ? 1 : 3; b.learner = { name: 'たなか はなこ', mei: 'はなこ', grade: g, cls: '1' }; b.classKey = g + '-1'; b.settings = settings(b.classKey); }
       if (role === 'teacher') b.now3 = store().now3 || [
-        { key: 'k1', kind: 'drop', label: '▼ 急に崩れた', app: '算数タイムアタック', skill: '九九：7の段', names: ['いとう はな'], text: '正答率 90% → 62%・時間 1.5秒 → 2.1秒（今週 14問・前の4週と比べて）' },
-        { key: 'k2', kind: 'klass', label: '● 学級でつまずき', app: '算数タイムアタック', skill: '長さ：km→m', names: ['あおき そら', 'いとう はな', 'うえだ けん'], text: '取り組んだ 9人のうち 5人が正答率70%未満（直近2週）' },
-        { key: 'k3', kind: 'stall', label: '― 伸びが止まった', app: '算数タイムアタック', skill: 'あまりのあるわり算：九九の逆', names: ['あおき そら'], text: '正答率 64% → 65%・時間 3.2秒 → 3.2秒（前の4週 30問 → 直近4週 28問）' }];
-      if (role === 'teacher') { b.classes = [{ key: '3-1', grade: 3, cls: '1' }, { key: '1-1', grade: 1, cls: '1' }]; b.classKey = (opt && opt.classKey) || '3-1'; b.settings = settings(b.classKey); b.members = members; }
+        { key: 'k1', kind: 'drop', label: '▼ 急に崩れた', app: '算数タイムアタック', skill: '九九：7の段', names: ['いとう はな'], codes: ['r7t'], text: '正答率 90% → 62%・時間 1.5秒 → 2.1秒（今週 14問・前の4週と比べて）' },
+        { key: 'k2', kind: 'klass', label: '● 学級でつまずき', app: '算数タイムアタック', skill: '長さ：km→m', names: ['あおき そら', 'いとう はな', 'うえだ けん'], codes: ['k3m', 'r7t', 'b5x'], text: '取り組んだ 9人のうち 5人が正答率70%未満（直近2週）' },
+        { key: 'k3', kind: 'stall', label: '― 伸びが止まった', app: '算数タイムアタック', skill: 'あまりのあるわり算：九九の逆', names: ['あおき そら'], codes: ['k3m'], text: '正答率 64% → 65%・時間 3.2秒 → 3.2秒（前の4週 30問 → 直近4週 28問）' }];
+      if (role === 'teacher') { b.classes = [{ key: '3-1', grade: 3, cls: '1' }, { key: '1-1', grade: 1, cls: '1' }]; b.classKey = (opt && opt.classKey) || '3-1'; b.settings = settings(b.classKey); b.members = members; b.owner = true; }
       if (role === 'guest') b.message = 'なまえが まだ とうろく されていません。せんせいに つたえてね';
       return b;
     },
     homeSetPublish: function (k, id, on) { var s = settings(k); s.publish[id] = on; return setSettings(k, s); },
     homeResetPublish: function (k) { var s = settings(k); s.publish = {}; return setSettings(k, s); },
     homeDecide: function (k, key) { var s = store(); s.now3 = (s.now3 || api.homeBoot().now3).filter(function (x) { return x.key !== key; }); put(s); return s.now3; },
+    homeFeedback: function (k, v, t) { var s = store(); (s.fb = s.fb || []).push({ k: k, v: v, t: t }); put(s); return true; },
+    homeReport: function () { return true; },
+    homeExport: function () { return { ok: true, notes: ['1文字の名前かもしれない「空」を置き換えていません（2026-11-10 の気づき）'],
+      text: '# 学習BASE 改善用の書き出し\n書き出した日：（見本）\n\n## 1. 今週の3件の規則\n…（本番では、規則・働き・閾値を変えたら・分布・使われ方・気づきが入ります）' }; },
     homeSetNow: function (k, list) { var s = settings(k); s.now = list.map(function (x, i) { return { page: x.page, order: i + 1 }; }); return setSettings(k, s); }
   };
   window.LB_PLATFORM = {
