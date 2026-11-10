@@ -164,3 +164,4 @@
 .lb-dists{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
 .lb-dists h4{margin:4px 0;font-size:14px}
 @media (max-width:520px){.lb-rules{grid-template-columns:1fr}}
+.lb-fbowner .lb-link{min-width:224px;text-align:left}   /* 所有者の2つの入口は同じ重さ：幅を揃える */
