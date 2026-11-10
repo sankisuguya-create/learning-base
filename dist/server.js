@@ -1408,7 +1408,7 @@ function homeSetPublish(classKey, pageId, on) { return LbHome.setPublish(classKe
 function homeResetPublish(classKey) { return LbHome.resetPublish(classKey); }
 function homeSetNow(classKey, list) { return LbHome.setNow(classKey, list); }
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@c3c14d2） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@eb92cd5） =====
 LB_MODULES["tamath"] = (function () {
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
@@ -1741,7 +1741,16 @@ function lbFile_(name) {
 }
 function tplFromFile_(name) {
   var src = lbFile_(name);
-  return src != null ? HtmlService.createTemplate(src) : HtmlService.createTemplateFromFile(name);
+  var t = src != null ? HtmlService.createTemplate(src) : HtmlService.createTemplateFromFile(name);
+  // テンプレートの <?!= ?> は大域の名前しか見えない。学習BASE ではこのファイルが関数の中に包まれて
+  // UNIT などが大域に出ないので、テンプレートが使う名前をテンプレートに直接渡す（単体の GAS でも害はない）。
+  // 2026-11-10 本番：渡さなかったため「UNIT is not defined」。multiShim_ は typeof で確かめているので、
+  // 渡さないとエラーにならずに差し替えが抜け、画面からサーバーを呼べなくなる
+  t.UNIT = UNIT;
+  t.include = include;
+  t.floorGenForTeacher_ = floorGenForTeacher_;
+  t.multiShim_ = multiShim_;
+  return t;
 }
 function appQuery_() { return typeof LB_APP_QUERY !== 'undefined' && LB_APP_QUERY ? String(LB_APP_QUERY) : ''; }
 function unitHref_(base, id) { var a = appQuery_(); return base + '?' + (a ? a + '&' : '') + 'unit=' + encodeURIComponent(id); }
@@ -8566,7 +8575,7 @@ return {
  *   …/exec                        学習BASE のホーム（web/home.js）
  *   …/exec?app=tamath&unit=kuku   算数タイムアタック（アプリの doGet に渡す）
  *   …/exec?unit=kuku              同上（今までの算数TA の URL との互換）
- *   …/exec?page=<id>              教材・授業ページ（準備中）
+ *   …/exec?doc=<id>               教材・授業ページ（準備中）。page= はアプリが使う（算数TA の教師画面 page=teacher）ので使わない
  *   &as=<学習者ID>                教師が児童の代わりに取り組む（アプリの対応は段階C）
  *
  * アプリ（LB_MODULES）は、各アプリのサーバー側のコードを関数の中に包んだもの（tools/bundle.cjs が作る）。
@@ -8581,8 +8590,8 @@ var LbPlatform = (function () {
 
   function doGet(e) {
     var p = (e && e.parameter) || {};
-    if (p.page) return message('このページは じゅんび中です');
     var app = p.app || (p.unit ? 'tamath' : '');
+    if (p.doc && !app) return message('このページは じゅんび中です');
     if (app) {
       var m = LB_MODULES[app];
       if (!m) return message('アプリが見つかりません: ' + app);

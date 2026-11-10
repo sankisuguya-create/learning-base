@@ -10,7 +10,7 @@ let n = 0; const t = (name, fn) => { fn(); n++; console.log('ok', name); };
 
 /** 1つの「学校」：一時保存・プロパティ・ハブ・jsDelivr は実行をまたいで残る */
 function school(opts = {}) {
-  const S = { cache: {}, props: { HUB_ID: 'HUBxxxxxxxxxxxxxxxxxxxxxx' }, fetches: [], down: false, triggers: [], hub: makeSS('hub') };
+  const S = { cache: {}, props: { HUB_ID: 'HUBxxxxxxxxxxxxxxxxxxxxxx', 'u:kuku:ready_schema': '7' }, fetches: [], down: false, triggers: [], hub: makeSS('hub') };
   S.hub.insertSheet('platform').v.push(['版', VER], ['指紋', opts.sha === undefined ? '' : opts.sha]);
   S.hub.insertSheet('roster').v.push(['メール', '学年', '組', '番号', '姓', '名'], ['11111111@kyoiku.edu.nishi.or.jp', 3, 1, 5, '田中', 'はなこ']);
   S.files = { 'server.js': DIST('server.js'), 'html.json': DIST('html.json') };
@@ -47,7 +47,11 @@ function run(S, user = 'owner@edu.nishi.or.jp') {
       newTrigger: fn => ({ timeBased: () => ({ atHour: () => ({ everyDays: () => ({ create: () => S.triggers.push(fn) }) }), everyHours: () => ({ create: () => S.triggers.push(fn) }), after: () => ({ create: () => S.triggers.push(fn) }) }) }) },
     HtmlService: {
       createHtmlOutput: h => ({ html: h, setTitle() { return this; }, addMetaTag() { return this; } }),
-      createTemplate: src => ({ src, evaluate() { return { html: src, setTitle() { return this; }, addMetaTag() { return this; } }; } }),
+      // 本物の GAS と同じく、<?!= ?> の中で見えるのはテンプレートに渡した名前と組み込みだけ（関数の中に包んだアプリの名前は見えない）
+      createTemplate: src => { const t = { evaluate() {
+        const names = Object.keys(t).filter(k => k !== 'evaluate'), vals = names.map(k => t[k]);
+        const html = src.replace(/<\?!=([\s\S]*?)\?>/g, (m, expr) => String(new Function(...names, 'return (' + expr + ');')(...vals)));
+        return { html, setTitle() { return this; }, addMetaTag() { return this; } }; } }; return t; },
       createTemplateFromFile: () => { throw new Error('GAS のファイルは無い（学習BASE の中）'); },
       createHtmlOutputFromFile: () => { throw new Error('GAS のファイルは無い（学習BASE の中）'); }
     }
@@ -90,6 +94,12 @@ t('算数TA：?app=tamath は単元の一覧（リンクに app=tamath）。?uni
   assert.ok(jsd(S).some(u => u.endsWith('html.json')));
   assert.match(run(S).doGet({ parameter: { unit: 'zzz' } }).html, /app=tamath&unit=/, '知らない単元は一覧へ');
   assert.match(run(S).doGet({ parameter: { app: 'nope' } }).html, /アプリが見つかりません/);
+  assert.match(run(S).doGet({ parameter: { doc: 'x' } }).html, /じゅんび中/, '教材ページは doc=');
+  // 単元の画面（児童・教師）：テンプレートを評価でき、画面の呼び出しを apiCall につなぐ差し替えが入っている
+  const kid = run(S).doGet({ parameter: { app: 'tamath', unit: 'kuku' } }).html;
+  assert.match(kid, /var APP_ID = "kuku";/);
+  assert.match(kid, /r\.apiCall\(KEY/, '差し替えが無い（画面からサーバーを呼べない）');
+  assert.match(run(S).doGet({ parameter: { app: 'tamath', unit: 'kuku', page: 'teacher' } }).html, /r\.apiCall\(KEY/);
 });
 t('学習BASE の画面からの呼び出し：決めた関数だけ（児童はホームの情報を受け取れる）', () => {
   const S = school();

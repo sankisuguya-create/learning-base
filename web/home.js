@@ -151,7 +151,7 @@
   function urlFor(p) {
     var q = [];
     if (p.kind === 'app') { q.push('app=' + encodeURIComponent(p.app)); for (var k in (p.params || {})) q.push(encodeURIComponent(k) + '=' + encodeURIComponent(p.params[k])); }
-    else q.push('page=' + encodeURIComponent(p.id));
+    else q.push('doc=' + encodeURIComponent(p.id));   // page= はアプリが使う（算数TA の教師画面）
     if (S.as) q.push('as=' + encodeURIComponent(S.as.lid));
     return P.baseUrl + (P.baseUrl.indexOf('?') >= 0 ? '&' : '?') + q.join('&');
   }

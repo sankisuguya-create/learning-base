@@ -35,7 +35,7 @@ jsDelivr から版で固定して取ってきて実行する。**更新はハブ
 |---|---|
 | `…/exec` | 学習BASE のホーム |
 | `…/exec?app=tamath&unit=kuku` | 算数タイムアタック（`?unit=kuku` だけでも開く） |
-| `…/exec?page=<id>` | 教材・授業ページ（準備中） |
+| `…/exec?doc=<id>` | 教材・授業ページ（準備中）。`page=` はアプリが使う（算数TA の教師画面 `page=teacher`） |
 
 ### アプリを載せる・更新する（Claude の作業）
 

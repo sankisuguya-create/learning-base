@@ -7,7 +7,7 @@
  *   …/exec                        学習BASE のホーム（web/home.js）
  *   …/exec?app=tamath&unit=kuku   算数タイムアタック（アプリの doGet に渡す）
  *   …/exec?unit=kuku              同上（今までの算数TA の URL との互換）
- *   …/exec?page=<id>              教材・授業ページ（準備中）
+ *   …/exec?doc=<id>               教材・授業ページ（準備中）。page= はアプリが使う（算数TA の教師画面 page=teacher）ので使わない
  *   &as=<学習者ID>                教師が児童の代わりに取り組む（アプリの対応は段階C）
  *
  * アプリ（LB_MODULES）は、各アプリのサーバー側のコードを関数の中に包んだもの（tools/bundle.cjs が作る）。
@@ -22,8 +22,8 @@ var LbPlatform = (function () {
 
   function doGet(e) {
     var p = (e && e.parameter) || {};
-    if (p.page) return message('このページは じゅんび中です');
     var app = p.app || (p.unit ? 'tamath' : '');
+    if (p.doc && !app) return message('このページは じゅんび中です');
     if (app) {
       var m = LB_MODULES[app];
       if (!m) return message('アプリが見つかりません: ' + app);
