@@ -1,4 +1,4 @@
-// node tests/tune.test.cjs — 直すための材料（LbTune）：使われ方・今週の3件の働き・閾値を変えたら・分布（5人未満を伏せる）・記号・書き出しの確かめ
+// node tests/tune.test.cjs — 直すための材料（LbTelemetry・LbTuning・LbExport）：失敗と速さ・閾値を見直す・気づきと書き出し
 const assert = require('assert');
 const { loadPure, J } = require('./lb-load.cjs');
 const { makeSS } = require('./sheet-mock.cjs');
@@ -9,7 +9,7 @@ function env(opts = {}) {
   const RealDate = Date;
   class FakeDate extends RealDate { constructor(...a) { if (a.length) super(...a); else super(clock.now.getTime()); } static now() { return clock.now.getTime(); } }
   const p = x => String(x).padStart(2, '0');
-  const ctx = loadPure(['Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Alerts.gs', 'Tune.gs'], {
+  const ctx = loadPure(['Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Alerts.gs', 'Telemetry.gs', 'Tuning.gs', 'Export.gs'], {
     Date: FakeDate, Math: Object.create(Math, { random: { value: opts.random || Math.random } }),
     Base: { fyOf: () => 2026 },
     Utilities: { formatDate: (d, tz, f) => { const s = new RealDate(d.getTime() + 9 * 3600e3);
@@ -18,7 +18,8 @@ function env(opts = {}) {
       getProperties: () => Object.assign({}, props), deleteProperty: k => { delete props[k]; } }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) }
   });
-  return { ctx, props, clock, T: ctx.LbTune, A: ctx.LbAlerts, F: ctx.LbFacts };
+  // T：3つの部品（Telemetry・Tuning・Export）をまとめて呼ぶ（名前は重ならない）
+  return { ctx, props, clock, T: Object.assign({}, ctx.LbTelemetry, ctx.LbTuning, ctx.LbExport), A: ctx.LbAlerts, F: ctx.LbFacts };
 }
 const W = (F, k) => F.addWeeks('2026-11-16', -k);
 const CAT = { tamath: { app: 'tamath', title: '算数TA', version: 1, skills: [{ key: 's', label: 'S' }, { key: 'm', label: 'M' }], mastery: { minN: 20, acc: 0.9 } } };

@@ -104,7 +104,7 @@ function homeEnv(user, rosterRows) {
     members: (g, c) => rosterRows.filter(r => r.grade === g && r.cls === c)
   };
   const props = {};
-  const ctx = loadPure(['Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Alerts.gs', 'Tune.gs', 'Pages.gs', 'Home.gs'], { Base: fake,
+  const ctx = loadPure(['Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Alerts.gs', 'Telemetry.gs', 'Tuning.gs', 'Export.gs', 'Pages.gs', 'Home.gs'], { Base: fake,
     Utilities: { formatDate: () => '2026-11-10' },
     Session: { getActiveUser: () => ({ getEmail: () => user }), getEffectiveUser: () => ({ getEmail: () => 'owner@edu.nishi.or.jp' }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); },
