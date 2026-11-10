@@ -1,0 +1,54 @@
+# main にマージされたら、検査を通した上で release.json（学習BASE が使う版と指紋）を書く。
+# 学校の読み込み係（gas/Loader.gs）は、ハブの platform シートの「版」が「自動」（または空・シートが無い）の時、
+# この release.json の版を5分以内に使い始める。つまり PR のマージが「学校に出してよい」の承認になる。
+# 検査が落ちたら release.json は書かない（学校は前の版のまま）。
+name: release.json を書く
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: [release.json]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 取り込むアプリを apps.lock.json の版で取ってくる
+        run: |
+          mkdir -p apps-src
+          node -e '
+            const lock = require("./apps.lock.json"), { execSync } = require("child_process");
+            for (const [id, a] of Object.entries(lock)) {
+              if (id === "_") continue;
+              const dir = "apps-src/" + a.repo.split("/")[1];
+              execSync(`git clone --filter=blob:none --quiet https://github.com/${a.repo}.git ${dir}`, { stdio: "inherit" });
+              execSync(`git -C ${dir} checkout --quiet ${a.commit}`, { stdio: "inherit" });
+            }'
+
+      - name: 検査（dist/ が今のソースと一致するか・全部の検査）
+        env:
+          LB_APPS_DIR: apps-src
+        run: npm test
+
+      - name: release.json を書いて push
+        run: |
+          node -e '
+            const m = require("./dist/manifest.json"), fs = require("fs");
+            fs.writeFileSync("release.json", JSON.stringify({ ver: process.env.GITHUB_SHA, sha: m.server, apps: m.apps,
+              at: new Date().toISOString(), note: "学習BASE の読み込み係が使う版。GitHub の自動処理が書く（直接直さない）" }, null, 1) + "\n");'
+          cat release.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add release.json
+          git commit -m "release.json を更新（${GITHUB_SHA::7}）[skip ci]" || exit 0
+          git push

@@ -54,6 +54,18 @@ var LbPlatform = (function () {
     });
     return errs;
   }
+  /** 全アプリの新しい形の記録を「児童×技能×週」に足す（ハブの facts_<年度>）。時間切れなら残りは次の夜 */
+  function facts() {
+    var sources = [];
+    Object.keys(LB_MODULES).forEach(function (k) {
+      var m = LB_MODULES[k];
+      if (typeof m.sessionSources === 'function') { try { sources = sources.concat(m.sessionSources()); } catch (e) { console.error(k + ' の記録先: ' + e.message); } }
+    });
+    if (!sources.length) return [];
+    try { var r = LbFacts.ingest(Base.hub(), sources); console.log('集計：' + r.read + ' 行' + (r.more ? '（続きは次回）' : '')); return []; }
+    catch (e) { console.error('集計 失敗: ' + e.message); return ['facts: ' + e.message]; }
+  }
+
   function setup() {
     return Object.keys(LB_MODULES).map(function (k) {
       var m = LB_MODULES[k];
@@ -91,6 +103,6 @@ var LbPlatform = (function () {
   }
 
   return { doGet: doGet, call: call, appApi: appApi, setup: setup,
-    nightly: function () { return each('nightly'); }, daily: function () { return each('daily'); },
+    nightly: function () { var e = each('nightly'); return e.concat(facts()); }, daily: function () { return each('daily'); },
     rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };
 })();

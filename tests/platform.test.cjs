@@ -27,9 +27,13 @@ function run(S, user = 'owner@edu.nishi.or.jp') {
       removeAll: ks => ks.forEach(k => delete store[k]) }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = String(v); }, deleteProperty: k => { delete S.props[k]; } }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
-    SpreadsheetApp: { openById: id => { if (id !== S.props.HUB_ID) throw new Error('開けません ' + id); return S.hub; }, getActiveSpreadsheet: () => { throw new Error('付属のスプレッドシートは無い'); } },
+    SpreadsheetApp: { openById: id => { if (id === S.props.HUB_ID) return S.hub; if (S.units && S.units[id]) return S.units[id]; throw new Error('開けません ' + id); }, getActiveSpreadsheet: () => { throw new Error('付属のスプレッドシートは無い'); } },
     UrlFetchApp: { fetch: url => {
       S.fetches.push(url);
+      if (url === 'https://raw.githubusercontent.com/sankisuguya-create/learning-base/main/release.json') {
+        if (S.githubDown) throw new Error('接続できません');
+        return { getResponseCode: () => (S.release ? 200 : 404), getContentText: () => JSON.stringify(S.release || {}) };
+      }
       if (S.down) throw new Error('接続できません');
       const m = url.match(/^https:\/\/cdn\.jsdelivr\.net\/gh\/sankisuguya-create\/learning-base@([^/]+)\/dist\/(.+)$/);
       const ok = m && m[1] === VER && S.files[m[2]] != null;
@@ -154,6 +158,64 @@ t('版の切り替え：ハブの版を書き換え、lbReload（または5分�
   run(S).doGet({ parameter: {} });
   assert.ok(jsd(S).some(u => u.includes('@v2026.1110.0900/dist/server.js')));
 });
+t('自動：platform シートが無い・「版」が空・「自動」なら GitHub の release.json の版で動く', () => {
+  const FULL = 'a'.repeat(40);
+  for (const setup of [S => { delete S.hub.sheets.platform; }, S => { S.hub.sheets.platform.v[0][1] = ''; }, S => { S.hub.sheets.platform.v[0][1] = '自動'; }]) {
+    const S = school(); setup(S);
+    S.release = { ver: FULL, sha: '' }; S.files = Object.assign({}, S.files);
+    run(S).doGet({ parameter: {} });
+    assert.ok(jsd(S).some(u => u.includes('@' + FULL + '/dist/server.js')), 'release.json の版を取りに行く');
+  }
+});
+t('自動：GitHub に届かない時は、最後に取れた版で動く。一度も取れていなければ理由を出す', () => {
+  const S = school(); delete S.hub.sheets.platform;
+  S.release = { ver: 'b'.repeat(40), sha: '' };
+  run(S).lbStatus();                                                 // 一度取れた（覚える）
+  assert.strictEqual(S.props.LB_RELEASE.split('|')[0], 'b'.repeat(40));
+  S.cache = {}; S.githubDown = true;
+  run(S).doGet({ parameter: {} });
+  assert.ok(jsd(S).some(u => u.includes('@' + 'b'.repeat(40) + '/dist/server.js')));
+  const S2 = school(); delete S2.hub.sheets.platform; S2.githubDown = true;
+  assert.match(run(S2).doGet({ parameter: {} }).html, /使う版が決まりません/);
+});
+t('固定：「版」にコミット番号があれば release.json に関わらずその版（戻す・止める）', () => {
+  const S = school(); S.release = { ver: 'c'.repeat(40), sha: '' };
+  run(S).doGet({ parameter: {} });
+  assert.ok(!S.fetches.some(u => u.includes('release.json')), '固定の時は release.json を見ない');
+  assert.ok(jsd(S).some(u => u.includes('@' + VER + '/')));
+});
+
+t('新しい形の記録：送信で単元のスプレッドシートに1行（学習者ID・全問）。夜の処理でハブの集計へ（練習は除く）', () => {
+  const S = school();
+  S.units = { KUKUxxxxxxxxxxxxxxxxxxxxxx: makeSS('kuku') }; S.props['unit_sheet:kuku'] = 'KUKUxxxxxxxxxxxxxxxxxxxxxx';
+  const c = run(S); c.doGet({ parameter: {} });
+  const M = c.LB_MODULES.tamath, mail = '11111111@kyoiku.edu.nishi.or.jp';
+  const items = [{ i: 0, q: '7x8', t: 'x7', a: '56', tries: 1, hit: true, ok: true, skill: 'math/kuku/x7', first: 1200 },
+    { i: 1, q: '7x6', t: 'x7', a: '41/42', tries: 2, hit: true, ok: false, skill: 'math/kuku/x7' }];
+  assert.strictEqual(M.writeForUnit('kuku', { mode: 3 }, mail, false, items), true);
+  assert.strictEqual(M.writeForUnit('kuku', { mode: 3 }, mail, true, items), true, '練習も記録する');
+  assert.strictEqual(M.writeForUnit('kuku', { mode: 3 }, '99999999@kyoiku.edu.nishi.or.jp', false, items), false, '名簿にない人は書かない');
+  const rows = S.units.KUKUxxxxxxxxxxxxxxxxxxxxxx.sheets.sessions_2026.v;
+  assert.strictEqual(rows.length, 3);
+  const lid = S.hub.sheets.roster.v[1][S.hub.sheets.roster.v[0].indexOf('学習者ID')];
+  assert.ok(/^L[a-z2-9]{10}$/.test(lid));
+  const r1 = c.LbSession.fromRow(rows[1]);
+  assert.strictEqual(r1.lid, lid); assert.strictEqual(r1.app, 'tamath'); assert.strictEqual(r1.activity, 'kuku/3'); assert.strictEqual(r1.context, 'live');
+  assert.strictEqual(r1.items.length, 2); assert.strictEqual(r1.skills['math/kuku/x7'].ok, 1, '一度で正答した問題だけ正答');
+  assert.strictEqual(c.LbSession.fromRow(rows[2]).context, 'practice');
+  // 夜の処理：集計（練習は除く・読んだ位置は単元ごと）
+  run(S).lbNightly();
+  const f = S.hub.sheets.facts_2026.v;
+  assert.strictEqual(f.length, 2, '本番の1行だけ');
+  assert.strictEqual(f[1][1], lid); assert.strictEqual(f[1][6], 'math/kuku/x7'); assert.strictEqual(f[1][7], 2); assert.strictEqual(f[1][8], 1);
+  assert.ok(S.hub.sheets.facts_cursor.v.some(r => r[0] === 'tamath:kuku' && r[1] === 'sessions_2026'));
+  run(S).lbNightly();
+  assert.strictEqual(S.hub.sheets.facts_2026.v[1][7], 2, '2回目は足さない');
+  // 技能の目録をハブに書く（lbSetup）
+  run(S).lbSetup();
+  assert.ok(S.hub.sheets.catalog.v.some(r => r[0] === 'tamath'));
+});
+
 t('版の欄が不正・ハブが未設定なら、理由を出して止まる', () => {
   const S = school(); S.hub.sheets.platform.v[0][1] = 'main';
   assert.match(run(S).doGet({ parameter: {} }).html, /コミット番号でもタグでもありません/);

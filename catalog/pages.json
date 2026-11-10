@@ -15,7 +15,8 @@
    "params": {
     "unit": "tasu"
    },
-   "order": 10
+   "order": 10,
+   "actAs": true
   },
   {
    "id": "tamath-hiku",
@@ -31,7 +32,8 @@
    "params": {
     "unit": "hiku"
    },
-   "order": 20
+   "order": 20,
+   "actAs": true
   },
   {
    "id": "tamath-kuku",
@@ -47,7 +49,8 @@
    "params": {
     "unit": "kuku"
    },
-   "order": 10
+   "order": 10,
+   "actAs": true
   },
   {
    "id": "tamath-divmod",
@@ -63,7 +66,8 @@
    "params": {
     "unit": "divmod"
    },
-   "order": 20
+   "order": 20,
+   "actAs": true
   },
   {
    "id": "tamath-length",
@@ -79,7 +83,8 @@
    "params": {
     "unit": "length"
    },
-   "order": 30
+   "order": 30,
+   "actAs": true
   },
   {
    "id": "tamath-weight",
@@ -95,7 +100,8 @@
    "params": {
     "unit": "weight"
    },
-   "order": 40
+   "order": 40,
+   "actAs": true
   },
   {
    "id": "tamath-bignum",
@@ -111,7 +117,8 @@
    "params": {
     "unit": "bignum"
    },
-   "order": 50
+   "order": 50,
+   "actAs": true
   },
   {
    "id": "tamath-decimal",
@@ -127,7 +134,8 @@
    "params": {
     "unit": "decimal"
    },
-   "order": 60
+   "order": 60,
+   "actAs": true
   },
   {
    "id": "tamath-circle",
@@ -143,7 +151,8 @@
    "params": {
     "unit": "circle"
    },
-   "order": 70
+   "order": 70,
+   "actAs": true
   },
   {
    "id": "tamath-kakehissan",
@@ -159,7 +168,8 @@
    "params": {
     "unit": "kakehissan"
    },
-   "order": 80
+   "order": 80,
+   "actAs": true
   },
   {
    "id": "tamath-bai",
@@ -175,7 +185,8 @@
    "params": {
     "unit": "bai"
    },
-   "order": 90
+   "order": 90,
+   "actAs": true
   },
   {
    "id": "tamath-volume",
@@ -191,7 +202,8 @@
    "params": {
     "unit": "volume"
    },
-   "order": 10
+   "order": 10,
+   "actAs": true
   },
   {
    "id": "kanzi",

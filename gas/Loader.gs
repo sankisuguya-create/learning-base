@@ -2,13 +2,15 @@
  * Loader.gs — 学習BASE の読み込み係（GAS に貼るのはこの1枚だけ。以後は貼り直さない）
  *
  * 正本は learning-base。中身（共通部品・各アプリのサーバー側のコード・画面のファイル）は jsDelivr から取ってきて実行する。
- * 更新は「ハブの platform シートの 版 を書き換える」だけ（反映は最大5分。すぐ反映するにはエディタで lbReload を実行）。
+ * 更新：learning-base の main に PR がマージされると、GitHub の自動処理が検査を通した上で release.json（版と指紋）を書く。
+ *   読み込み係はそれを読んで、5分以内に新しい版にする（PR のマージが「学校に出してよい」の承認になる）。
+ *   戻す・止める時は、ハブの platform シートの「版」にコミット番号を書く（その版で固定。「自動」と書くか空にすれば再び追う）。
  *
  * 設置（1回だけ）
  *   1. このファイルを コード.gs に貼る（他のファイルは要らない）
  *   2. プロジェクトの設定 → スクリプト プロパティ → HUB_ID にハブのスプレッドシートの ID
- *   3. ハブに platform シートを作り、A1「版」・B1 にコミット番号（またはタグ）。A2「指紋」・B2 は任意（dist/manifest.json の server の値）
- *   4. エディタで lbSetup を実行（承認・自動実行の設置）→ ウェブアプリとしてデプロイ（自分として実行・ドメイン内の全員）
+ *   3. エディタで lbSetup を実行（承認・自動実行の設置）→ ウェブアプリとしてデプロイ（自分として実行・ドメイン内の全員）
+ *   （platform シートは要らない。無い・「版」が空・「自動」なら release.json に従う）
  *
  * 取ってくる順（実測：一時保存から読むと約120ms、jsDelivr から取ると約1.4秒。2026-11-09）
  *   1. 一時保存（CacheService。版ごと・最長6時間。1時間ごとに温め直す）
@@ -17,7 +19,8 @@
  */
 var LB_REPO = 'sankisuguya-create/learning-base';
 var LB_CHUNK = 30000;            // CacheService の1件100KB。日本語は1字3バイトなので3万字で切る
-var LB_VER_TTL = 300;            // 版の一時保存（秒）。版を書き換えてから反映するまでの最大の時間
+var LB_VER_TTL = 300;            // 版の一時保存（秒）。マージ・版の書き換えから反映するまでの最大の時間
+var LB_RELEASE_URL = 'https://raw.githubusercontent.com/' + LB_REPO + '/main/release.json';   // GitHub から直接（jsDelivr の @main は古いことがある）
 var LB_CODE_TTL = 21600;         // 中身の一時保存（秒）。CacheService の上限
 var LB_ = { ready: false, ver: '', sha: '' };
 
@@ -73,7 +76,7 @@ function lbReload() {
 function lbStatus() {
   lbOwnerOnly_();
   var out = [];
-  try { var v = lbVersion_(true); out.push('版: ' + v.ver + (v.sha ? '（指紋あり）' : '（指紋なし）')); } catch (e) { out.push('版: × ' + e.message); }
+  try { var v = lbVersion_(true); out.push('版: ' + v.ver + '（' + v.mode + '・' + (v.sha ? '指紋あり' : '指紋なし') + '）'); } catch (e) { out.push('版: × ' + e.message); }
   try { lbNeed_(); out.push('中身: ○ 読み込めた'); } catch (e2) { out.push('中身: × ' + e2.message); }
   console.log(out.join('\n'));
   return out.join('\n');
@@ -89,23 +92,48 @@ function lbNeed_() {
   LB_.ver = v.ver; LB_.sha = v.sha; LB_.ready = true;
 }
 
-/** ハブの platform シートの 版・指紋。5分保存する */
+/**
+ * 使う版と指紋。5分保存する。
+ * - ハブの platform シートの「版」にコミット番号（またはタグ）があれば、その版で固定（指紋は同じシートの「指紋」）
+ * - 無い・空・「自動」なら、GitHub の release.json（main にマージされた版）に従う。取れない時は最後に取れた版
+ */
 function lbVersion_(fresh) {
   var c = CacheService.getScriptCache(), hit = fresh ? null : c.get('lb:ver');
-  if (hit) { var p = hit.split('|'); return { ver: p[0], sha: p[1] || '' }; }
+  if (hit) { var p = hit.split('|'); return { ver: p[0], sha: p[1] || '', mode: p[2] || '' }; }
   var id = String(PropertiesService.getScriptProperties().getProperty('HUB_ID') || '').trim();
   if (!id) throw new Error('スクリプト プロパティ HUB_ID（ハブのスプレッドシートの ID）が設定されていません');
   var sh = SpreadsheetApp.openById(id).getSheetByName('platform');
-  if (!sh) throw new Error('ハブに platform シートがありません（A1「版」・B1 にコミット番号）');
-  var ver = '', sha = '';
-  sh.getDataRange().getValues().forEach(function (r) {
+  var ver = '', sha = '', mode = '固定';
+  if (sh) sh.getDataRange().getValues().forEach(function (r) {
     var k = String(r[0]).trim(), val = String(r[1]).trim();
     if (k === '版') ver = val;
     if (k === '指紋') sha = val.toLowerCase();
   });
-  if (!/^[0-9a-f]{7,40}$|^v[\w.\-]+$/.test(ver)) throw new Error('platform シートの 版 がコミット番号でもタグでもありません: ' + ver);
-  c.put('lb:ver', ver + '|' + sha, LB_VER_TTL);
-  return { ver: ver, sha: sha };
+  if (!ver || ver === '自動') {
+    var rel = lbRelease_();
+    ver = rel.ver; sha = rel.sha; mode = '自動';
+  }
+  if (!/^[0-9a-f]{7,40}$|^v[\w.\-]+$/.test(ver)) throw new Error('platform シートの 版 がコミット番号でもタグでもありません: ' + ver + '（自動に戻すなら「自動」と書くか空にする）');
+  c.put('lb:ver', ver + '|' + sha + '|' + mode, LB_VER_TTL);
+  return { ver: ver, sha: sha, mode: mode };
+}
+/** GitHub の release.json（{ ver, sha }）。取れたら覚えておき、取れない時は覚えた版を返す */
+function lbRelease_() {
+  var props = PropertiesService.getScriptProperties(), why = '';
+  try {
+    var res = UrlFetchApp.fetch(LB_RELEASE_URL, { muteHttpExceptions: true });
+    if (res.getResponseCode() === 200) {
+      var j = JSON.parse(res.getContentText('UTF-8'));
+      if (j && /^[0-9a-f]{40}$/.test(String(j.ver))) {
+        props.setProperty('LB_RELEASE', j.ver + '|' + String(j.sha || '').toLowerCase());
+        return { ver: j.ver, sha: String(j.sha || '').toLowerCase() };
+      }
+      why = 'release.json の形が違う';
+    } else why = 'release.json ' + res.getResponseCode();
+  } catch (e) { why = 'GitHub に届かない（' + e.message + '）'; }
+  var last = String(props.getProperty('LB_RELEASE') || '');
+  if (last) { var p = last.split('|'); console.error(why + '。最後に取れた版 ' + p[0].slice(0, 7) + ' で動きます'); return { ver: p[0], sha: p[1] || '' }; }
+  throw new Error('使う版が決まりません（' + why + '。ハブの platform シートの「版」にコミット番号を書けば、その版で動きます）');
 }
 
 /** dist/<name> の中身。一時保存 → jsDelivr → ハブの写し の順。refresh なら一時保存を読んだ上で入れ直す（期限を延ばす） */

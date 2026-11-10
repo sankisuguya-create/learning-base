@@ -1037,7 +1037,9 @@ var LbFacts = (function () {
 
   /**
    * 新しいセッションだけを読んで集計に足す（毎晩）。
-   * sources: [{ app, ss }]（アプリの id と記録のスプレッドシート）。hubSs：ハブ。
+   * sources: [{ app, key, ss }]（アプリの id・記録先の名前・記録のスプレッドシート）。hubSs：ハブ。
+   *   key は読んだ位置を覚える名前（省略時は app）。同じアプリが記録先を複数持つ時（算数TA は単元ごと）は別の key にする
+   * 練習（context が practice）の行は集計に入れない（opts.contexts で集計に入れる文脈を変えられる）
    * 読んだ位置（facts_cursor）を覚えるので、同じセッションを2回足さない。
    * 4分を越えたら途中でやめ、続きは次の実行で読む。返す：{ read, more }
    * 集計を書いた後・位置を書く前に止まると二重に足しうる。その時は rebuild で作り直す。
@@ -1046,10 +1048,11 @@ var LbFacts = (function () {
     opts = opts || {};
     var fy = opts.fy || Base.fyOf(new Date()), start = Date.now(), budget = opts.budgetMs || BUDGET_MS;
     var cur = readCursor(hubSs), add = {}, read = 0, more = false, touched = {};
+    var skipCtx = opts.excludeContexts || ['practice'];
     sources.forEach(function (src) {
       LbSession.sheetNames(src.ss, fy).forEach(function (name) {
         if (more) return;
-        var sh = src.ss.getSheetByName(name), last = sh.getLastRow(), ck = src.app + '|' + name;
+        var sh = src.ss.getSheetByName(name), last = sh.getLastRow(), ck = (src.key || src.app) + '|' + name;
         var from = Math.max(2, (cur[ck] || 1) + 1);
         while (from <= last) {
           if (Date.now() - start > budget) { more = true; break; }
@@ -1059,7 +1062,7 @@ var LbFacts = (function () {
           var sk = sh.getRange(from, LbSession.COL.skills + 1, n, 1).getValues();
           for (var i = 0; i < n; i++) {
             var s = LbSession.fromRow(head[i].concat(['', sk[i][0], '']));
-            if (s.lid) addSession(add, s);
+            if (s.lid && skipCtx.indexOf(s.context) < 0) addSession(add, s);
           }
           read += n; from += n; cur[ck] = from - 1; touched[ck] = true;
         }
@@ -1081,7 +1084,7 @@ var LbFacts = (function () {
     var sh = hubSs.getSheetByName('facts_' + fy);
     if (sh) sh.clearContents();
     var cur = readCursor(hubSs);
-    sources.forEach(function (src) { LbSession.sheetNames(src.ss, fy).forEach(function (n) { delete cur[src.app + '|' + n]; }); });
+    sources.forEach(function (src) { LbSession.sheetNames(src.ss, fy).forEach(function (n) { delete cur[(src.key || src.app) + '|' + n]; }); });
     writeCursor(hubSs, cur, true);
     return ingest(hubSs, sources, opts);
   }
@@ -1451,7 +1454,7 @@ function homeSetPublish(classKey, pageId, on) { return LbHome.setPublish(classKe
 function homeResetPublish(classKey) { return LbHome.resetPublish(classKey); }
 function homeSetNow(classKey, list) { return LbHome.setNow(classKey, list); }
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@85bf4b0） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@0f1af68） =====
 LB_MODULES["tamath"] = (function () {
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
@@ -1798,6 +1801,57 @@ function tplFromFile_(name) {
 function appQuery_() { return typeof LB_APP_QUERY !== 'undefined' && LB_APP_QUERY ? String(LB_APP_QUERY) : ''; }
 function unitHref_(base, id) { var a = appQuery_(); return base + '?' + (a ? a + '&' : '') + 'unit=' + encodeURIComponent(id); }
 
+/* ------------------------------------------------------------
+ *  学習BASE の新しい形の記録（LbSession）・技能の目録（LbCatalog）
+ *  学習BASE の中（LbSession・Base がある時）だけ書く。単体の GAS では何もしない。
+ * ------------------------------------------------------------ */
+/** 技能のキー：math/<単元>/<型>（型は Unit.gs の types のキー） */
+function lbSkill_(t) { return 'math/' + UNIT.id + '/' + t; }
+/**
+ * 1問ぶん。ok は「一度で正答したか」（やり直して当たったものは正答に数えない。type_stats と同じ基準）。
+ * 時間は一度で正答した問題の「最初のキーまで」だけ（間違えた問題の時間は想起の速さを表さない）
+ */
+function lbItem_(it, qq, hist, hit, firstTry) {
+  var last = hist.length ? hist[hist.length - 1] : null, tk = Number(it.tk) || 0;
+  var o = { i: Number(it.i), q: String(qq.tag), t: String(qq.t), a: last ? last.join('/') : '', tries: hist.length, hit: !!hit, ok: !!firstTry, skill: lbSkill_(qq.t) };
+  if (firstTry && tk > 0) o.first = tk;
+  return o;
+}
+function lbWriteSession_(s, mail, isPractice, items) {
+  if (typeof LbSession === 'undefined' || typeof Base === 'undefined' || !hubRoster_()) return false;
+  var learner = ACT_.learner || Base.child(mail);
+  if (!learner || !learner.lid) return false;                     // 名簿にない人（おためし）は書かない
+  return LbSession.write(ss_(), {
+    ts: new Date(), lid: learner.lid, mail: learner.mail || '', app: 'tamath', activity: UNIT.id + '/' + s.mode,
+    context: isPractice ? 'practice' : 'live', ver: String(ENGINE_VER), items: items
+  }, { learner: learner, by: ACT_.by || '', catalog: tamathCatalog_() }).ok;
+}
+/** 単元を決めて新しい形の記録を書く（学習BASE の検査が使う。名前が _ で終わるので画面からは呼べない） */
+function lbWriteForUnit_(unit, s, mail, isPractice, items) { useUnit_(unit); return lbWriteSession_(s, mail, isPractice, items); }
+/** 算数TA の技能の目録（全単元の型）。到達の基準の初期値は正答率90%・20問以上（単元ごとに Unit.gs の mastery で直せる） */
+function tamathCatalog_() {
+  var skills = [];
+  unitIds_().forEach(function (id) {
+    var u = UNIT_DEFS[id], types = u.types || {};
+    Object.keys(types).forEach(function (t) {
+      var sk = { key: 'math/' + id + '/' + t, label: (u.title ? String(u.title).replace(/\s*タイムアタック.*$/, '') + '：' : '') + String(types[t]), grade: Number(u.grade) || 0 };
+      if (u.mastery) sk.mastery = u.mastery;
+      skills.push(sk);
+    });
+  });
+  return { app: 'tamath', title: '算数タイムアタック', version: ENGINE_VER, skills: skills, mastery: { minN: 20, acc: 0.9, gmMs: 0, windowWeeks: 4 }, directives: [] };
+}
+/** 集計が読む記録先（登録済みの単元のスプレッドシート）。学習BASE の夜の処理が使う */
+function lbSessionSources_() {
+  var gp = PropertiesService.getScriptProperties(), out = [];
+  unitIds_().forEach(function (id) {
+    var sid = gp.getProperty(unitSheetKey_(id));
+    if (!sid) return;
+    try { out.push({ app: 'tamath', key: 'tamath:' + id, ss: SpreadsheetApp.openById(sid) }); } catch (e) { console.error(id + ' を開けません: ' + e.message); }
+  });
+  return out;
+}
+
 /** 名前の頭に単元の id を付ける CacheService（今までの呼び方 get/put/remove/…All をそのまま使える） */
 function nsCache_(id) {
   var c = CacheService.getScriptCache(), p = 'u:' + id + ':';
@@ -1837,7 +1891,9 @@ var API_DENY_ = { apiCall: 1, doGet: 1, setup: 1, registerUnitSheet: 1, listUnit
   continueAll: 1, include: 1, checkUnit: 1, baseSetHub: 1, baseClearCache: 1,
   importUnitSheetsFromHub: 1, switchHubLinks: 1, restoreHubLinks: 1, forgetCreatedUnitSheets: 1 };
 function apiCall(unitId, name, args) {
-  useUnit_(unitId);
+  var uk = parseUnitKey_(unitId);
+  useUnit_(uk.unit);
+  if (uk.as) setActAs_(uk.as);
   name = String(name || '');
   var fn = typeof LB_RESOLVE_ === 'function' ? LB_RESOLVE_(name) : globalThis[name];
   // 組み込みの関数（eval・Function など）は呼ばせない。GAS が画面から呼ばせるのも、プロジェクトに書いた関数だけ
@@ -1857,7 +1913,7 @@ function multiShim_() {
   if (!isMulti_()) return '';
   return '<script>(function(){' +
     'if(typeof google==="undefined"||!google.script||!google.script.run)return;' +
-    'var real=google.script.run,KEY=' + JSON.stringify(String(UNIT.id)) + ';' +
+    'var real=google.script.run,KEY=' + JSON.stringify(String(UNIT.id) + (ACT_.lid ? '|as=' + ACT_.lid : '')) + ';' +
     'var W={withSuccessHandler:1,withFailureHandler:1,withUserObject:1};' +
     'function mk(h){return new Proxy({},{get:function(t,k){' +
     'if(W[k])return function(f){var n={};for(var x in h)n[x]=h[x];n[k]=f;return mk(n);};' +
@@ -1954,8 +2010,31 @@ function sh_(name) {
 }
 
 function email_() {
+  // 教師が児童の代わりに取り組んでいる時は、その児童として振る舞う（setActAs_ で確かめた後だけ）。
+  // メールの無い転入生は 'lid:<学習者ID>' を本人のメールの代わりに使う（今の記録の列に入る）
+  if (ACT_.learner) return ACT_.learner.mail || ('lid:' + ACT_.learner.lid);
   var e = Session.getActiveUser().getEmail();
   return e ? e.toLowerCase() : '';
+}
+
+/* ------------------------------------------------------------
+ *  代わりに取り組む（学習BASE の中だけ）
+ *  教師が学習BASE で児童を選ぶと、URL に &as=<学習者ID> が付く。画面からの呼び出しでは、単元の欄に
+ *  'kuku|as=<学習者ID>' として載る（読み込み係の呼び出しの形を変えずに運ぶため）。
+ *  実行のたびに Base.actAs で「開いた人が教師で、その学級を見てよいか」を確かめ、通った時だけ児童として振る舞う。
+ * ------------------------------------------------------------ */
+var ACT_ = { lid: '', learner: null, by: '' };
+function setActAs_(lid) {
+  lid = String(lid || '').trim();
+  if (!lid) return;
+  if (typeof Base === 'undefined' || !hubRoster_()) throw new Error('代わりに取り組むは、学習BASE の中でだけ使えます');
+  var r = Base.actAs(lid);                   // 教師でない・担当外・名簿にいない なら止まる
+  ACT_ = { lid: lid, learner: r.learner, by: r.by };
+}
+/** 'kuku|as=L…' を { unit, as } に分ける */
+function parseUnitKey_(k) {
+  var s = String(k || ''), i = s.indexOf('|as=');
+  return i < 0 ? { unit: s, as: '' } : { unit: s.slice(0, i), as: s.slice(i + 4) };
 }
 
 function today_() {
@@ -2054,7 +2133,8 @@ function rosterRows_(fy) {
   if (hubRoster_()) {
     // ハブの名簿を Base.gs で読む（IMPORTRANGE をやめる）。過去年度はハブの roster_<年度>、
     // 無ければ今までどおり単元のスプレッドシートの roster_<年度>（4/1 に単元ごとに残していた分）
-    var hr = Base.roster(fy).map(function (r) { return { mail: r.mail, grade: r.grade, cls: r.cls, no: r.no, name: r.name }; });
+    var hr = Base.roster(fy).map(function (r) { return { mail: r.mail || (r.lid ? 'lid:' + r.lid : ''), grade: r.grade, cls: r.cls, no: r.no, name: r.name }; })
+      .filter(function (r) { return r.mail; });   // メールの無い転入生は 'lid:<学習者ID>'（代わりに取り組んだ記録の本人）
     if (hr.length || fy === curSchoolYear_()) return hr;
   }
   var s;
@@ -2406,6 +2486,7 @@ function doGet(e) {
     var uid = (e && e.parameter && e.parameter.unit) || '';
     if (!uid || !Object.prototype.hasOwnProperty.call(UNIT_DEFS, uid)) return unitIndexPage_();
     useUnit_(uid);
+    if (e.parameter.as) setActAs_(e.parameter.as);
   }
   ensureReady_();
   var page = (e && e.parameter && e.parameter.page) || '';
@@ -2612,7 +2693,7 @@ function submitSession(token, items) {
   }
 
   var q = genQueue_(s.seed, s.mode, QN);
-  var correct = 0, attempts = 0;
+  var correct = 0, attempts = 0, lbItems = [];
   var miss = [], slow = [], wrong = [], stat = {}, msByType = {};
 
   for (var i = 0; i < items.length; i++) {
@@ -2628,6 +2709,7 @@ function submitSession(token, items) {
     var firstTry = hist.length === 1 && hit;
 
     if (hit) correct++;
+    lbItems.push(lbItem_(it, qq, hist, hit, firstTry));
     if (!hit || hist.length > 1) {
       miss.push(qq.t + ':' + qq.tag);
       // 誤答明細シート用に、正しい答えと最初に間違えた値をセットで残す
@@ -2737,6 +2819,9 @@ function submitSession(token, items) {
   } finally {
     try { lock.releaseLock(); } catch (e2) {}
   }
+  // 学習BASE の新しい形の記録（学習者ID・全問）。今の記録（log）と採点の結果はここまでで確定している。
+  // ここで失敗しても結果は返す（新しい形が欠けるだけ。今の記録には影響しない）
+  try { lbWriteSession_(s, mail, isPractice, lbItems); } catch (eLb) { console.error('新しい形の記録に失敗: ' + (eLb && eLb.message || eLb)); }
 
   return {
     ok: true, mode: s.mode, limitSec: limSec, practice: isPractice,
@@ -5714,7 +5799,12 @@ function setup() {
     ownerOnly_();
     var gp = PropertiesService.getScriptProperties();
     // スプレッドシートが未登録の単元は飛ばす（ここで作らない。児童か教師が初めて開いた時に作る）
-    var msg = unitIds_().map(function (id) {
+    var cat = '';
+    if (typeof LbCatalog !== 'undefined' && hubRoster_()) {
+      try { cat = '技能の目録：' + (LbCatalog.publish(Base.hub(), tamathCatalog_()) ? 'ハブに書いた' : '変わりなし') + '\n\n'; }
+      catch (eC) { cat = '技能の目録：× ' + eC.message + '\n\n'; }
+    }
+    var msg = cat + unitIds_().map(function (id) {
       if (!gp.getProperty(unitSheetKey_(id))) return '【' + id + '】未登録のため飛ばした';
       useUnit_(id);
       try { return '【' + id + '】' + setupOne_(); } catch (e) { return '【' + id + '】× ' + e.message; }
@@ -8824,7 +8914,9 @@ return {
   "nightly": (typeof nightlyAggregateAll === 'function' ? nightlyAggregateAll : undefined),
   "daily": (typeof resetDailyAll === 'function' ? resetDailyAll : undefined),
   "rollover": (typeof rolloverRosterAll === 'function' ? rolloverRosterAll : undefined),
-  "continueAll": (typeof continueAll === 'function' ? continueAll : undefined)
+  "continueAll": (typeof continueAll === 'function' ? continueAll : undefined),
+  "sessionSources": (typeof lbSessionSources_ === 'function' ? lbSessionSources_ : undefined),
+  "writeForUnit": (typeof lbWriteForUnit_ === 'function' ? lbWriteForUnit_ : undefined)
 };
 })();
 
@@ -8885,6 +8977,18 @@ var LbPlatform = (function () {
     });
     return errs;
   }
+  /** 全アプリの新しい形の記録を「児童×技能×週」に足す（ハブの facts_<年度>）。時間切れなら残りは次の夜 */
+  function facts() {
+    var sources = [];
+    Object.keys(LB_MODULES).forEach(function (k) {
+      var m = LB_MODULES[k];
+      if (typeof m.sessionSources === 'function') { try { sources = sources.concat(m.sessionSources()); } catch (e) { console.error(k + ' の記録先: ' + e.message); } }
+    });
+    if (!sources.length) return [];
+    try { var r = LbFacts.ingest(Base.hub(), sources); console.log('集計：' + r.read + ' 行' + (r.more ? '（続きは次回）' : '')); return []; }
+    catch (e) { console.error('集計 失敗: ' + e.message); return ['facts: ' + e.message]; }
+  }
+
   function setup() {
     return Object.keys(LB_MODULES).map(function (k) {
       var m = LB_MODULES[k];
@@ -8922,6 +9026,6 @@ var LbPlatform = (function () {
   }
 
   return { doGet: doGet, call: call, appApi: appApi, setup: setup,
-    nightly: function () { return each('nightly'); }, daily: function () { return each('daily'); },
+    nightly: function () { var e = each('nightly'); return e.concat(facts()); }, daily: function () { return each('daily'); },
     rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };
 })();

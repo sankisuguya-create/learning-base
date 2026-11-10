@@ -123,7 +123,9 @@ var LbFacts = (function () {
 
   /**
    * 新しいセッションだけを読んで集計に足す（毎晩）。
-   * sources: [{ app, ss }]（アプリの id と記録のスプレッドシート）。hubSs：ハブ。
+   * sources: [{ app, key, ss }]（アプリの id・記録先の名前・記録のスプレッドシート）。hubSs：ハブ。
+   *   key は読んだ位置を覚える名前（省略時は app）。同じアプリが記録先を複数持つ時（算数TA は単元ごと）は別の key にする
+   * 練習（context が practice）の行は集計に入れない（opts.contexts で集計に入れる文脈を変えられる）
    * 読んだ位置（facts_cursor）を覚えるので、同じセッションを2回足さない。
    * 4分を越えたら途中でやめ、続きは次の実行で読む。返す：{ read, more }
    * 集計を書いた後・位置を書く前に止まると二重に足しうる。その時は rebuild で作り直す。
@@ -132,10 +134,11 @@ var LbFacts = (function () {
     opts = opts || {};
     var fy = opts.fy || Base.fyOf(new Date()), start = Date.now(), budget = opts.budgetMs || BUDGET_MS;
     var cur = readCursor(hubSs), add = {}, read = 0, more = false, touched = {};
+    var skipCtx = opts.excludeContexts || ['practice'];
     sources.forEach(function (src) {
       LbSession.sheetNames(src.ss, fy).forEach(function (name) {
         if (more) return;
-        var sh = src.ss.getSheetByName(name), last = sh.getLastRow(), ck = src.app + '|' + name;
+        var sh = src.ss.getSheetByName(name), last = sh.getLastRow(), ck = (src.key || src.app) + '|' + name;
         var from = Math.max(2, (cur[ck] || 1) + 1);
         while (from <= last) {
           if (Date.now() - start > budget) { more = true; break; }
@@ -145,7 +148,7 @@ var LbFacts = (function () {
           var sk = sh.getRange(from, LbSession.COL.skills + 1, n, 1).getValues();
           for (var i = 0; i < n; i++) {
             var s = LbSession.fromRow(head[i].concat(['', sk[i][0], '']));
-            if (s.lid) addSession(add, s);
+            if (s.lid && skipCtx.indexOf(s.context) < 0) addSession(add, s);
           }
           read += n; from += n; cur[ck] = from - 1; touched[ck] = true;
         }
@@ -167,7 +170,7 @@ var LbFacts = (function () {
     var sh = hubSs.getSheetByName('facts_' + fy);
     if (sh) sh.clearContents();
     var cur = readCursor(hubSs);
-    sources.forEach(function (src) { LbSession.sheetNames(src.ss, fy).forEach(function (n) { delete cur[src.app + '|' + n]; }); });
+    sources.forEach(function (src) { LbSession.sheetNames(src.ss, fy).forEach(function (n) { delete cur[(src.key || src.app) + '|' + n]; }); });
     writeCursor(hubSs, cur, true);
     return ingest(hubSs, sources, opts);
   }
