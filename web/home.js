@@ -94,8 +94,13 @@
     var as = S.as ? '<div class="lb-as" role="status"><strong>代わりに取り組む：</strong>' + esc(S.as.name) + '　の記録になります <button class="lb-link" data-act="as-clear">やめる</button></div>' : '';
     return '<div class="lb-tbar"><label>学級 <select id="lb-class" aria-label="学級">' + opts + '</select></label>' +
       '<button class="lb-toggle" data-act="edit" aria-pressed="' + S.edit + '">先生モード</button>' +
-      '<label>代わりに取り組む <select id="lb-as" aria-label="代わりに取り組む児童">' + mem + '</select></label>' + status + '</div>' + as;
+      (canActAs() ? '<label>代わりに取り組む <select id="lb-as" aria-label="代わりに取り組む児童">' + mem + '</select></label>' : '') + status + '</div>' + as;
   }
+  /**
+   * 代わりに取り組む（児童の記録にする）に対応しているページ（目録の actAs: true）が1つでもある時だけ、欄を出す。
+   * 対応していないページを「〇〇の記録になります」と言って開くと、実際には記録されず、気づかないまま記録が欠けるため
+   */
+  function canActAs() { return !!(S.cat && S.cat.pages.some(function (p) { return p.actAs === true; })); }
   function chips(p) {
     if (!S.edit) return '';
     var on = isOn(p), star = nowIds().indexOf(p.id) >= 0;
@@ -190,7 +195,9 @@
     }
     if (act === 'open') {
       if (S.edit) return;                                           // 先生モードでは開かない（切り替えの押し間違いで遷移しない）
-      P.open(urlFor(pageById(id)));
+      var pg = pageById(id);
+      if (S.as && pg.actAs !== true) { toast('このページは まだ 代わりに取り組めません（' + S.as.name + ' の記録になりません）'); return; }
+      P.open(urlFor(pg));
     }
   });
   root.addEventListener('change', function (ev) {

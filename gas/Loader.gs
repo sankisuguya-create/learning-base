@@ -147,16 +147,24 @@ function lbCachePut_(key, text) {
   m[key + ':n'] = String(n);
   try { CacheService.getScriptCache().putAll(m, LB_CODE_TTL); } catch (e) { console.error('一時保存に入れられません: ' + e.message); }
 }
-/** ハブの platform_code シートに写しを残す（名前ごとに最新の版だけ。1セル3万字ずつ） */
+/**
+ * ハブの platform_code シートに写しを残す（名前ごとに最新の版だけ。1セル3万字ずつ）。
+ * - 各セルの頭に「#」を付ける：区切りの頭が「=」「+」だとスプレッドシートが数式として扱い、中身が壊れるため
+ * - 版を変えた直後は大勢が同時に取りに来るので、ロックが取れた1つの実行だけが書く（取れなければ書かない）
+ */
 function lbHubCopyPut_(name, ver, text) {
-  var ss = SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty('HUB_ID'));
-  var sh = ss.getSheetByName('platform_code') || ss.insertSheet('platform_code');
-  var v = sh.getLastRow() ? sh.getDataRange().getValues() : [];
-  if (v.some(function (r) { return r[0] === name && String(r[1]) === ver; })) return;
-  var keep = v.filter(function (r) { return r[0] !== name; });
-  for (var i = 0; i * LB_CHUNK < text.length; i++) keep.push([name, ver, i, text.slice(i * LB_CHUNK, (i + 1) * LB_CHUNK)]);
-  sh.clearContents();
-  if (keep.length) sh.getRange(1, 1, keep.length, 4).setValues(keep);
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) return;
+  try {
+    var ss = SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty('HUB_ID'));
+    var sh = ss.getSheetByName('platform_code') || ss.insertSheet('platform_code');
+    var v = sh.getLastRow() ? sh.getDataRange().getValues() : [];
+    if (v.some(function (r) { return r[0] === name && String(r[1]) === ver; })) return;
+    var keep = v.filter(function (r) { return r[0] !== name; });
+    for (var i = 0; i * LB_CHUNK < text.length; i++) keep.push([name, ver, i, '#' + text.slice(i * LB_CHUNK, (i + 1) * LB_CHUNK)]);
+    sh.clearContents();
+    if (keep.length) sh.getRange(1, 1, keep.length, 4).setValues(keep);
+  } finally { lock.releaseLock(); }
 }
 function lbHubCopyGet_(name, ver) {
   try {
@@ -164,7 +172,8 @@ function lbHubCopyGet_(name, ver) {
     if (!sh || !sh.getLastRow()) return null;
     var parts = sh.getDataRange().getValues().filter(function (r) { return r[0] === name && String(r[1]) === ver; })
       .sort(function (a, b) { return a[2] - b[2]; });
-    return parts.length ? parts.map(function (r) { return String(r[3]); }).join('') : null;
+    if (!parts.length || parts.some(function (r) { return String(r[3]).charAt(0) !== '#'; })) return null;   // 壊れた写しは使わない
+    return parts.map(function (r) { return String(r[3]).slice(1); }).join('');
   } catch (e) { return null; }
 }
 

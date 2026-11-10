@@ -58,6 +58,7 @@ var LbPages = (function () {
         var s = p.src || {};
         if (!s.repo || !s.path || !/^[0-9a-f]{7,40}$|^v[\w.\-]+$/.test(String(s.ver || ''))) e.push(w + ' の src は repo・path・ver（コミットかタグ）');
       } else e.push(w + ' の kind は app か page');
+      if (p.actAs != null && typeof p.actAs !== 'boolean') e.push(w + ' の actAs は true / false（代わりに取り組むに対応しているか）');
     });
     return e;
   }
@@ -125,16 +126,27 @@ var LbPages = (function () {
     var out = { publish: {}, now: [] };
     var ps = hubSs.getSheetByName(PUB_SHEET);
     if (ps && ps.getLastRow() > 1) ps.getRange(2, 1, ps.getLastRow() - 1, 3).getValues().forEach(function (r) {
-      if (String(r[0]) === classKey && r[1]) out.publish[String(r[1])] = r[2] === true || String(r[2]).toUpperCase() === 'TRUE';
+      if (clsCell(r[0]) === classKey && r[1]) out.publish[String(r[1])] = r[2] === true || String(r[2]).toUpperCase() === 'TRUE';
     });
     var ns = hubSs.getSheetByName(NOW_SHEET);
     if (ns && ns.getLastRow() > 1) ns.getRange(2, 1, ns.getLastRow() - 1, 5).getValues().forEach(function (r) {
-      if (String(r[0]) === classKey && r[1]) out.now.push({ page: String(r[1]), order: Number(r[2]) || 0, from: ymd(r[3]), to: ymd(r[4]) });
+      if (clsCell(r[0]) === classKey && r[1]) out.now.push({ page: String(r[1]), order: Number(r[2]) || 0, from: ymd(r[3]), to: ymd(r[4]) });
     });
     return out;
   }
+  /**
+   * スプレッドシートは「3-1」を日付（3月1日）に、「2026-11-10」を日付に変えてしまう。書く列は文字の書式にしてあるが、
+   * 手で直した行・書式を付ける前の行のために、読む時も日付を元の形に戻す（算数TA の clsCell_ と同じ考え方）
+   */
+  function clsCell(v) {
+    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) return (v.getMonth() + 1) + '-' + v.getDate();
+    return String(v == null ? '' : v).trim();
+  }
   function ymd(v) {
-    if (v instanceof Date) return v.getFullYear() + '-' + pad(v.getMonth() + 1) + '-' + pad(v.getDate());
+    if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) {
+      if (typeof Utilities !== 'undefined' && Utilities.formatDate) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
+      return v.getFullYear() + '-' + pad(v.getMonth() + 1) + '-' + pad(v.getDate());
+    }
     return String(v || '');
   }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -143,17 +155,17 @@ var LbPages = (function () {
   function setPublish(hubSs, classKey, pageId, on, by) {
     var sh = sheet(hubSs, PUB_SHEET, PUB_HEAD), v = sh.getDataRange().getValues();
     for (var i = 1; i < v.length; i++) {
-      if (String(v[i][0]) === classKey && String(v[i][1]) === pageId) { sh.getRange(i + 1, 3, 1, 3).setValues([[!!on, new Date(), by || '']]); return; }
+      if (clsCell(v[i][0]) === classKey && String(v[i][1]) === pageId) { sh.getRange(i + 1, 1, 1, 5).setValues([[classKey, pageId, !!on, new Date(), by || '']]); return; }
     }
     sh.appendRow([classKey, pageId, !!on, new Date(), by || '']);
   }
 
   /** その学級の公開を全部、目録の既定に戻す */
   function resetPublish(hubSs, classKey) {
-    var sh = hubSs.getSheetByName(PUB_SHEET);
-    if (!sh) return 0;
+    if (!hubSs.getSheetByName(PUB_SHEET)) return 0;
+    var sh = sheet(hubSs, PUB_SHEET, PUB_HEAD);
     var v = sh.getDataRange().getValues(), keep = [v[0]], n = 0;
-    for (var i = 1; i < v.length; i++) { if (String(v[i][0]) === classKey) n++; else keep.push(v[i]); }
+    for (var i = 1; i < v.length; i++) { var row = v[i].slice(); row[0] = clsCell(row[0]); if (row[0] === classKey) n++; else keep.push(row); }
     sh.clearContents();
     sh.getRange(1, 1, keep.length, PUB_HEAD.length).setValues(keep.map(function (r) { return pad5(r); }));
     return n;
@@ -166,16 +178,25 @@ var LbPages = (function () {
    */
   function setNow(hubSs, classKey, list, by) {
     var sh = sheet(hubSs, NOW_SHEET, NOW_HEAD), v = sh.getDataRange().getValues(), keep = [v[0]];
-    for (var i = 1; i < v.length; i++) if (String(v[i][0]) !== classKey) keep.push(v[i]);
+    for (var i = 1; i < v.length; i++) {
+      if (clsCell(v[i][0]) === classKey) continue;
+      var row = v[i].slice(); row[0] = clsCell(row[0]); row[3] = ymd(row[3]); row[4] = ymd(row[4]); keep.push(row);
+    }
     (list || []).slice(0, NOW_MAX).forEach(function (n, k) { keep.push([classKey, n.page, k + 1, n.from || '', n.to || '', new Date(), by || '']); });
     sh.clearContents();
     sh.getRange(1, 1, keep.length, NOW_HEAD.length).setValues(keep.map(function (r) { var o = r.slice(0, NOW_HEAD.length); while (o.length < NOW_HEAD.length) o.push(''); return o; }));
   }
 
+  /** 表を用意する。学級（1列目）と日付の列は文字の書式にする（「3-1」が日付に化けないように） */
   function sheet(ss, name, head) {
     var sh = ss.getSheetByName(name);
     if (!sh) { sh = ss.insertSheet(name); sh.getRange(1, 1, 1, head.length).setValues([head]); }
+    textCols(sh, head);
     return sh;
+  }
+  function textCols(sh, head) {
+    var rows = Math.max(sh.getMaxRows ? sh.getMaxRows() : 1000, 1000);
+    head.forEach(function (h, i) { if (h === '学級' || h === 'から' || h === 'まで') sh.getRange(1, i + 1, rows, 1).setNumberFormat('@'); });
   }
 
   return { SUBJECTS: SUBJECTS, NOW_MAX: NOW_MAX, validate: validate, isOn: isOn, inPeriod: inPeriod, home: home, teacherView: teacherView,

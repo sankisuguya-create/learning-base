@@ -186,6 +186,8 @@ var LbFacts = (function () {
   function writeFacts(sh, acc) {
     var rows = toRows(acc);
     sh.clearContents();
+    // 週（'2026-11-09'）が日付に化けないよう、1列目を文字の書式にする
+    sh.getRange(1, 1, Math.max(rows.length + 1, sh.getMaxRows ? sh.getMaxRows() : 1000), 1).setNumberFormat('@');
     sh.getRange(1, 1, 1, HEAD.length).setValues([HEAD]);
     if (rows.length) sh.getRange(2, 1, rows.length, HEAD.length).setValues(rows);
   }

@@ -131,6 +131,19 @@ t('jsDelivr が止まった時：一時保存が無くてもハブの写しで�
   const p = run(S2).doGet({ parameter: {} });
   assert.match(p.html, /ひらけません/); assert.match(p.html, /写しもありません/);
 });
+t('ハブの写し：区切りの頭が「+」「=」でも数式にならずに戻る（頭に # を付ける）', () => {
+  const S = school();
+  // 2つ目のセルの頭（30000字目）が「+」になる中身にする：行の境目まで詰め物の注釈を入れ、そこに実行できる文「+0;」を置く
+  const orig = S.files['server.js'], cut = orig.lastIndexOf('\n', 29000) + 1, head = orig.slice(0, cut);
+  const pad = '//' + ' '.repeat(30000 - head.length - 3) + '\n';
+  S.files['server.js'] = head + pad + '+0;\n' + orig.slice(cut);
+  assert.strictEqual(S.files['server.js'].charAt(30000), '+');
+  run(S).doGet({ parameter: {} });
+  assert.ok(S.hub.sheets.platform_code.v.some(r => String(r[3]).startsWith('#+')), '頭が + のセルができる');
+  S.cache = {}; S.down = true;
+  assert.match(run(S).doGet({ parameter: {} }).html, /home\.js/, '写しから元の中身に戻せる');
+});
+
 t('版の切り替え：ハブの版を書き換え、lbReload（または5分後）で新しい版を取る', () => {
   const S = school(); run(S).doGet({ parameter: {} });
   S.hub.sheets.platform.v[0][1] = 'v2026.1110.0900';

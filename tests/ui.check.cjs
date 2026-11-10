@@ -20,6 +20,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if ((await t.getAttribute('data-act')) !== 'open' || (await t.getAttribute('data-id')) !== 'kanzi') fails.push('child3: 1つだけの教科のタイルが直接開かない');
       if ((await p.locator('.lb-tile[data-subject=sansu]').getAttribute('data-act')) !== 'subject') fails.push('child3: 算数のタイルが教科の画面へ行かない');
     }
+    if (role === 'teacher' && await p.locator('#lb-as').count()) fails.push('teacher: 対応しているページが無いのに「代わりに取り組む」が出る');
     if (role === 'teacher') {
       await p.click('[data-act=edit]'); await p.click('[data-act=subject][data-id=sansu]');
       await p.click('[data-act=pub][data-id=tamath-kuku]'); await p.waitForTimeout(400);

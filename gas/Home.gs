@@ -73,6 +73,7 @@ var LbHome = (function () {
 
   function setPublish(classKey, pageId, on) {
     var m = requireClass(classKey);
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(String(pageId))) throw new Error('ページの名前が不正です');
     LbPages.setPublish(Base.hub(), classKey, String(pageId), !!on, m.email);
     return LbPages.readSettings(Base.hub(), classKey);
   }

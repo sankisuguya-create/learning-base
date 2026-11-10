@@ -120,6 +120,7 @@ t('窓口：教師は扱える学級の一覧と、選んだ学級の児童（�
   assert.strictEqual(b.members[0].mail, undefined, 'メールは画面に渡さない');
   const s = ctx.homeSetPublish('3-1', 'kanzi', false);
   assert.strictEqual(s.publish.kanzi, false);
+  assert.throws(() => ctx.homeSetPublish('3-1', 'Bad Id!', false), /ページの名前が不正/);
   const s2 = ctx.homeSetNow('3-1', [{ page: 'kanzi', from: '2026-11-10', to: 'あした' }, { page: 'Bad Id' }]);
   assert.strictEqual(J(s2.now.map(x => [x.page, x.from, x.to])), J([['kanzi', '2026-11-10', '']]), '不正な日付・id は捨てる');
 });
@@ -148,6 +149,18 @@ t('教科の色：全教科に淡い地の色があり、school-timetable と同
     assert.ok(cr(sub, m[1]) >= 4.5, s.id + ' 補助の文字 ' + cr(sub, m[1]).toFixed(2));
     assert.ok(cr('#0F5EA8', m[1]) >= 3, s.id + ' 再生の印');
   });
+});
+
+t('保存：日付に化けた学級（3-1 → 3月1日）・日付の欄も、読む時に元の形に戻す', () => {
+  const hub = makeSS('hub');
+  LbPages.setNow(hub, '3-1', [{ page: 'kanzi', from: '2026-11-01', to: '2026-11-30' }], 't@x');
+  const sh = hub.sheets.now_learning;
+  sh.v.push([new Date(2026, 2, 2), 'tamath-kuku', 1, new Date(2026, 10, 1), '', '', '']);   // 手で書いた行（3-2 が日付に化けた）
+  assert.strictEqual(J(LbPages.readSettings(hub, '3-1').now.map(x => [x.page, x.from, x.to])), J([['kanzi', '2026-11-01', '2026-11-30']]));
+  assert.strictEqual(LbPages.readSettings(hub, '3-2').now[0].page, 'tamath-kuku');
+  assert.strictEqual(LbPages.readSettings(hub, '3-2').now[0].from, '2026-11-01');
+  LbPages.setPublish(hub, '3-1', 'kanzi', false, 't@x');
+  assert.strictEqual(hub.sheets.class_pages.v[1][0], '3-1', '学級の欄は文字のまま');
 });
 
 console.log(`pages ${n} 件 ok`);
