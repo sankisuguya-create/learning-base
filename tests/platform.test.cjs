@@ -392,6 +392,46 @@ t('隔離：読み込みで失敗したアプリはそのアプリだけ止ま�
   const sum = Object.keys(S.props).filter(k => k.startsWith('LB_U|')).map(k => JSON.parse(S.props[k])).reduce((a, o) => Object.assign(a, o), {});
   assert.ok(Object.keys(sum).some(k => /err:tamath\.load:壊れた版/.test(k)), '失敗として数える');
 });
+t('国語（漢字の森）：学習BASE の中で動く。準備（KANZI_SS_ID）の前は使えない扱い。枠は版つきの jsDelivr。画面からは app:kanzi の表の関数だけ。名前は大域に出ない', () => {
+  const S = school(), kid = '11111111@kyoiku.edu.nishi.or.jp';
+  let c = run(S, kid); c.doGet({ parameter: {} });
+  assert.strictEqual(JSON.stringify(c.LbPlatform.appsReady()), JSON.stringify({ tamath: true, kanzi: false }));
+  assert.strictEqual(run(S, kid).lbCall('home', 'boot', [{}]).apps.kanzi, false);
+  assert.throws(() => run(S, kid).lbCall('app:kanzi', 'api_init', []), /KANZI_SS_ID/);
+  // 準備：今の漢字の森のスプレッドシートの ID をプロパティに
+  S.props.KANZI_SS_ID = 'KANZIxxxxxxxxxxxxxxxxxxxx';
+  const book = makeSS('kanzi');
+  book.insertSheet('名簿').v.push(['メール', '学年', '組', '番号', '名前'], [kid, 3, 1, 5, 'はなこ']);
+  book.insertSheet('教師').v.push(['メール', '学年', '組']);
+  book.insertSheet('進捗').v.push(['メール', 'read', 'write', 'meta', '更新']);
+  book.insertSheet('設定').v.push(['キー', '値']);
+  S.units = Object.assign(S.units || {}, { KANZIxxxxxxxxxxxxxxxxxxxx: book });
+  c = run(S, kid); c.doGet({ parameter: {} });
+  assert.strictEqual(c.LbPlatform.appsReady().kanzi, true);
+  const page = run(S, kid).doGet({ parameter: { app: 'kanzi' } }).html;
+  const commit = MANIFEST.apps.kanzi.commit;
+  assert.ok(page.includes('https://cdn.jsdelivr.net/gh/sankisuguya-create/kanzi@' + commit + '/src/app.js'), '取り込んだ版のプログラムを読む');
+  assert.ok(!/<script src="src\//.test(page), '相対のままの読み込みが残っていない');
+  assert.match(page, /lbCall\("app:kanzi",fn,args\)/);
+  const ver = page.match(/<meta name="kanzi-ver" content="([^"]+)">/)[1];
+  let info;
+  try { info = run(S, kid).lbCall('app:kanzi', 'api_init', []); } catch (e) { info = { err: e.message }; }
+  assert.strictEqual(info.err, undefined, '児童として開ける: ' + info.err);
+  assert.strictEqual(info.role, 'student'); assert.strictEqual(info.klass, '3-1');
+  assert.strictEqual(info.ver, ver, '画面の版とサーバーの版が同じ（版ずれの検知が誤作動しない）');
+  assert.throws(() => run(S, kid).lbCall('app:kanzi', 'setup', []), /呼べない関数/);
+  assert.throws(() => run(S, kid).lbCall('app:nope', 'x', []), /アプリが見つかりません/);
+  assert.throws(() => run(S, kid).lbCall('app:../home', 'boot', []), /呼べない関数/);
+  const c2 = run(S, kid); c2.doGet({ parameter: {} });
+  ['api_init', 'me_', 'STUDENT_RE', 'lbApi_', 'doGet_', 'UNIT_DEFS'].forEach(n => assert.strictEqual(typeof c2[n], 'undefined', '大域に出ている: ' + n));
+  // 大域に出す名前は、アプリが apps.lock.json の globals に宣言したものだけ（ブラウザと共用のファイルが出す Sched・Genko）
+  const lock = JSON.parse(fs.readFileSync(path.join(R, 'apps.lock.json'), 'utf8'));
+  const declared = [].concat(...Object.keys(lock).filter(k => k !== '_').map(k => lock[k].globals || []));
+  const bare = run(S, kid), before = new Set(Object.keys(bare)); bare.doGet({ parameter: {} });
+  const leaked = Object.keys(bare).filter(k => !before.has(k) && !/^(Lb[A-Z]|LB_|Base$|base[A-Z])/.test(k)).sort();
+  assert.strictEqual(JSON.stringify(leaked), JSON.stringify(declared.slice().sort()), '宣言していない名前が大域に出ている');
+  assert.strictEqual(typeof run(S, kid).apiCall, 'function'); assert.ok(run(S, kid).apiCall('kuku', 'unitIdsForTest', []).length >= 14, '算数は今まで通り');
+});
 (async () => {
   const S = school();
   const html = run(S).doGet({ parameter: {} }).html;

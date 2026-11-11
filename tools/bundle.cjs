@@ -21,6 +21,8 @@ function gitShow(repo, commit, file) {
 
 /** アプリのサーバー側のコードを関数の中に包む。包んだ中の LB_RESOLVE_ は、画面から呼ぶ関数を名前で探す */
 function wrap(id, a, code) {
+  // どのアプリにも渡す：自分のリポジトリと版（画面のファイルを jsDelivr から版で固定して読むのに使う。docs/add-app.md）
+  a = Object.assign({}, a, { locals: Object.assign({ LB_APP_REPO: a.repo, LB_APP_COMMIT: a.commit }, a.locals || {}) });
   const locals = Object.entries(a.locals || {}).map(([k, v]) => `var ${k} = ${JSON.stringify(v)};`).join('\n');
   const exp = Object.entries(a.exports).map(([k, v]) => `${JSON.stringify(k)}: (typeof ${v} === 'function' ? ${v} : undefined)`).join(',\n  ');
   // 読み込みの時点で失敗したアプリは、そのアプリだけ { broken } にする（学習BASE とほかのアプリは動き続ける）。

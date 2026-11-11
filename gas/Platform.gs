@@ -33,6 +33,15 @@ var LbPlatform = (function () {
   }
 
   function call(mod, name, args) {
+    // 'app:<id>'：アプリの画面からの呼び出し（アプリの apiCall(名前, 引数) へ。呼べる関数はアプリが表で決める）。算数TA は今までの入口（Loader の apiCall）
+    var am = /^app:([a-z][a-z0-9-]*)$/.exec(String(mod));
+    if (am) {
+      var m = LB_MODULES[am[1]];
+      if (m && m.broken) throw new Error('いまは つかえません（' + am[1] + ' を読み込めません）');
+      if (!m || typeof m.apiCall !== 'function') throw new Error('アプリが見つかりません: ' + am[1]);
+      try { return m.apiCall(String(name), Array.isArray(args) ? args : []); }
+      catch (e) { LbTelemetry.count(roleNow(), LbTelemetry.err(am[1] + '.' + String(name).slice(0, 40), e)); throw e; }
+    }
     var api = API[String(mod)];
     if (!api || !Object.prototype.hasOwnProperty.call(api, String(name))) throw new Error('呼べない関数です: ' + mod + '.' + name);
     try { return api[name].apply(null, Array.isArray(args) ? args : []); }
@@ -208,7 +217,17 @@ var LbPlatform = (function () {
       String(text).replace(/[<>&]/g, '') + '</div>').setTitle('学習BASE');
   }
 
-  return { doGet: doGet, call: call, appApi: appApi, setup: setup,
+  /** アプリが使える状態か（{ id: true/false }）。ready を持たないアプリは使える扱い。読み込めなかったアプリは false */
+  function appsReady() {
+    var out = {};
+    Object.keys(LB_MODULES).forEach(function (k) {
+      var m = LB_MODULES[k];
+      try { out[k] = !m.broken && (typeof m.ready !== 'function' || !!m.ready()); } catch (e) { out[k] = false; }
+    });
+    return out;
+  }
+
+  return { appsReady: appsReady, doGet: doGet, call: call, appApi: appApi, setup: setup,
     nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); e = e.concat(directives()); e = e.concat(alerts()); return e.concat(usage()); },
     weekly: weekly, daily: function () { return each('daily'); },
     rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };

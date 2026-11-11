@@ -146,6 +146,18 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if (kid2 !== 'kanzi') fails.push('child3: URL を入れた漢字の森が児童に出ない');
       await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.goto(`http://localhost:${port}/web/demo.html?role=teacher`); await p.waitForTimeout(600);
     }
+    if (role === 'child3') {   // 国語（漢字の森）：準備の前は開く先のリンク、準備ができたら学習BASE の中のアプリを開く
+      await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
+      let o1 = ''; await p.exposeFunction('lbOpenK', u => { o1 = u; });
+      await p.evaluate(() => { window.LB_PLATFORM.open = u => window.lbOpenK(u); });
+      await p.click('.lb-tile[data-subject=kokugo]'); await p.waitForTimeout(200);
+      if (o1 !== 'https://example.com/kanzi') fails.push('child3: 準備の前の漢字の森がリンクを開かない: ' + o1);
+      await p.evaluate(() => localStorage.setItem('lb-demo', JSON.stringify({ kanziReady: true }))); await p.reload(); await p.waitForTimeout(700);
+      await p.evaluate(() => { window.LB_PLATFORM.open = u => window.lbOpenK(u); });
+      await p.click('.lb-tile[data-subject=kokugo]'); await p.waitForTimeout(200);
+      if (!/[?&]app=kanzi$/.test(o1)) fails.push('child3: 準備ができた漢字の森が学習BASE の中で開かない: ' + o1);
+      await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
+    }
     if (role === 'child3') {   // 開くのを速く：枠に入れたホームの情報を使う（homeBoot を呼ばない）。記録は表示の後に送る。開く時は「ひらいています…」
       await p.evaluate(() => localStorage.setItem('lb-rt', '3000'));
       await p.goto(`http://localhost:${port}/web/demo.html?role=child3&embed=1`);

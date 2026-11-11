@@ -399,7 +399,7 @@
    * URL は学習BASE のデータの pages シートに入る（公開の目録には書かない）。URL がまだ無いページは児童には出さない
    */
   function linkPanel(pages) {
-    var links = pages.filter(function (p) { return p.kind === 'link'; });
+    var links = pages.filter(function (p) { return p.kind === 'link' || appWaiting(p); });
     if (!S.edit || !S.boot.owner || !links.length) return '';
     return '<div class="lb-linkpanel"><h3 class="lb-h">開く先（所有者だけ）</h3>' + links.map(function (p) {
       var h = hubLink(p), has = !!(h && h.url);
@@ -440,9 +440,11 @@
   }
 
   /* ---------- 操作 ---------- */
+  /** アプリのページだが、学習BASE の中でまだ準備ができていない（その間は、目録の linkId の開く先を開く） */
+  function appWaiting(p) { return p.kind === 'app' && ((S.boot && S.boot.apps) || {})[p.app] === false; }
   function pageById(id) { return S.cat.pages.filter(function (p) { return p.id === id; })[0]; }
   function urlFor(p) {
-    if (p.kind === 'link') { var h = hubLink(p); return h && h.url ? h.url : ''; }
+    if (p.kind === 'link' || appWaiting(p)) { var h = hubLink(p); return h && h.url ? h.url : ''; }
     var q = [];
     if (p.kind === 'app') { q.push('app=' + encodeURIComponent(p.app)); for (var k in (p.params || {})) q.push(encodeURIComponent(k) + '=' + encodeURIComponent(p.params[k])); }
     else q.push('doc=' + encodeURIComponent(p.id));   // page= はアプリが使う（算数TA の教師画面）
@@ -576,7 +578,7 @@
       }
       if (S.shot) { toast('撮影用の表示では開きません'); return; }                                           // 先生モードでは開かない（切り替えの押し間違いで遷移しない）
       var pg = pageById(id);
-      if (pg.kind === 'link' && !urlFor(pg)) {
+      if ((pg.kind === 'link' || appWaiting(pg)) && !urlFor(pg)) {
         toast(S.boot.role !== 'teacher' ? 'まだ ひらけません。せんせいに つたえてね'
           : S.boot.owner ? '先生モードで この教科を開き、「開く先」に URL を入れてください' : '開く先の URL がまだありません。所有者に設定を頼んでください');
         return;
@@ -654,7 +656,7 @@
     if (b.role === 'teacher') return c;
     var L = b.links || {}, out = {}; for (var k in c) out[k] = c[k];
     out.pages = (c.pages || []).filter(function (p) {
-      if (p.kind !== 'link') return true;
+      if (p.kind !== 'link' && !(p.kind === 'app' && (b.apps || {})[p.app] === false)) return true;
       var h = L[p.linkId || ''] || L[p.id]; return !!(h && h.url);
     });
     return out;

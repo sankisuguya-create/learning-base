@@ -41,6 +41,7 @@
       b.links = { kuku: { color: 'mint', url: '', subtitle: '3年' }, divmod: { color: 'blue', subtitle: '3年' }, length: { color: 'amber' }, weight: { color: 'red' },
         bignum: { color: 'purple' }, decimal: { color: 'teal' }, circle: { color: 'cobalt' }, kakehissan: { color: 'coral' }, bai: { color: 'ochre' },
         'toi-board': { url: 'https://example.com/toi-board', color: 'lavender' }, kanzi: { url: 'https://example.com/kanzi', color: 'green' } };
+      b.apps = { tamath: true, kanzi: !!store().kanziReady };   // 見本：漢字の森は準備の前（開く先のリンクを開く）。store().kanziReady で準備ができた後
       var ov = store().links || {}; for (var lk in ov) b.links[lk] = Object.assign({}, b.links[lk] || {}, { url: ov[lk] });   // 見本：所有者が入れた URL
       if (b.role === 'child') { var g = role === 'child1' ? 1 : 3; b.learner = { name: 'たなか はなこ', mei: 'はなこ', grade: g, cls: '1' }; b.classKey = g + '-1'; b.settings = settings(b.classKey); }
       if (role === 'teacher') b.now3 = store().now3 || [

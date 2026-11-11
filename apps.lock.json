@@ -28,5 +28,27 @@
     "locals": {
       "LB_APP_QUERY": "app=tamath"
     }
+  },
+  "kanzi": {
+    "repo": "sankisuguya-create/kanzi",
+    "commit": "6790a9b97453dd6f84c155169272419ec806dd15",
+    "server": [
+      "gas/Scheduler.js",
+      "gas/Genko.js",
+      "gas/Code.js"
+    ],
+    "files": {
+      "shell": "gas/shell.html"
+    },
+    "exports": {
+      "doGet": "doGet",
+      "apiCall": "lbApi_",
+      "setup": "setup",
+      "ready": "lbReady_"
+    },
+    "globals": [
+      "Sched",
+      "Genko"
+    ]
   }
 }

@@ -99,6 +99,8 @@ var LbHome = (function () {
   function bootInner(opt) {
     var m = Base.me(), out = { role: m.role, today: today(), pagesUrl: pagesUrl(), subjects: LbPages.SUBJECTS };
     try { out.links = hubLinks(); } catch (e) { out.links = {}; }
+    // アプリが使える状態か（まだ準備ができていないアプリのページは、目録の linkId の開く先があればそちらを開く）
+    try { out.apps = typeof LbPlatform !== 'undefined' ? LbPlatform.appsReady() : {}; } catch (e) { out.apps = {}; }
     if (m.role === 'child') {
       var c = m.child;
       out.learner = { name: c.name, mei: c.mei, grade: c.grade, cls: c.cls };
