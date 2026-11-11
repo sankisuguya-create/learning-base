@@ -1,12 +1,12 @@
 {
- "ver": "a0a95f253d8d6dc64d2755ba0591b3c612abe8fb",
- "sha": "f66140a7ec517517424dda16c7f7600fb1407197391696f8c4e76f8a1f93606c",
+ "ver": "bf8d0ec5091d81aac1cfef3719432855d2abee17",
+ "sha": "b150abb1936e0716f6d3c9d62c89b7ad2f6e4a8921a442546533e5f7e919892a",
  "apps": {
   "tamath": {
    "repo": "sankisuguya-create/arithmetic-timeattack",
    "commit": "ec852625997baadbd633d4f8a3e3ba9dbe0fb3fa"
   }
  },
- "at": "2026-11-11T06:43:56.173Z",
+ "at": "2026-11-11T07:03:06.800Z",
  "note": "学習BASE の読み込み係が使う版。GitHub の自動処理が書く（直接直さない）"
 }
