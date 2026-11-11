@@ -45,8 +45,8 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if (!(await p.locator('.lb-alert[data-kind=result]').count())) fails.push('teacher: 指示の結果のカードが出ない');
       if ((await p.locator('[data-act=direct-open]').count()) !== 2) fails.push('teacher: 手を打つ が指示を受け取れる項目だけに出ない');
       await p.click('[data-act=direct-open]');
-      if ((await p.locator('.lb-seg[aria-pressed=true]').textContent()) !== '2週間') fails.push('teacher: 期間の既定が2週間でない');
-      if ((await p.locator('[data-act=direct-show]').getAttribute('aria-pressed')) !== 'false') fails.push('teacher: おすすめの既定が「見せない」でない');
+      if ((await p.locator('.lb-seg[aria-checked=true]').textContent()) !== '2週間') fails.push('teacher: 期間の既定が2週間でない');
+      if ((await p.locator('[data-act=direct-show]').getAttribute('aria-checked')) !== 'false') fails.push('teacher: おすすめの既定が「見せない」でない');
       await p.click('[data-act=direct-days][data-days="7"]'); await p.click('[data-act=direct-show]');
       await p.click('[data-act=direct]'); await p.waitForTimeout(400);
       const dirs = await p.evaluate(() => JSON.parse(localStorage.getItem('lb-demo') || '{}').dirs || []);
@@ -129,6 +129,34 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       await p.click('[data-act=back]'); await p.click('.lb-tile[data-subject=sogo]'); await p.waitForTimeout(200);
       if (opened) fails.push('teacher: 代わりに取り組むに対応していないページが開いた');
       await p.goto(p.url()); await p.waitForTimeout(600);
+    }
+    if (role === 'teacher') {   // 先生モード：スイッチ（オン／オフの文字）と帯。教科の中で ⠿ をドラッグ・矢印キーで並べかえ → 保存 → 児童も同じ順
+      const sw = p.locator('[data-act=edit]');
+      if ((await sw.getAttribute('role')) !== 'switch' || !/オフ/.test(await sw.textContent())) fails.push('teacher: 先生モードがオフと分かるスイッチでない');
+      await sw.click();
+      if ((await p.locator('[data-act=edit]').getAttribute('aria-checked')) !== 'true' || !/オン/.test(await p.locator('[data-act=edit]').textContent())) fails.push('teacher: 先生モードがオンと分からない');
+      if (!(await p.locator('.lb-editbar').count())) fails.push('teacher: 先生モードの帯が出ない');
+      await p.click('[data-act=subject][data-id=sansu]'); await p.waitForTimeout(200);
+      const ids0 = await p.$$eval('.lb-hgrid .lb-cell', cs => cs.map(c => c.dataset.id));
+      const a0 = await p.locator('.lb-drag').nth(0).boundingBox(), t2 = await p.locator('.lb-hgrid .lb-cell').nth(2).boundingBox();
+      await p.mouse.move(a0.x + 24, a0.y + 24); await p.mouse.down();
+      await p.mouse.move(t2.x + t2.width / 2, t2.y + t2.height / 2, { steps: 8 }); await p.mouse.up(); await p.waitForTimeout(400);
+      const ids1 = await p.$$eval('.lb-hgrid .lb-cell', cs => cs.map(c => c.dataset.id));
+      if (ids1[2] !== ids0[0] || ids1[0] !== ids0[1]) fails.push('teacher: ドラッグで並ばない: ' + ids0.slice(0, 3) + ' → ' + ids1.slice(0, 3));
+      const saved0 = await p.evaluate(() => (JSON.parse(localStorage.getItem('lb-demo'))['3-1'].order || {}).sansu || []);
+      if (saved0.join() !== ids1.join()) fails.push('teacher: 並びが保存されない');
+      await p.locator('.lb-drag[data-drag="' + ids0[0] + '"]').focus(); await p.keyboard.press('ArrowLeft'); await p.waitForTimeout(300);
+      const ids2 = await p.$$eval('.lb-hgrid .lb-cell', cs => cs.map(c => c.dataset.id));
+      if (ids2[1] !== ids0[0]) fails.push('teacher: 矢印キーで動かない: ' + ids2.slice(0, 3));
+      if ((await p.evaluate(() => document.activeElement && document.activeElement.dataset.drag)) !== ids0[0]) fails.push('teacher: 動かした後につまみに戻らない');
+      const kidIds = await p.goto(`http://localhost:${port}/web/demo.html?role=child3`).then(() => p.waitForTimeout(600)).then(() => p.click('[data-act=subject][data-id=sansu]'))
+        .then(() => p.$$eval('.lb-hgrid .lb-htile', cs => cs.map(c => c.dataset.id)));
+      if (kidIds.slice(0, 3).join() !== ids2.slice(0, 3).join()) fails.push('teacher: 児童の画面が先生の並びにならない: ' + kidIds.slice(0, 3));
+      if (await p.locator('.lb-drag').count()) fails.push('child3: 児童に並べかえのつまみが出る');
+      await p.goto(`http://localhost:${port}/web/demo.html?role=teacher`); await p.waitForTimeout(600);
+      await p.click('[data-act=edit]'); await p.click('[data-act=subject][data-id=sansu]'); await p.click('[data-act=order-reset]'); await p.waitForTimeout(300);
+      if ((await p.$$eval('.lb-hgrid .lb-cell', cs => cs.map(c => c.dataset.id))).join() !== ids0.join()) fails.push('teacher: もとの並びに戻らない');
+      await p.click('[data-act=back]'); await p.click('[data-act=edit]');
     }
     if (role === 'teacher') {
       await p.click('[data-act=edit]'); await p.click('[data-act=subject][data-id=sansu]');

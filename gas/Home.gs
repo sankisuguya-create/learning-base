@@ -164,6 +164,12 @@ var LbHome = (function () {
     LbPages.setPublish(Base.hub(), classKey, String(pageId), !!on, m.email);
     return LbPages.readSettings(Base.hub(), classKey);
   }
+  /** 教科の中の並び（先生モードでドラッグ）。ids が空なら目録の順に戻す */
+  function setOrder(classKey, subject, ids) {
+    var m = requireClass(classKey);
+    LbPages.setOrder(Base.hub(), classKey, String(subject), Array.isArray(ids) ? ids : [], m.email);
+    return LbPages.readSettings(Base.hub(), classKey);
+  }
   function resetPublish(classKey) {
     requireClass(classKey);
     LbPages.resetPublish(Base.hub(), classKey);
@@ -250,7 +256,7 @@ var LbHome = (function () {
    * 画面は LB_PLATFORM.call('homeXxx', …) で呼ぶ（'home' を外して頭を小文字にした名前でこの表を引く）。
    * 中で必ず「誰が開いたか」と「その学級・その操作をしてよいか」を確かめる関数だけを置く
    */
-  var API = { boot: boot, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow,
+  var API = { boot: boot, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, setOrder: setOrder,
     feedback: feedback, report: report, 'export': exportForTuning, tuning: tuning, tryRules: tryRules, saveRules: saveRules,
     direct: direct, endDirective: endDirective, seeResult: seeResult };
 

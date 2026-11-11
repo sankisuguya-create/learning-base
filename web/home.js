@@ -114,6 +114,7 @@
       loadMincho(Array.prototype.map.call(root.querySelectorAll('.lb-mincho'), function (e) { return e.textContent; }).join(''));
       fitTiles();
       if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTiles);
+      if (S.focusDrag) { var fd = root.querySelector('.lb-drag[data-drag="' + S.focusDrag + '"]'); if (fd) fd.focus(); }
     }
   }
   function top() {
@@ -133,12 +134,20 @@
     var off = S.cat ? S.cat.pages.filter(function (p) { return p.grades.indexOf(S.grade) >= 0 && !isOn(p); }).length : 0;
     var status = S.edit ? '<span class="lb-tstatus">かくしている：' + off + '件　いまの学習：' + nowIds().length + '／3件</span>' +
       (off ? '<button class="lb-link" data-act="reset">ぜんぶ みせる に もどす</button>' : '') : '';
+    var editBar = S.edit ? '<div class="lb-editbar" role="status"><strong>先生モード：オン</strong>　押しても ページは開きません。' +
+      '✓ みせる／✕ かくす・★ いまの学習・⠿ をつかんで並べかえ（教科の中）</div>' : '';
     var as = S.as ? '<div class="lb-as" role="status"><strong>代わりに取り組む：</strong>' + esc(S.as.name) + '　の記録になります <button class="lb-link" data-act="as-clear">やめる</button></div>' : '';
     return '<div class="lb-tbar"><label>学級 <select id="lb-class" aria-label="学級">' + opts + '</select></label>' +
-      '<button class="lb-toggle" data-act="edit" aria-pressed="' + S.edit + '">先生モード</button>' +
-      '<button class="lb-toggle" data-act="shot" aria-pressed="' + S.shot + '">撮影用</button>' +
-      (canActAs() ? '<label>代わりに取り組む <select id="lb-as" aria-label="代わりに取り組む児童">' + mem + '</select></label>' : '') + status + '</div>' + as +
+      sw('edit', '先生モード', S.edit) + sw('shot', '撮影用', S.shot) +
+      (canActAs() ? '<label>代わりに取り組む <select id="lb-as" aria-label="代わりに取り組む児童">' + mem + '</select></label>' : '') + status + '</div>' + editBar + as +
       (S.shot ? '<div class="lb-shot" role="status"><strong>撮影用の表示：</strong>児童の名前と数字は見本です（ページは開きません・押しても記録しません） <button class="lb-link" data-act="shot">もどす</button></div>' : '');
+  }
+  /**
+   * スイッチ（2値の切り替え。ui-layout：押した瞬間に反映）。つまみの位置と「オン／オフ」の文字で状態を示す（色だけにしない）
+   */
+  function sw(act, label, on) {
+    return '<button class="lb-switch" role="switch" aria-checked="' + !!on + '" data-act="' + act + '"><span class="lb-sw-track" aria-hidden="true"><span class="lb-sw-knob"></span></span>' +
+      '<span class="lb-sw-label">' + esc(label) + '</span><span class="lb-sw-state" aria-hidden="true">' + (on ? 'オン' : 'オフ') + '</span></button>';
   }
   /**
    * 代わりに取り組む（児童の記録にする）に対応しているページ（目録の actAs: true）が1つでもある時だけ、欄を出す。
@@ -162,8 +171,9 @@
   function chips(p) {
     if (!S.edit) return '';
     var on = isOn(p), star = nowIds().indexOf(p.id) >= 0;
-    return '<span class="lb-chips"><button class="lb-chip' + (on ? '' : ' off') + '" data-act="pub" data-id="' + esc(p.id) + '" aria-pressed="' + on + '">' + (on ? '✓ みせる' : '✕ かくす') + '</button>' +
-      '<button class="lb-chip star' + (star ? ' on' : '') + '" data-act="now" data-id="' + esc(p.id) + '" aria-pressed="' + star + '" aria-label="いまの学習">★' + (star ? ' いま' : '') + '</button></span>';
+    // いまの学習は ★（入れている）／☆（入れていない）の形で示す（色だけにしない。幅は変えない）
+    return '<span class="lb-chips"><button class="lb-chip' + (on ? '' : ' off') + '" data-tier="std" data-act="pub" data-id="' + esc(p.id) + '" aria-pressed="' + on + '">' + (on ? '✓ みせる' : '✕ かくす') + '</button>' +
+      '<button class="lb-chip star' + (star ? ' on' : '') + '" data-tier="small" data-act="now" data-id="' + esc(p.id) + '" aria-pressed="' + star + '" aria-label="いまの学習' + (star ? '（入れている）' : '') + '">' + (star ? '★' : '☆') + '</button></span>';
   }
   /**
    * 今週の3件（先生だけ）。いまの学習より上に置く：先生がこの画面で最初にすることは「次に手を打つ相手を知る」だから。
@@ -194,11 +204,11 @@
   /** 手を打つ：期間と「おすすめを見せる」を選んで指示する（カードの中で開く） */
   function directForm(a) {
     var seg = [7, 14].map(function (d) {
-      return '<button class="lb-seg" data-act="direct-days" data-days="' + d + '" aria-pressed="' + (S.dirDays === d) + '">' + (d === 7 ? '1週間' : '2週間') + '</button>';
+      return '<button class="lb-seg" role="radio" data-act="direct-days" data-days="' + d + '" aria-checked="' + (S.dirDays === d) + '">' + (d === 7 ? '1週間' : '2週間') + '</button>';
     }).join('');
     return '<div class="lb-dform"><p class="lb-dnote">練習の「ぜんぶ」で、この技能の問題を半分まぜます（本番の出題は変えません）。期間が終わったら、本番の記録で結果を出します。</p>' +
-      '<div class="lb-drow" role="group" aria-label="期間">' + seg + '</div>' +
-      '<div class="lb-drow"><button class="lb-toggle" data-act="direct-show" aria-pressed="' + S.dirShow + '">★ おすすめを見せる</button>' +
+      '<div class="lb-drow lb-segs" role="radiogroup" aria-label="期間">' + seg + '</div>' +
+      '<div class="lb-drow">' + sw('direct-show', '★ おすすめを見せる', S.dirShow) +
       '<span class="lb-dhint">' + (S.dirShow ? '児童の練習の画面に「★ おすすめ」が出ます' : '児童には見えません（出題だけ変わります）') + '</span></div>' +
       '<div class="lb-alert-acts"><button class="lb-abtn" data-tier="main" data-act="direct" data-key="' + esc(a.key) + '">指示する</button>' +
       '<button class="lb-abtn sub" data-tier="small" data-act="direct-cancel">やめる</button></div></div>';
@@ -341,14 +351,16 @@
     var units = S.edit ? LbPagesView.home(S.cat, S.grade, { publish: allOn(), now: [] }, S.boot.today).bySubject[S.subject] : home().bySubject[S.subject];
     var html = '<div class="lb-paper"><div class="lb-shead" data-subject="' + esc(S.subject) + '"><button class="lb-back" data-act="back">← もどる</button>' +
       icon(S.subject) + '<h2 class="lb-mincho">' + subjectName(s) + '</h2></div>';
-    var pages = [];
+    var pages = [], ord = (settings().order || {})[S.subject] || [];
     (units || []).forEach(function (u) { pages = pages.concat(u.pages); });
+    pages = LbPagesView.sortByOrder(pages, ord);                    // 先生が並べた順（学級ごと）。無ければ目録の順
     if (!pages.length) return html + '<div class="lb-msg">いまは ありません</div></div>';
+    if (S.edit && ord.length) html += '<div class="lb-ordbar"><button class="lb-link" data-act="order-reset">もとの並びに もどす</button></div>';
     html += '<div class="lb-hgrid">' + pages.map(function (p) {
-      var c = tileColor(p), h = hubLink(p), sub = (h && h.subtitle) || '';
-      return '<div class="lb-cell"><button class="lb-htile' + (isOn(p) ? '' : ' is-off') + '" data-act="open" data-id="' + esc(p.id) + '" style="background:' + c[0] + ';color:' + c[1] + '">' +
-        '<span class="t lb-mincho">' + esc(S.grade <= 2 && p.ruby ? p.ruby : p.title) + '</span>' + (sub ? '<span class="s">' + esc(sub) + '</span>' : '') +
-        '</button>' + chips(p) + '</div>';
+      var c = tileColor(p), h = hubLink(p), sub = (h && h.subtitle) || '', title = S.grade <= 2 && p.ruby ? p.ruby : p.title;
+      return '<div class="lb-cell" data-id="' + esc(p.id) + '"><button class="lb-htile' + (isOn(p) ? '' : ' is-off') + '" data-tier="main" data-act="open" data-id="' + esc(p.id) + '" style="background:' + c[0] + ';color:' + c[1] + '">' +
+        '<span class="t lb-mincho">' + esc(title) + '</span>' + (sub ? '<span class="s">' + esc(sub) + '</span>' : '') +
+        '</button>' + (S.edit ? '<button class="lb-drag" data-tier="small" data-drag="' + esc(p.id) + '" aria-label="並べかえ：' + esc(title) + '（つかんで動かす・矢印キーでも動く）">⠿</button>' : '') + chips(p) + '</div>';
     }).join('') + '</div></div>';
     return html;
   }
@@ -407,6 +419,7 @@
       S.view = 'home'; render(); return;
     }
     if (act === 'edit') { S.edit = !S.edit; render(); return; }
+    if (act === 'order-reset') { saveOrder([]); return; }
     if (act === 'shot') { S.shot = !S.shot; S.as = null; S.exp = null; if (S.view === 'tuning') S.view = 'home'; render(); return; }
     if (act === 'tune') { S.view = 'tuning'; S.exp = null; window.scrollTo(0, 0); loadTuning(); return; }
     if (act === 'rule-try') {
@@ -503,6 +516,55 @@
       P.open(urlFor(pg));
     }
   });
+  /* ---------- 並べかえ（先生モード・教科の中）：⠿ をつかんで動かす（タッチ・ペン・マウス）。矢印キーでも動く ---------- */
+  function cellIds() { return Array.prototype.map.call(root.querySelectorAll('.lb-hgrid .lb-cell'), function (c) { return c.getAttribute('data-id'); }); }
+  function saveOrder(ids) {
+    var sub = S.subject, st = settings();
+    st.order = st.order || {};
+    if (ids.length) st.order[sub] = ids; else delete st.order[sub];
+    render();                                                       // すぐ画面に返す（保存は後ろで）
+    save('homeSetOrder', [S.boot.classKey, sub, ids], ids.length ? '並びを保存しました（児童の画面には次に開いた時に出ます）' : 'もとの並びに もどしました');
+  }
+  var drag = null;
+  root.addEventListener('pointerdown', function (ev) {
+    var h = ev.target.closest('.lb-drag');
+    if (!h || !S.edit) return;
+    ev.preventDefault();
+    var cell = h.closest('.lb-cell');
+    drag = { cell: cell, before: cellIds().join(',') };
+    cell.classList.add('lb-dragging');
+    try { h.setPointerCapture(ev.pointerId); } catch (e) {}
+  });
+  root.addEventListener('pointermove', function (ev) {
+    if (!drag) return;
+    ev.preventDefault();
+    var el = document.elementFromPoint(ev.clientX, ev.clientY), over = el && el.closest('.lb-hgrid .lb-cell');
+    if (!over || over === drag.cell) return;
+    var cells = Array.prototype.slice.call(over.parentNode.children), from = cells.indexOf(drag.cell), to = cells.indexOf(over);
+    over.parentNode.insertBefore(drag.cell, from < to ? over.nextSibling : over);   // 動かした方向の先に入れる（その場で見えるように）
+  });
+  function endDrag() {
+    if (!drag) return;
+    drag.cell.classList.remove('lb-dragging');
+    var ids = cellIds(), changed = ids.join(',') !== drag.before;
+    drag = null;
+    if (changed) saveOrder(ids);
+  }
+  root.addEventListener('pointerup', endDrag);
+  root.addEventListener('pointercancel', endDrag);
+  root.addEventListener('keydown', function (ev) {
+    var h = ev.target.closest && ev.target.closest('.lb-drag');
+    if (!h || !S.edit) return;
+    var k = ev.key, d = (k === 'ArrowLeft' || k === 'ArrowUp') ? -1 : (k === 'ArrowRight' || k === 'ArrowDown') ? 1 : 0;
+    if (!d) return;
+    ev.preventDefault();
+    var ids = cellIds(), id = h.getAttribute('data-drag'), i = ids.indexOf(id), j = i + d;
+    if (j < 0 || j >= ids.length) return;
+    ids.splice(i, 1); ids.splice(j, 0, id);
+    S.focusDrag = id;                                               // 描き直した後も同じつまみに戻す
+    saveOrder(ids);
+  });
+
   root.addEventListener('input', function (ev) { if (ev.target.id === 'lb-fbtext') S.fb = ev.target.value; });   // 書きかけを描き直しで消さない
   root.addEventListener('change', function (ev) {
     if (ev.target.id === 'lb-class') { load({ classKey: ev.target.value }); return; }
