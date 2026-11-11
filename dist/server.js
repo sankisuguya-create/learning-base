@@ -2352,6 +2352,26 @@ var LbHome = (function () {
     });
     return out;
   }
+  /** 別の GAS のページとして受け付ける URL（Apps Script のウェブアプリだけ。学校のドメインの /a/macros/… も） */
+  //   https://script.google.com/macros/s/<ID>/exec  または  https://script.google.com/a/macros/<学校のドメイン>/s/<ID>/exec
+  var LINK_URL = /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.\-]+|macros)\/s\/[A-Za-z0-9_\-]+\/exec(\?[A-Za-z0-9_=&%.\-]*)?$/;
+  /**
+   * 別の GAS のページ（目録の kind: link）の開く先を、ハブの links シートに書く（所有者だけ）。
+   * 全校の児童が開く先なので、所有者以外は変えられない。links に行が無ければ足す（算数TA のハブには出さない：visible は FALSE）
+   */
+  function setLink(linkId, url, title) {
+    requireOwner();
+    linkId = String(linkId || ''); url = String(url || '').trim();
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(linkId)) throw new Error('リンクの名前が不正です');
+    if (url && !LINK_URL.test(url)) throw new Error('Apps Script のウェブアプリの URL（https://script.google.com/…/exec）を貼ってください');
+    var hub = Base.hub(), sh = hub.getSheetByName('links');
+    if (!sh) { sh = hub.insertSheet('links'); sh.getRange(1, 1, 1, 7).setValues([['id', 'title', 'subtitle', 'url', 'grades', 'color', 'visible']]); }
+    var n = sh.getLastRow(), ids = n >= 2 ? sh.getRange(2, 1, n - 1, 1).getValues().map(function (r) { return String(r[0] || '').trim(); }) : [];
+    var i = ids.indexOf(linkId);
+    if (i >= 0) sh.getRange(i + 2, 4).setValue(url);
+    else sh.appendRow([linkId, String(title || linkId).slice(0, 60), '', url, '', '', false]);
+    return hubLinks();
+  }
 
   /**
    * ホームを開いた時の情報。
@@ -2557,7 +2577,7 @@ var LbHome = (function () {
    * 画面は LB_PLATFORM.call('homeXxx', …) で呼ぶ（'home' を外して頭を小文字にした名前でこの表を引く）。
    * 中で必ず「誰が開いたか」と「その学級・その操作をしてよいか」を確かめる関数だけを置く
    */
-  var API = { boot: boot, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, setOrder: setOrder,
+  var API = { boot: boot, setLink: setLink, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, setOrder: setOrder,
     feedback: feedback, report: report, 'export': exportForTuning, tuning: tuning, tryRules: tryRules, saveRules: saveRules,
     direct: direct, endDirective: endDirective, seeResult: seeResult };
 

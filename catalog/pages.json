@@ -219,9 +219,10 @@
    "unit": "漢字",
    "title": "漢字の森",
    "ruby": "かんじのもり",
-   "kind": "app",
-   "app": "kanzi",
-   "order": 10
+   "kind": "link",
+   "order": 10,
+   "linkId": "kanzi",
+   "defaultOn": true
   },
   {
    "id": "toi-board",

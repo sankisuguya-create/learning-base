@@ -30,7 +30,7 @@
   }
   window.addEventListener('error', function (e) { reportJs((e && e.message) || 'error'); });
   window.addEventListener('unhandledrejection', function (e) { reportJs('promise: ' + ((e && e.reason && e.reason.message) || (e && e.reason) || '')); });
-  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, shot: false, fb: '', exp: null, tune: null, dirKey: '', dirDays: 14, dirShow: false, readyAt: 0, started: false, opened: false };
+  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, shot: false, fb: '', exp: null, tune: null, linkEdit: '', dirKey: '', dirDays: 14, dirShow: false, readyAt: 0, started: false, opened: false };
   /** この端末だけの覚え（前回の往復の時間）。使えない時（シークレットなど）は覚えないだけ */
   function store(k, v) {
     try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, String(v)); } catch (e) { return null; }
@@ -41,7 +41,7 @@
   var ICONS = {
     kokugo: '<path d="M12 6h18l6 6v30H12z"/><path d="M30 6v6h6M18 20h12M18 26h12M18 32h8"/>',
     shakai: '<circle cx="24" cy="24" r="16"/><path d="M8 24h32M24 8c-6 6-6 26 0 32M24 8c6 6 6 26 0 32"/>',
-    sansu: '<path d="M10 14h12M16 8v12M28 14h10M10 34h12M28 30h10M28 38h10M12 40l8-8M20 40l-8-8"/>',
+    sansu: '<path d="M8 14h12M14 8v12M28 14h12M9.5 29.5l9 9M18.5 29.5l-9 9M28 31h12M28 37h12"/>',   // ＋ − × ＝ を田の字に（同じ大きさ・同じすき間）
     rika: '<path d="M19 6h10M21 6v12L10 38a3 3 0 003 4h22a3 3 0 003-4L27 18V6"/><path d="M15 30h18"/>',
     seikatsu: '<path d="M24 42V22M24 24c0-8-6-12-14-12 0 8 6 12 14 12zM24 28c0-8 6-12 14-12 0 8-6 12-14 12z"/>',
     ongaku: '<path d="M18 36V10l20-4v26"/><circle cx="13" cy="36" r="5"/><circle cx="33" cy="32" r="5"/>',
@@ -356,6 +356,7 @@
     pages = LbPagesView.sortByOrder(pages, ord);                    // 先生が並べた順（学級ごと）。無ければ目録の順
     if (!pages.length) return html + '<div class="lb-msg">いまは ありません</div></div>';
     if (S.edit && ord.length) html += '<div class="lb-ordbar"><button class="lb-link" data-act="order-reset">もとの並びに もどす</button></div>';
+    html += linkPanel(pages);
     html += '<div class="lb-hgrid">' + pages.map(function (p) {
       var c = tileColor(p), h = hubLink(p), sub = (h && h.subtitle) || '', title = S.grade <= 2 && p.ruby ? p.ruby : p.title;
       return '<div class="lb-cell" data-id="' + esc(p.id) + '"><button class="lb-htile' + (isOn(p) ? '' : ' is-off') + '" data-tier="main" data-act="open" data-id="' + esc(p.id) + '" style="background:' + c[0] + ';color:' + c[1] + '">' +
@@ -363,6 +364,25 @@
         '</button>' + (S.edit ? '<button class="lb-drag" data-tier="small" data-drag="' + esc(p.id) + '" aria-label="並べかえ：' + esc(title) + '（つかんで動かす・矢印キーでも動く）">⠿</button>' : '') + chips(p) + '</div>';
     }).join('') + '</div></div>';
     return html;
+  }
+  /**
+   * 開く先（別の GAS のページ：漢字の森・といボードなど）の URL を入れる（先生モード・所有者だけ）。
+   * URL はハブの links シートに入る（公開の目録には書かない）。URL がまだ無いページは児童には出さない
+   */
+  function linkPanel(pages) {
+    var links = pages.filter(function (p) { return p.kind === 'link'; });
+    if (!S.edit || !S.boot.owner || !links.length) return '';
+    return '<div class="lb-linkpanel"><h3 class="lb-h">開く先（所有者だけ）</h3>' + links.map(function (p) {
+      var h = hubLink(p), has = !!(h && h.url);
+      if (S.linkEdit === p.id) {
+        return '<div class="lb-linkrow"><label class="lb-linklabel">「' + esc(p.title) + '」の URL（Apps Script のウェブアプリの URL。…/exec で終わる）' +
+          '<input id="lb-linkurl" type="url" inputmode="url" value="' + esc(has ? h.url : '') + '" placeholder="https://script.google.com/…/exec"></label>' +
+          '<div class="lb-fbacts"><button class="lb-abtn" data-tier="main" data-act="link-save" data-id="' + esc(p.id) + '">保存する</button>' +
+          '<button class="lb-abtn sub" data-tier="small" data-act="link-cancel">やめる</button></div></div>';
+      }
+      return '<div class="lb-linkrow"><span class="lb-linkname">' + esc(p.title) + '</span><span class="lb-linkstate">' + (has ? '設定ずみ' : 'まだ（児童には出ていません）') + '</span>' +
+        '<button class="lb-link" data-act="link-edit" data-id="' + esc(p.id) + '">' + (has ? 'URL を変える' : 'URL を入れる') + '</button></div>';
+    }).join('') + '</div>';
   }
   /** 題を2行に収める（ハブと同じ段の大きさを上から試す。実際の描画の高さで判定する） */
   var STEPS = [2.35, 2.0, 1.7, 1.45, 1.25, 1.1];
@@ -420,6 +440,15 @@
     }
     if (act === 'edit') { S.edit = !S.edit; render(); return; }
     if (act === 'order-reset') { saveOrder([]); return; }
+    if (act === 'link-edit') { S.linkEdit = id; render(); var li = document.getElementById('lb-linkurl'); if (li) li.focus(); return; }
+    if (act === 'link-cancel') { S.linkEdit = ''; render(); return; }
+    if (act === 'link-save') {
+      var pgl = pageById(id), url = (document.getElementById('lb-linkurl') || {}).value || '';
+      P.call('homeSetLink', pgl.linkId, url.trim(), pgl.title).then(function (links) {
+        S.boot.links = links; S.linkEdit = ''; render(); toast(url.trim() ? '開く先を保存しました' : '開く先を消しました（児童には出なくなります）');
+      }).catch(function (e) { toast('保存できませんでした：' + (e && e.message || e)); });
+      return;
+    }
     if (act === 'shot') { S.shot = !S.shot; S.as = null; S.exp = null; if (S.view === 'tuning') S.view = 'home'; render(); return; }
     if (act === 'tune') { S.view = 'tuning'; S.exp = null; window.scrollTo(0, 0); loadTuning(); return; }
     if (act === 'rule-try') {
@@ -504,7 +533,8 @@
       if (S.shot) { toast('撮影用の表示では開きません'); return; }                                           // 先生モードでは開かない（切り替えの押し間違いで遷移しない）
       var pg = pageById(id);
       if (pg.kind === 'link' && !urlFor(pg)) {
-        toast(S.boot.role === 'teacher' ? 'ハブの links シートに、id「' + pg.linkId + '」の行（url）を足してください' : 'まだ ひらけません。せんせいに つたえてね');
+        toast(S.boot.role !== 'teacher' ? 'まだ ひらけません。せんせいに つたえてね'
+          : S.boot.owner ? '先生モードで この教科を開き、「開く先」に URL を入れてください' : '開く先の URL がまだありません。所有者に設定を頼んでください');
         return;
       }
       if (S.as && pg.actAs !== true) { toast('このページは まだ 代わりに取り組めません（' + S.as.name + ' の記録になりません）'); return; }
@@ -575,6 +605,16 @@
     }
   });
 
+  /** 児童・おためしには、開く先の URL がまだ無いページ（kind: link）を出さない（押しても開かないタイルを見せない） */
+  function visibleCat(c, b) {
+    if (b.role === 'teacher') return c;
+    var L = b.links || {}, out = {}; for (var k in c) out[k] = c[k];
+    out.pages = (c.pages || []).filter(function (p) {
+      if (p.kind !== 'link') return true;
+      var h = L[p.linkId || ''] || L[p.id]; return !!(h && h.url);
+    });
+    return out;
+  }
   function gradeOf(b) {
     if (b.role === 'child') return Number(b.learner.grade);
     if (b.role === 'teacher' && b.classKey) return Number(String(b.classKey).split('-')[0]);
@@ -595,7 +635,7 @@
       if (!b.settings) b.settings = { publish: {}, now: [] };
       render();
       stage = 'cat';
-      return S.cat || P.fetchJson(b.pagesUrl).then(function (c) { S.cat = c; });
+      return S.cat || P.fetchJson(b.pagesUrl).then(function (c) { S.cat = visibleCat(c, b); });
     }).then(function () { if (!S.readyAt) S.readyAt = Date.now(); render(); }).catch(function (e) {
       try { P.call('homeReport', stage === 'cat' ? 'catfail' : 'bootfail').catch(function () {}); } catch (x) {}
       root.innerHTML = '<div class="lb-msg">よみこめませんでした。ページを ひらきなおしてね（' + esc(e && e.message || e) + '）</div>';
