@@ -587,7 +587,7 @@
         S.started = true;
         store('lb-start', JSON.stringify({ path: b.classList.contains('lb-nowcard') ? 'now' : b.classList.contains('lb-htile') ? 'subject' : 'tile', ms: Date.now() - S.readyAt }));
       }
-      P.open(urlFor(pg));
+      go(urlFor(pg));
     }
   });
   /* ---------- 並べかえ（先生モード・教科の中）：⠿ をつかんで動かす（タッチ・ペン・マウス）。矢印キーでも動く ---------- */
@@ -672,19 +672,52 @@
     o.mem = navigator.deviceMemory || 0;
     try { o.start = JSON.parse(store('lb-start') || 'null') || undefined; } catch (e) { o.start = undefined; }
     o.dead = Number(store('lb-dead')) || 0;
-    var stage = 'boot';
-    return P.call('homeBoot', o).then(function (b) {
-      store('lb-rt', Date.now() - t0); store('lb-start', ''); store('lb-dead', 0);   // 送った分は消す
+    var stage = 'boot', embedded = !opt && window.LB_BOOT;
+    // 初めて開いた時は、サーバーがページの枠に入れたホームの情報を使う（GAS の往復を1回減らす）。前回分の記録は表示の後に送る
+    var got = embedded ? Promise.resolve(window.LB_BOOT) : P.call('homeBoot', o);
+    window.LB_BOOT = null;
+    return got.then(function (b) {
+      if (!embedded) { store('lb-rt', Date.now() - t0); store('lb-start', ''); store('lb-dead', 0); }   // 送った分は消す
       S.boot = b; S.grade = gradeOf(b); S.as = null; S.edit = keepEdit && b.role === 'teacher';
       if (!b.settings) b.settings = { publish: {}, now: [] };
       render();
       stage = 'cat';
       return S.cat || P.fetchJson(b.pagesUrl).then(function (c) { S.cat = visibleCat(c, b); });
-    }).then(function () { if (!S.readyAt) S.readyAt = Date.now(); render(); }).catch(function (e) {
+    }).then(function () {
+      if (!S.readyAt) S.readyAt = Date.now();
+      render();
+      if (embedded) {                                               // 開いてから使えるまでの時間（ページを開き始めてから）を次に送る
+        P.call('homeBeat', o).then(function () { store('lb-start', ''); store('lb-dead', 0); }).catch(function () {});
+        store('lb-rt', Math.round(performance.now()));
+      }
+      idle(preloadMincho);
+    }).catch(function (e) {
       try { P.call('homeReport', stage === 'cat' ? 'catfail' : 'bootfail').catch(function () {}); } catch (x) {}
       root.innerHTML = '<div class="lb-msg">よみこめませんでした。ページを ひらきなおしてね（' + esc(e && e.message || e) + '）</div>';
     });
   }
+
+  /** 手が空いた時に（表示を遅らせない） */
+  function idle(fn) { if (window.requestIdleCallback) requestIdleCallback(fn, { timeout: 3000 }); else setTimeout(fn, 800); }
+  /** この学年の、教科の中のタイルの題に使う明朝の文字を、先に読んでおく（教科を開いた時に待たせない） */
+  function preloadMincho() {
+    if (!S.cat) return;
+    loadMincho(S.cat.pages.filter(function (p) { return p.grades.indexOf(S.grade) >= 0; }).map(function (p) {
+      var s = subjectInfo(p.subject); return (S.grade <= 2 && p.ruby ? p.ruby : p.title) + s.label + s.low;
+    }).join(''));
+  }
+  /** ページを開く：押した瞬間に「ひらいています…」を出す（次のページが出るまで画面が変わらないと、押せたか分からない） */
+  function go(url) {
+    var d = document.createElement('div');
+    d.className = 'lb-opening'; d.setAttribute('role', 'status');
+    d.innerHTML = '<div class="lb-opening-box">' + (S.grade && S.grade <= 2 ? 'ひらいているよ…' : 'ひらいています…') + '</div>';
+    document.body.appendChild(d);
+    setTimeout(function () { d.remove(); }, 20000);                 // 開けなかった時に画面をふさいだままにしない
+    P.open(url);
+  }
+  window.addEventListener('pageshow', function (e) {                // 戻るボタンで戻った時（前の画面が残っている）は消す
+    Array.prototype.forEach.call(document.querySelectorAll('.lb-opening'), function (el) { el.remove(); });
+  });
 
   /* ---------- 目録の判定：サーバーと同じ Pages.gs を web/pages.js として読み込んで使う（規則を1か所に） ---------- */
   var LbPagesView = window.LbPages;

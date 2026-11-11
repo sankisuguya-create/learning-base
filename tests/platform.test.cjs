@@ -362,6 +362,22 @@ t('指示の継ぎ目：算数TA が呼ぶ形（LbDirectives.forLearner(ハブ, 
   assert.strictEqual(JSON.stringify(c.LbDirectives.forLearner(S.hub, 'Labcdefghij', 'tamath')), JSON.stringify([{ id: d.id, skill: 'math/kuku/k7', show: true }]));
   assert.strictEqual(c.LbDirectives.WEIGHT_SHARE, 0.5);
 });
+t('開くのを速く：ホームの情報をページの枠に入れて返す（</script> を含む名前でも枠が壊れない）。目録は同時に取り始める', () => {
+  const S = school();
+  S.hub.sheets.roster.v[1][4] = '</script><b>田中';
+  const html = run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: {} }).html;
+  const m = html.match(/window\.LB_BOOT=(.*?);<\/script>/);
+  assert.ok(m, 'ホームの情報が枠にある');
+  assert.ok(!html.includes('</script><b>'), '名前の </script> で枠が終わらない');
+  const boot = JSON.parse(m[1]);
+  assert.strictEqual(boot.role, 'child'); assert.strictEqual(boot.learner.name.indexOf('</script><b>'), 0, '名前はそのまま届く');
+  assert.ok(html.includes('<link rel="preload" href="' + boot.pagesUrl + '" as="fetch" crossorigin="anonymous">'));
+  const sum = Object.keys(S.props).filter(k => k.startsWith('LB_U|')).map(k => JSON.parse(S.props[k])).reduce((a, o) => Object.assign(a, o), {});
+  assert.strictEqual(sum['child|boot'], 1, '開いた回数は枠を作る時に数える');
+  run(S, '11111111@kyoiku.edu.nishi.or.jp').lbCall('home', 'beat', [{ lastMs: 2500, mem: 4 }]);
+  const sum2 = Object.keys(S.props).filter(k => k.startsWith('LB_U|')).map(k => JSON.parse(S.props[k])).reduce((a, o) => { for (const k in o) a[k] = (a[k] || 0) + o[k]; return a; }, {});
+  assert.strictEqual(sum2['child|rt:4GB以下:2〜4秒'], 1, '前回分の記録は表示の後に送る');
+});
 (async () => {
   const S = school();
   const html = run(S).doGet({ parameter: {} }).html;

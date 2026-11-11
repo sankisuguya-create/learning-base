@@ -229,6 +229,15 @@ var LbHome = (function () {
     return true;
   }
   /**
+   * 前回分の記録（往復・端末のメモリ・始めるまで・行き止まり）。ホームの情報をページの枠に入れて返す時は、
+   * 画面が表示の後にこれで送る（表示は待たせない）
+   */
+  function beat(o) {
+    var m = Base.me();
+    LbTelemetry.count(m.role, LbTelemetry.bootEvents(m.role, m.child ? m.child.grade : 0, o || {}));
+    return true;
+  }
+  /**
    * 画面の失敗を数える。loadfail：画面のファイルが読めない／bootfail：ホームの情報が取れない／catfail：目録が取れない／
    * jserror：画面の JavaScript の失敗（detail にエラー文。メール・ID・長い数は伏せて記録）
    */
@@ -282,7 +291,7 @@ var LbHome = (function () {
    * 画面は LB_PLATFORM.call('homeXxx', …) で呼ぶ（'home' を外して頭を小文字にした名前でこの表を引く）。
    * 中で必ず「誰が開いたか」と「その学級・その操作をしてよいか」を確かめる関数だけを置く
    */
-  var API = { boot: boot, setLink: setLink, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, setOrder: setOrder, setColor: setColor,
+  var API = { boot: boot, beat: beat, setLink: setLink, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, setOrder: setOrder, setColor: setColor,
     feedback: feedback, report: report, 'export': exportForTuning, tuning: tuning, tryRules: tryRules, saveRules: saveRules,
     direct: direct, endDirective: endDirective, seeResult: seeResult };
 

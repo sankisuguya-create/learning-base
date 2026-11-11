@@ -175,14 +175,22 @@ var LbPlatform = (function () {
     var base = 'https://cdn.jsdelivr.net/gh/' + LB_LOADER.repo + '@' + LB_LOADER.ver() + '/web/';
     var url = '';
     try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
+    // ホームの情報をページの枠に入れて返す（画面からもう一度 GAS を呼ぶ往復 1.6〜4.0 秒を無くす）。失敗したら画面が今まで通り頼む
+    var boot = null;
+    try { boot = LbHome.boot({}); } catch (e) { console.error('ホームの情報を枠に入れられません: ' + (e && e.message || e)); }
     var html = '<!DOCTYPE html><html lang="ja"><head><base target="_top"><meta charset="utf-8">' +
-      '<link rel="stylesheet" href="' + base + 'home.css"></head><body style="margin:0;background:#fff">' +
+      '<link rel="stylesheet" href="' + base + 'home.css">' +
+      // ページの目録は、画面のプログラムと同時に取り始める（ホームの情報を待たない）
+      (boot && /^https:\/\/cdn\.jsdelivr\.net\/[\w@.\/-]+$/.test(String(boot.pagesUrl)) ? '<link rel="preload" href="' + boot.pagesUrl + '" as="fetch" crossorigin="anonymous">' : '') +
+      '</head><body style="margin:0;background:#fff">' +
       '<main id="lb" class="lb"><div class="lb-msg">よみこみ中…</div></main>' +
-      '<script>' + platformScript(url) + '<\/script>' +
+      '<script>' + platformScript(url) + (boot ? 'window.LB_BOOT=' + safeJson(boot) + ';' : '') + '<\/script>' +
       '<script src="' + base + 'pages.js" onerror="lbLoadFail()"><\/script>' +
       '<script src="' + base + 'home.js" onerror="lbLoadFail()"><\/script></body></html>';
     return HtmlService.createHtmlOutput(html).setTitle('学習BASE').addMetaTag('viewport', 'width=device-width, initial-scale=1');
   }
+  /** <script> の中に置く JSON（名前などに </script> や行区切りの文字があっても、そこで終わらないように） */
+  function safeJson(o) { return JSON.stringify(o).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029'); }
   /** 画面の Platform 層（本番）：google.script.run.lbCall を Promise にする */
   function platformScript(baseUrl) {
     return 'window.LB_PLATFORM={baseUrl:' + JSON.stringify(baseUrl) + ',' +
