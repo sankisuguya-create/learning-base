@@ -60,12 +60,12 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
     }
     if (role === 'teacher') {   // 撮影用・気づき・閾値を見直す・改善用の書き出し
-      await p.click('[data-act=shot]'); await p.waitForTimeout(100);
+      await p.click('.lb-tbar [data-act=shot]'); await p.waitForTimeout(100);
       const who = await p.locator('.lb-alert:not([data-kind=result]) .lb-alert-who').first().textContent();
       if (!/^見本/.test(who)) fails.push('teacher: 撮影用で見本の名前にならない: ' + who);
       if ((await p.locator('.lb-alert:not([data-kind=result]) .lb-alert-kind').first().textContent()) !== '▼ 急に崩れた') fails.push('teacher: 撮影用の種類の名前が出ない');
       if (/いとう|あおき/.test(await p.locator('#lb').textContent())) fails.push('teacher: 撮影用に実際の名前が残る');
-      if (!(await p.locator('.lb-shot').count())) fails.push('teacher: 撮影用の表示だと分からない');
+      if (!(await p.locator('.lb-dock-tag.shot').count())) fails.push('teacher: 撮影用の表示だと分からない');
       if (await p.locator('[data-act=tune], [data-act=export]').count()) fails.push('teacher: 撮影用に所有者の欄が出る');
       let opened2 = ''; await p.exposeFunction('lbOpened3', u => { opened2 = u; });
       await p.evaluate(() => { window.LB_PLATFORM.open = u => window.lbOpened3(u); });
@@ -77,7 +77,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       await p.click('.lb-tbar [data-act=shot]'); await p.waitForTimeout(100);
       if (!/いとう|あおき/.test(await p.locator('.lb-alert:not([data-kind=result]) .lb-alert-who').first().textContent())) fails.push('teacher: 撮影用を戻せない');
       await p.fill('#lb-fbtext', '九九のタイルが小さい');
-      await p.click('[data-act=shot]'); await p.click('.lb-tbar [data-act=shot]');     // 描き直しても書きかけが残る
+      await p.click('.lb-tbar [data-act=shot]'); await p.click('.lb-tbar [data-act=shot]');     // 描き直しても書きかけが残る
       if ((await p.inputValue('#lb-fbtext')) !== '九九のタイルが小さい') fails.push('teacher: 描き直しで気づきの書きかけが消える');
       await p.click('[data-act=fb]'); await p.waitForTimeout(400);
       const fb = await p.evaluate(() => (JSON.parse(localStorage.getItem('lb-demo') || '{}').fb || []).map(x => x.t).join());
@@ -146,12 +146,25 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if (kid2 !== 'kanzi') fails.push('child3: URL を入れた漢字の森が児童に出ない');
       await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.goto(`http://localhost:${port}/web/demo.html?role=teacher`); await p.waitForTimeout(600);
     }
+    if (role === 'teacher') {   // 先生モードのオン／オフで、上の部分（帯・見出し・カード・タイル）が1px も動かない
+      await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
+      const pos = async sel => JSON.stringify(await p.$$eval(sel, es => es.map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round); })));
+      const A = '.lb-tbar, .lb-h, .lb-nowcard, .lb-tile, .lb-alert';
+      const h0 = await pos(A); await p.click('[data-act=edit]'); const h1 = await pos(A);
+      if (h0 !== h1) fails.push('teacher: 先生モードでホームが動く');
+      await p.click('[data-act=subject][data-id=sansu]'); await p.waitForTimeout(200);
+      const s1 = await pos('.lb-shead, .lb-htile'); await p.click('.lb-tbar [data-act=edit]'); await p.waitForTimeout(100); const s0 = await pos('.lb-shead, .lb-htile');
+      if (s0 !== s1) fails.push('teacher: 先生モードで教科の画面のタイルが動く');
+      await p.click('.lb-tbar [data-act=shot]'); const s2 = await pos('.lb-shead, .lb-htile');
+      if (s0 !== s2) fails.push('teacher: 撮影用で教科の画面のタイルが動く');
+      await p.click('.lb-dock [data-act=shot]'); await p.click('[data-act=back]');
+    }
     if (role === 'teacher') {   // 先生モード：スイッチ（オン／オフの文字）と帯。教科の中で ⠿ をドラッグ・矢印キーで並べかえ → 保存 → 児童も同じ順
       const sw = p.locator('[data-act=edit]');
       if ((await sw.getAttribute('role')) !== 'switch' || !/オフ/.test(await sw.textContent())) fails.push('teacher: 先生モードがオフと分かるスイッチでない');
       await sw.click();
       if ((await p.locator('[data-act=edit]').getAttribute('aria-checked')) !== 'true' || !/オン/.test(await p.locator('[data-act=edit]').textContent())) fails.push('teacher: 先生モードがオンと分からない');
-      if (!(await p.locator('.lb-editbar').count())) fails.push('teacher: 先生モードの帯が出ない');
+      if (!(await p.locator('.lb-dock').count())) fails.push('teacher: 先生モードの下の帯が出ない');
       await p.click('[data-act=subject][data-id=sansu]'); await p.waitForTimeout(200);
       const ids0 = await p.$$eval('.lb-hgrid .lb-cell', cs => cs.map(c => c.dataset.id));
       const a0 = await p.locator('.lb-drag').nth(0).boundingBox(), t2 = await p.locator('.lb-hgrid .lb-cell').nth(2).boundingBox();
@@ -176,7 +189,16 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
     }
     if (role === 'teacher') {
       await p.click('[data-act=edit]'); await p.click('[data-act=subject][data-id=sansu]');
-      await p.click('[data-act=pub][data-id=tamath-kuku]'); await p.waitForTimeout(400);
+      await p.click('.lb-htile[data-id=tamath-kuku]');                                         // 選ぶ → 下の帯で「みせる」を切る
+      if ((await p.locator('.lb-cell.is-sel').getAttribute('data-id')) !== 'tamath-kuku') fails.push('teacher: 先生モードでタイルを押しても選ばれない');
+      await p.click('.lb-dock [data-act=sel-pub]'); await p.waitForTimeout(400);
+      if (!/かくしている/.test(await p.locator('.lb-cell[data-id=tamath-kuku] .lb-badges').textContent())) fails.push('teacher: かくしたタイルに印が出ない');
+      // 色：選んで「色をえらぶ」→ 色を押す → タイルの色が変わり、学級ごとに保存。もとの色に戻せる
+      await p.click('[data-act=sel-color]'); await p.click('.lb-pal[data-color=wine]'); await p.waitForTimeout(400);
+      const bgw = await p.$eval('.lb-htile[data-id=tamath-kuku]', e => getComputedStyle(e).backgroundColor);
+      if (bgw !== 'rgb(144, 13, 42)') fails.push('teacher: 色が変わらない: ' + bgw);
+      const colSaved = await p.evaluate(() => (JSON.parse(localStorage.getItem('lb-demo'))['3-1'].colors || {})['tamath-kuku']);
+      if (colSaved !== 'wine') fails.push('teacher: 色が保存されない: ' + colSaved);
       const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('lb-demo'))['3-1'].publish['tamath-kuku']);
       if (saved !== false) fails.push('teacher: 公開の切り替えが保存されない');
       const nowColor = await p.goto(`http://localhost:${port}/web/demo.html?role=child3`).then(() => p.waitForTimeout(600)).then(() => p.$eval('.lb-nowcard .lb-title', e => getComputedStyle(e).color));

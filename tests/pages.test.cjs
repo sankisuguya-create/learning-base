@@ -320,4 +320,23 @@ t('窓口：開く先の URL（別の GAS のページ）は所有者だけ。Ap
   assert.strictEqual(own.ctx.LbHome.API.setLink('kanzi', '').kanzi.url, '', '空にすると消せる');
 });
 
+t('色：学級・ページごとに保存し、空ならハブの links の色に戻る。知らない色・ページの名前の形でないものは保存しない。先生だけ', () => {
+  const hub = makeSS('hub');
+  assert.strictEqual(Object.keys(LbPages.TILE_COLORS).length, 30);
+  LbPages.setColor(hub, '3-1', 'tamath-kuku', 'wine', 't@x'); LbPages.setColor(hub, '3-2', 'tamath-kuku', 'teal', 't@x');
+  assert.strictEqual(J(LbPages.readSettings(hub, '3-1').colors), J({ 'tamath-kuku': 'wine' }));
+  LbPages.setColor(hub, '3-1', 'tamath-kuku', 'cobalt', 't@x');
+  assert.strictEqual(LbPages.readSettings(hub, '3-1').colors['tamath-kuku'], 'cobalt', '置き換える');
+  LbPages.setColor(hub, '3-1', 'tamath-kuku', '', 't@x');
+  assert.strictEqual(LbPages.readSettings(hub, '3-1').colors['tamath-kuku'], undefined, '空なら links の色に戻る');
+  assert.strictEqual(LbPages.readSettings(hub, '3-2').colors['tamath-kuku'], 'teal', 'ほかの学級は変えない');
+  assert.throws(() => LbPages.setColor(hub, '3-1', 'tamath-kuku', 'red;background:url(x)'), /知らない色/);
+  assert.throws(() => LbPages.setColor(hub, '3-1', '<p>', 'red'), /ページの名前/);
+  hub.sheets.class_colors.v.push(['3-1', 'x', 'nope']);
+  assert.strictEqual(LbPages.readSettings(hub, '3-1').colors.x, undefined, 'シートに直接書いた知らない色は使わない');
+  const kid = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);
+  assert.throws(() => kid.ctx.LbHome.API.setColor('3-1', 'tamath-kuku', 'red'), /先生だけ/);
+  assert.strictEqual(homeEnv('na@edu.nishi.or.jp', ROSTER).ctx.LbHome.API.setColor('3-1', 'tamath-kuku', 'red').colors['tamath-kuku'], 'red');
+});
+
 console.log(`pages ${n} 件 ok`);

@@ -42,6 +42,21 @@ var LbPages = (function () {
   var PUB_SHEET = 'class_pages', PUB_HEAD = ['学級', 'ページ', '公開', '更新', '教師'];
   var NOW_SHEET = 'now_learning', NOW_HEAD = ['学級', 'ページ', '順', 'から', 'まで', '更新', '教師'];
   var ORDER_SHEET = 'class_order', ORDER_HEAD = ['学級', '教科', '並び', '更新', '教師'];   // 先生モードでドラッグした教科の中の並び
+  var COLOR_SHEET = 'class_colors', COLOR_HEAD = ['学級', 'ページ', '色', '更新', '教師'];   // 先生モードで選んだタイルの色
+  /**
+   * タイルの色（算数TA のハブ apps/hub/Code.gs の COLORS と同じ30色）：名前 → [地の色, 文字の色]。
+   * 先生が学級ごとに選べる（無ければハブの links シートの color）。色だけで見分けさせない（題を必ず出す）
+   */
+  var TILE_COLORS = {
+    mint: ['#12C48B', '#052A1F'], blue: ['#2B4CF2', '#F0F3FF'], amber: ['#FFC400', '#2E2200'], red: ['#FF5C38', '#2C0A02'],
+    purple: ['#6D4AE0', '#F3EEFF'], gray: ['#4A5568', '#EEF1F6'], lavender: ['#D3C9FB', '#1C152F'], olive: ['#696713', '#F6F6EB'],
+    wine: ['#900D2A', '#F7F7F7'], cyan: ['#0DA2C6', '#1A1A1A'], rose: ['#DE5F99', '#2C101C'], teal: ['#13745F', '#EBF9F4'],
+    brown: ['#964D0C', '#FEF3EC'], peach: ['#FCC1B6', '#2E100C'], lime: ['#9EB919', '#181E01'], aqua: ['#2CECF2', '#1A1A1A'],
+    plum: ['#80146F', '#FCF1F9'], periwinkle: ['#6B89F9', '#121932'], ochre: ['#CB7E19', '#1A1A1A'], sky: ['#A8D8FB', '#001D2F'],
+    orchid: ['#CE88F7', '#22132B'], peacock: ['#1C6E80', '#EBF8FC'], green: ['#057918', '#EFF8EF'], pink: ['#FEA4D2', '#2B101F'],
+    mustard: ['#AA9117', '#1A1A1A'], leaf: ['#97EB79', '#0E2007'], apricot: ['#FDB171', '#2B1401'], coral: ['#FB8087', '#2E1012'],
+    turquoise: ['#16A7A3', '#1A1A1A'], cobalt: ['#1468A3', '#EDF6FF']
+  };
 
   /* ---------- 目録 ---------- */
 
@@ -142,7 +157,7 @@ var LbPages = (function () {
   }
 
   function readSettings(hubSs, classKey) {
-    var out = { publish: {}, now: [], order: {} };
+    var out = { publish: {}, now: [], order: {}, colors: {} };
     var ps = hubSs.getSheetByName(PUB_SHEET);
     if (ps && ps.getLastRow() > 1) ps.getRange(2, 1, ps.getLastRow() - 1, 3).getValues().forEach(function (r) {
       if (clsCell(r[0]) === classKey && r[1]) out.publish[String(r[1])] = r[2] === true || String(r[2]).toUpperCase() === 'TRUE';
@@ -154,6 +169,10 @@ var LbPages = (function () {
     var os = hubSs.getSheetByName(ORDER_SHEET);
     if (os && os.getLastRow() > 1) os.getRange(2, 1, os.getLastRow() - 1, 3).getValues().forEach(function (r) {
       if (clsCell(r[0]) === classKey && r[1]) out.order[String(r[1])] = String(r[2] || '').split(',').filter(Boolean);
+    });
+    var cs = hubSs.getSheetByName(COLOR_SHEET);
+    if (cs && cs.getLastRow() > 1) cs.getRange(2, 1, cs.getLastRow() - 1, 3).getValues().forEach(function (r) {
+      if (clsCell(r[0]) === classKey && r[1] && TILE_COLORS[String(r[2])]) out.colors[String(r[1])] = String(r[2]);
     });
     return out;
   }
@@ -183,6 +202,21 @@ var LbPages = (function () {
     sh.clearContents();
     sh.getRange(1, 1, keep.length, ORDER_HEAD.length).setValues(keep);
     return clean;
+  }
+
+  /** タイルの色を選ぶ（その学級・そのページ）。color が空ならハブの links の色に戻す */
+  function setColor(hubSs, classKey, pageId, color, by) {
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(String(pageId))) throw new Error('ページの名前が不正です');
+    color = String(color || '');
+    if (color && !TILE_COLORS[color]) throw new Error('知らない色です: ' + color);
+    var sh = sheet(hubSs, COLOR_SHEET, COLOR_HEAD), v = sh.getDataRange().getValues(), keep = [v[0]];
+    for (var i = 1; i < v.length; i++) {
+      if (clsCell(v[i][0]) === classKey && String(v[i][1]) === pageId) continue;
+      var row = v[i].slice(0, COLOR_HEAD.length); row[0] = clsCell(row[0]); while (row.length < COLOR_HEAD.length) row.push(''); keep.push(row);
+    }
+    if (color) keep.push([classKey, pageId, color, new Date(), by || '']);
+    sh.clearContents();
+    sh.getRange(1, 1, keep.length, COLOR_HEAD.length).setValues(keep);
   }
 
   /** その学級の公開を全部、目録の既定に戻す */
@@ -219,6 +253,6 @@ var LbPages = (function () {
     return LbSheets.sheet(ss, name, head, cols, { always: true });
   }
 
-  return { SUBJECTS: SUBJECTS, NOW_MAX: NOW_MAX, validate: validate, isOn: isOn, inPeriod: inPeriod, home: home, teacherView: teacherView, sortByOrder: sortByOrder, setOrder: setOrder,
+  return { SUBJECTS: SUBJECTS, NOW_MAX: NOW_MAX, TILE_COLORS: TILE_COLORS, setColor: setColor, validate: validate, isOn: isOn, inPeriod: inPeriod, home: home, teacherView: teacherView, sortByOrder: sortByOrder, setOrder: setOrder,
     readSettings: readSettings, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow };
 })();

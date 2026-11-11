@@ -88,7 +88,6 @@
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;word-break:auto-phrase;overflow-wrap:anywhere}
 .lb-htile .s{margin-left:auto;flex:0 0 auto;font-size:13px;font-weight:600;opacity:.85;white-space:nowrap}
 .lb-htile.is-off{opacity:.45}
-.lb-edit .lb-htile{padding-top:60px;height:166px}
 @media (prefers-reduced-motion:reduce){.lb-htile:active{transform:none}}
 
 /* 今週の3件（先生だけ）。種類は記号と語で示し、色だけで伝えない */
@@ -114,13 +113,7 @@
 .lb-link{border:0;background:none;color:var(--ink-link);text-decoration:underline;cursor:pointer;font-size:15px;min-height:48px;padding:0 8px}
 .lb-as{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:10px 0 0;border:2px solid var(--ink-alert);border-radius:var(--radius);font-size:16px}
 .lb-as strong{color:var(--ink-alert)}
-.lb-chips{position:absolute;top:8px;right:8px;display:flex;gap:6px}
 .lb-cell .lb-page{padding-right:16px}
-.lb-edit .lb-cell .lb-page{padding-top:52px}
-.lb-chip{width:104px;min-height:48px;padding:0 8px;border:2px solid var(--ink);border-radius:999px;background:#fff;color:var(--ink);font-size:14px;font-weight:700;cursor:pointer}
-.lb-chip.off{border-style:dashed;color:var(--ink-alert);border-color:var(--ink-alert)}
-.lb-chip.star{border-color:var(--ink-link);color:var(--ink-link)}
-.lb-chip.star.on{background:var(--solid-on);color:#fff;border-color:var(--solid-on)}
 .lb-page.is-off,.lb-tile.is-off{opacity:.55}
 .lb-msg{padding:24px;font-size:20px;text-align:center;color:var(--ink-sub)}
 .lb-toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:999px;font-size:15px}
@@ -137,7 +130,6 @@
 .lb-exphead .lb-h{margin:8px 0}
 .lb-expng{color:var(--ink-alert);font-weight:700}
 .lb-expnotes{margin:0 0 8px;padding-left:20px;font-size:15px}
-.lb-shot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;margin:12px 0 0;border:2px dashed var(--ink);border-radius:var(--radius);font-size:16px}
 .lb-fbowner{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:15px;color:var(--ink-sub)}
 
 /* 所有者：閾値を見直す */
@@ -186,10 +178,6 @@
 .lb-switch[aria-checked="true"] .lb-sw-track{background:var(--solid-on)}
 .lb-switch[aria-checked="true"] .lb-sw-knob{left:22px}
 .lb-switch[aria-checked="true"] .lb-sw-state{color:var(--solid-on)}
-/* 先生モードがオンの間：帯と、画面の縁 */
-.lb-editbar{padding:8px 12px;margin:12px 0 0;border:2px solid var(--solid-on);border-radius:var(--radius);background:var(--fill-a);font-size:15px}
-.lb-editbar strong{color:var(--solid-on)}
-.lb.lb-edit{outline:4px dashed var(--solid-on);outline-offset:4px;border-radius:var(--radius)}
 /* 期間などの区切りボタン（セグメント） */
 .lb-segs{gap:0}
 .lb-segs .lb-seg{border-radius:0}
@@ -197,12 +185,7 @@
 .lb-segs .lb-seg:last-child{border-radius:0 8px 8px 0;border-left:0}
 .lb-seg[aria-checked="true"]{background:var(--ink);color:#fff}
 /* 並べかえ：⠿ をつかむ（タッチ・ペンでスクロールにならないように） */
-.lb-drag{position:absolute;top:8px;left:8px;width:48px;height:48px;border:2px solid var(--ink);border-radius:12px;background:#fff;color:var(--ink);font-size:24px;line-height:1;cursor:grab;touch-action:none}
-.lb-drag:active{cursor:grabbing}
 .lb-dragging{opacity:.6}
-.lb-dragging .lb-htile{outline:4px solid var(--solid-on)}
-.lb-ordbar{margin:8px 0}
-.lb .lb-chip.star{width:48px;padding:0;font-size:22px}   /* ★／☆ だけ。押しても幅が変わらない */
 
 /* 所有者：開く先（別の GAS のページ）の URL */
 .lb-linkpanel{margin:8px 0 16px;padding:8px 12px;border:2px dashed var(--line);border-radius:var(--radius);background:#fff}
@@ -212,3 +195,35 @@
 .lb-linkstate{font-size:15px;color:var(--ink-sub)}
 .lb-linklabel{display:flex;flex-direction:column;gap:4px;width:100%;font-size:15px}
 .lb-linklabel input{box-sizing:border-box;width:100%;min-height:48px;font:inherit;font-size:16px;padding:0 12px;border:1px solid var(--line);border-radius:8px}
+
+/* 先生モード：タイルの大きさは変えない。状態の印・つまみ・選んだ印はタイルに重ねる */
+.lb-badges{position:absolute;left:12px;bottom:10px;display:flex;gap:6px;pointer-events:none}
+.lb-badge-s{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:13px;background:rgba(255,255,255,.94);color:var(--ink);font-size:13px;font-weight:700;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.lb-badge-s.off{background:var(--ink);color:#fff}
+.lb-edit .lb-htile.is-off{opacity:.5;background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.35) 0 8px,transparent 8px 16px)}
+.lb-cell.is-sel .lb-htile{outline:4px solid var(--ink);outline-offset:3px}
+.lb-drag{position:absolute;top:50%;right:12px;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;width:48px;height:48px;padding:0;border:0;border-radius:24px;
+  background:rgba(255,255,255,.88);color:var(--ink);cursor:grab;touch-action:none;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.lb-drag:active{cursor:grabbing}
+.lb-dragging{opacity:.7}
+.lb-dragging .lb-htile{outline:4px dashed var(--ink);outline-offset:3px}
+/* 下の帯（固定）：出しても上の部分は動かない。その分ページの下に余白 */
+.lb.lb-docked{padding-bottom:240px}
+.lb-dock{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;flex-direction:column;gap:8px;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));
+  background:#fff;border-top:3px solid var(--solid-on);box-shadow:0 -4px 16px rgba(0,0,0,.12)}
+.lb-dock-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;max-width:1100px;margin:0 auto;width:100%}
+.lb-dock-tag{display:inline-flex;align-items:center;height:32px;padding:0 12px;border-radius:16px;background:var(--solid-on);color:#fff;font-size:14px;font-weight:700}
+.lb-dock-tag.shot{background:var(--ink)}
+.lb-dock-text{font-size:15px;color:var(--ink)}
+.lb-dock-count{font-size:14px;color:var(--ink-sub)}
+.lb-dock-title{display:inline-flex;align-items:center;gap:8px;font-size:18px;font-weight:700;min-width:8em}
+.lb-chipcolor{width:24px;height:24px;border-radius:6px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)}
+.lb-dock-btn{min-height:48px;min-width:216px;padding:0 16px;border:2px solid var(--ink);border-radius:999px;background:#fff;color:var(--ink);font-size:15px;font-weight:700;cursor:pointer}
+.lb-dock-btn[aria-expanded="true"]{background:var(--fill-a);border-color:var(--solid-on)}
+.lb-palette{display:grid;grid-template-columns:repeat(15,48px);gap:8px;justify-content:center;max-width:1100px;margin:0 auto}
+.lb-pal{width:48px;height:48px;padding:0;border:0;border-radius:12px;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)}
+.lb-pal[aria-checked="true"]{outline:4px solid var(--ink);outline-offset:2px}
+@media (max-width:900px){.lb-palette{grid-template-columns:repeat(10,48px)}}
+@media (max-width:600px){.lb-palette{grid-template-columns:repeat(6,48px)}}
+.lb-edit .lb-htile .s{visibility:hidden}   /* 先生モードではつまみの場所。visibility なので場所は残り、タイルの中も動かない */
+.lb-dock .lb-switch,.lb-dock .lb-dock-btn{width:224px;min-width:0}   /* 下の帯の操作は同じ重さ：幅を揃える */
