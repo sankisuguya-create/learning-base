@@ -1,8 +1,8 @@
 {
- "server": "b390bb17384aa40310d8f93960420746239bdf0ac58423e255a943db677f0c3b",
- "html": "7292a71df48490cec2d02475536e41dfac059e0d68c62ea0f7a86db3df7af99e",
- "serverChars": 516196,
- "htmlChars": 585399,
+ "server": "d27a24a3f56500e76c8751073d285ab9fd866d2c54ebc36e1c41949aa8eb5081",
+ "html": "d99ecb09b15c377d32abe6e5934c4b5c820e8891bcb15559bcc94ab9cc9358f1",
+ "serverChars": 524071,
+ "htmlChars": 587083,
  "apps": {
   "tamath": {
    "repo": "sankisuguya-create/arithmetic-timeattack",
@@ -10,7 +10,7 @@
   },
   "kanzi": {
    "repo": "sankisuguya-create/kanzi",
-   "commit": "fc0d3b91c62ce01b12e6e14e7517ec113a28196d"
+   "commit": "216a11b4a945324370beaa179ab408802f248315"
   }
  }
 }
