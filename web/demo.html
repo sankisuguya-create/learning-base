@@ -32,6 +32,8 @@
       dist: { hist: { dropAcc: [['上がった', '41'], ['0〜5', '60'], ['5〜10', '22'], ['10〜15', '9'], ['15〜20', '5人未満'], ['20以上', '5人未満']], dropTime: [['0.9倍未満', '18']], stallAcc: [['0〜2', '12']], stallTime: [['0.97〜1.03倍', '11']], klassShare: [['3割未満', '30']] } },
       perf: [{ week: '2026-11-09', kind: 'drop', fired: 9, changed: 3, seen: 4, open: 2 }] };
   }
+  var DEMO_RESULTS = [{ id: 'r1', app: '算数タイムアタック', skill: '長さ：cm→mm', from: '2026-10-26', to: '2026-11-08', names: ['あおき そら'],
+    text: '正答率 58% → 79%・時間 3.1秒 → 2.4秒（同じ学年のほかの児童 24人は正答率 +3ポイント）。本番の記録で、前の4週と期間中を比べた目安です' }];
   var api = {
     homeBoot: function (opt) {
       if (opt && (opt.start || opt.dead)) { var st = store(); (st.boots = st.boots || []).push({ start: opt.start || null, dead: opt.dead || 0 }); put(st); }
@@ -41,13 +43,21 @@
         'toi-board': { url: 'https://example.com/toi-board', color: 'lavender' } };
       if (b.role === 'child') { var g = role === 'child1' ? 1 : 3; b.learner = { name: 'たなか はなこ', mei: 'はなこ', grade: g, cls: '1' }; b.classKey = g + '-1'; b.settings = settings(b.classKey); }
       if (role === 'teacher') b.now3 = store().now3 || [
-        { key: 'k1', kind: 'drop', label: LB_DEMO.kinds.labels.drop, app: '算数タイムアタック', skill: '九九：7の段', names: ['いとう はな'], text: '正答率 90% → 62%・時間 1.5秒 → 2.1秒（今週 14問・前の4週と比べて）' },
+        { key: 'k1', kind: 'drop', canDirect: true, label: LB_DEMO.kinds.labels.drop, app: '算数タイムアタック', skill: '九九：7の段', names: ['いとう はな'], text: '正答率 90% → 62%・時間 1.5秒 → 2.1秒（今週 14問・前の4週と比べて）' },
         { key: 'k2', kind: 'klass', label: LB_DEMO.kinds.labels.klass, app: '算数タイムアタック', skill: '長さ：km→m', names: ['あおき そら', 'いとう はな', 'うえだ けん'], text: '取り組んだ 9人のうち 5人が正答率70%未満（直近2週）' },
-        { key: 'k3', kind: 'stall', label: LB_DEMO.kinds.labels.stall, app: '算数タイムアタック', skill: 'あまりのあるわり算：九九の逆', names: ['あおき そら'], text: '正答率 64% → 65%・時間 3.2秒 → 3.2秒（前の4週 30問 → 直近4週 28問）' }];
-      if (role === 'teacher') { b.classes = [{ key: '3-1', grade: 3, cls: '1' }, { key: '1-1', grade: 1, cls: '1' }]; b.classKey = (opt && opt.classKey) || '3-1'; b.settings = settings(b.classKey); b.members = members; b.owner = true; b.kinds = LB_DEMO.kinds; }
+        { key: 'k3', kind: 'stall', canDirect: true, label: LB_DEMO.kinds.labels.stall, app: '算数タイムアタック', skill: 'あまりのあるわり算：九九の逆', names: ['あおき そら'], text: '正答率 64% → 65%・時間 3.2秒 → 3.2秒（前の4週 30問 → 直近4週 28問）' }];
+      if (role === 'teacher') { b.classes = [{ key: '3-1', grade: 3, cls: '1' }, { key: '1-1', grade: 1, cls: '1' }]; b.classKey = (opt && opt.classKey) || '3-1'; b.settings = settings(b.classKey); b.members = members; b.owner = true; b.kinds = LB_DEMO.kinds; b.directives = store().dirs || []; b.results = store().results || DEMO_RESULTS; }
       if (role === 'guest') b.message = 'なまえが まだ とうろく されていません。せんせいに つたえてね';
       return b;
     },
+    homeDirect: function (k, key, days, show) {
+      var s = store(), n3 = s.now3 || api.homeBoot().now3, a = n3.filter(function (x) { return x.key === key; })[0];
+      s.now3 = n3.filter(function (x) { return x.key !== key; });
+      s.dirs = (s.dirs || []).concat([{ id: 'd' + Date.now(), app: a.app, skill: a.skill, to: new Date(Date.now() + (days - 1) * 864e5).toISOString().slice(0, 10), show: !!show, names: a.names }]);
+      put(s); return { now3: s.now3, directives: s.dirs, results: s.results || DEMO_RESULTS };
+    },
+    homeEndDirective: function (k, id) { var s = store(); s.dirs = (s.dirs || []).filter(function (d) { return d.id !== id; }); put(s); return { now3: s.now3 || api.homeBoot().now3, directives: s.dirs, results: s.results || DEMO_RESULTS }; },
+    homeSeeResult: function (k, id, again) { var s = store(); s.results = (s.results || DEMO_RESULTS).filter(function (r) { return r.id !== id; }); put(s); return { now3: s.now3 || api.homeBoot().now3, directives: s.dirs || [], results: s.results }; },
     homeSetPublish: function (k, id, on) { var s = settings(k); s.publish[id] = on; return setSettings(k, s); },
     homeResetPublish: function (k) { var s = settings(k); s.publish = {}; return setSettings(k, s); },
     homeDecide: function (k, key) { var s = store(); s.now3 = (s.now3 || api.homeBoot().now3).filter(function (x) { return x.key !== key; }); put(s); return s.now3; },

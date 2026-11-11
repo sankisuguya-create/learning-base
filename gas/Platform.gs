@@ -135,6 +135,15 @@ var LbPlatform = (function () {
     return sent;
   }
 
+  /** 期間が終わった指示の結果を出す（本番の記録＝集計から） */
+  function directives() {
+    try {
+      var hub = Base.hub();
+      console.log('指示の結果：' + LbDirectives.evaluate(hub, LbFacts.read(hub, Base.fy()), Base.roster(), LbSheets.day()) + ' 件');
+      return [];
+    } catch (e) { console.error('指示の結果 失敗: ' + e.message); return ['directives: ' + e.message]; }
+  }
+
   /** 前日までの使われ方を usage シートへ（1日×区分×出来事で1行） */
   function usage() {
     try { console.log('使われ方：' + LbTelemetry.flush(Base.hub()) + ' 行'); return []; }
@@ -190,7 +199,7 @@ var LbPlatform = (function () {
   }
 
   return { doGet: doGet, call: call, appApi: appApi, setup: setup,
-    nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); e = e.concat(alerts()); return e.concat(usage()); },
+    nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); e = e.concat(directives()); e = e.concat(alerts()); return e.concat(usage()); },
     weekly: weekly, daily: function () { return each('daily'); },
     rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };
 })();

@@ -10,7 +10,7 @@
 // アプリのファイルは、隣にあるクローン（../<リポジトリ名>）から apps.lock.json のコミットで取り出す（git show）。
 const fs = require('fs'), path = require('path'), crypto = require('crypto'), { execFileSync } = require('child_process');
 const R = path.resolve(__dirname, '..');
-const GAS_ORDER = ['Sheets.gs', 'Base.gs', 'Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Alerts.gs', 'Telemetry.gs', 'Tuning.gs', 'Export.gs', 'Pages.gs', 'Home.gs'];
+const GAS_ORDER = ['Sheets.gs', 'Base.gs', 'Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Alerts.gs', 'Directives.gs', 'Telemetry.gs', 'Tuning.gs', 'Export.gs', 'Pages.gs', 'Home.gs'];
 const lock = JSON.parse(fs.readFileSync(path.join(R, 'apps.lock.json'), 'utf8'));
 
 function gitShow(repo, commit, file) {

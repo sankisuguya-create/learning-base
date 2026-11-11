@@ -32,19 +32,38 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if (bg !== 'rgb(18, 196, 139)') fails.push('child3: 九九のタイルがハブの色（ミント）でない: ' + bg);
     }
     if (role === 'teacher') {   // 今週の3件：先生の画面の一番上。押すと消える
-      if ((await p.locator('.lb-alert').count()) !== 3) fails.push('teacher: 今週の3件が3件でない');
+      if ((await p.locator('.lb-alert:not([data-kind=result])').count()) !== 3) fails.push('teacher: 今週の3件が3件でない');
       const first = await p.locator('.lb h2').first().textContent();
       if (first !== '今週の3件') fails.push('teacher: 今週の3件が一番上にない: ' + first);
       await p.click('.lb-alert [data-act=decide][data-how=changed]'); await p.waitForTimeout(400);
-      if ((await p.locator('.lb-alert').count()) !== 2) fails.push('teacher: 判断が変わった を押しても消えない');
+      if ((await p.locator('.lb-alert:not([data-kind=result])').count()) !== 2) fails.push('teacher: 判断が変わった を押しても消えない');
       await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('lb-demo') || '{}'); delete s.now3; localStorage.setItem('lb-demo', JSON.stringify(s)); });
       await p.goto(p.url()); await p.waitForTimeout(600);
     }
+    if (role === 'teacher') {   // 手を打つ（指示）：期間とおすすめを選んで指示 → カードが消え「手を打っている」に出る。結果のカード・やめる
+      await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
+      if (!(await p.locator('.lb-alert[data-kind=result]').count())) fails.push('teacher: 指示の結果のカードが出ない');
+      if ((await p.locator('[data-act=direct-open]').count()) !== 2) fails.push('teacher: 手を打つ が指示を受け取れる項目だけに出ない');
+      await p.click('[data-act=direct-open]');
+      if ((await p.locator('.lb-seg[aria-pressed=true]').textContent()) !== '2週間') fails.push('teacher: 期間の既定が2週間でない');
+      if ((await p.locator('[data-act=direct-show]').getAttribute('aria-pressed')) !== 'false') fails.push('teacher: おすすめの既定が「見せない」でない');
+      await p.click('[data-act=direct-days][data-days="7"]'); await p.click('[data-act=direct-show]');
+      await p.click('[data-act=direct]'); await p.waitForTimeout(400);
+      const dirs = await p.evaluate(() => JSON.parse(localStorage.getItem('lb-demo') || '{}').dirs || []);
+      if (dirs.length !== 1 || dirs[0].show !== true) fails.push('teacher: 指示が保存されない／おすすめが渡らない: ' + JSON.stringify(dirs));
+      if ((await p.locator('.lb-alert:not([data-kind=result])').count()) !== 2) fails.push('teacher: 指示した項目が消えない');
+      if (!/★おすすめを見せている/.test(await p.locator('.lb-dlist').textContent())) fails.push('teacher: 手を打っている に出ない');
+      await p.click('[data-act=direct-end]'); await p.waitForTimeout(300);
+      if (await p.locator('.lb-dlist').count()) fails.push('teacher: 指示をやめられない');
+      await p.click('[data-act=result][data-again=""]'); await p.waitForTimeout(300);
+      if (await p.locator('.lb-alert[data-kind=result]').count()) fails.push('teacher: 結果の「見た」で消えない');
+      await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
+    }
     if (role === 'teacher') {   // 撮影用・気づき・閾値を見直す・改善用の書き出し
       await p.click('[data-act=shot]'); await p.waitForTimeout(100);
-      const who = await p.locator('.lb-alert-who').first().textContent();
+      const who = await p.locator('.lb-alert:not([data-kind=result]) .lb-alert-who').first().textContent();
       if (!/^見本/.test(who)) fails.push('teacher: 撮影用で見本の名前にならない: ' + who);
-      if ((await p.locator('.lb-alert-kind').first().textContent()) !== '▼ 急に崩れた') fails.push('teacher: 撮影用の種類の名前が出ない');
+      if ((await p.locator('.lb-alert:not([data-kind=result]) .lb-alert-kind').first().textContent()) !== '▼ 急に崩れた') fails.push('teacher: 撮影用の種類の名前が出ない');
       if (/いとう|あおき/.test(await p.locator('#lb').textContent())) fails.push('teacher: 撮影用に実際の名前が残る');
       if (!(await p.locator('.lb-shot').count())) fails.push('teacher: 撮影用の表示だと分からない');
       if (await p.locator('[data-act=tune], [data-act=export]').count()) fails.push('teacher: 撮影用に所有者の欄が出る');
@@ -56,7 +75,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       const kept = await p.evaluate(() => JSON.parse(localStorage.getItem('lb-demo') || '{}').now3);
       if (kept && kept.length !== 2) fails.push('teacher: 撮影用で判断が記録された');
       await p.click('.lb-tbar [data-act=shot]'); await p.waitForTimeout(100);
-      if (!/いとう|あおき/.test(await p.locator('.lb-alert-who').first().textContent())) fails.push('teacher: 撮影用を戻せない');
+      if (!/いとう|あおき/.test(await p.locator('.lb-alert:not([data-kind=result]) .lb-alert-who').first().textContent())) fails.push('teacher: 撮影用を戻せない');
       await p.fill('#lb-fbtext', '九九のタイルが小さい');
       await p.click('[data-act=shot]'); await p.click('.lb-tbar [data-act=shot]');     // 描き直しても書きかけが残る
       if ((await p.inputValue('#lb-fbtext')) !== '九九のタイルが小さい') fails.push('teacher: 描き直しで気づきの書きかけが消える');
@@ -98,7 +117,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       await p.evaluate(() => localStorage.clear());
     }
     if (role === 'child3' && (await p.locator('.lb-fb, [data-act=shot], [data-act=export], [data-act=tune]').count())) fails.push('child3: 児童に先生の欄が出る');
-    if (role === 'child3' && await p.locator('.lb-alert').count()) fails.push('child3: 児童に今週の3件が出る');
+    if (role === 'child3' && await p.locator('.lb-alert:not([data-kind=result])').count()) fails.push('child3: 児童に今週の3件が出る');
     if (role === 'teacher') {   // 算数は代わりに取り組むに対応：欄が出て、選んで開くと &as=<学習者ID>。対応していないページ（といボード）は開かない
       if (!(await p.locator('#lb-as').count())) fails.push('teacher: 「代わりに取り組む」が出ない');
       let opened = ''; await p.exposeFunction('lbOpened2', u => { opened = u; });

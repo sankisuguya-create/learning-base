@@ -104,8 +104,9 @@ function homeEnv(user, rosterRows) {
     members: (g, c) => rosterRows.filter(r => r.grade === g && r.cls === c)
   };
   const props = {};
-  const ctx = loadPure(['Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Alerts.gs', 'Telemetry.gs', 'Tuning.gs', 'Export.gs', 'Pages.gs', 'Home.gs'], { Base: fake,
-    Utilities: { formatDate: () => '2026-11-10' },
+  const ctx = loadPure(['Pseudo.gs', 'Catalog.gs', 'LbSession.gs', 'Facts.gs', 'Alerts.gs', 'Directives.gs', 'Telemetry.gs', 'Tuning.gs', 'Export.gs', 'Pages.gs', 'Home.gs'], { Base: fake,
+    Utilities: { formatDate: () => '2026-11-10', getUuid: () => require('crypto').randomUUID() },
+    CacheService: { getScriptCache: () => ({ store: {}, get(k) { return this.store[k] || null; }, put(k, v) { this.store[k] = String(v); } }) },
     Session: { getActiveUser: () => ({ getEmail: () => user }), getEffectiveUser: () => ({ getEmail: () => 'owner@edu.nishi.or.jp' }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = String(v); },
       getProperties: () => Object.assign({}, props), deleteProperty: k => { delete props[k]; } }) }, LB_LOADER: { ver: () => 'abc1234' } });
@@ -242,6 +243,35 @@ t('窓口：先生の起動の情報に、今週の3件の種類の名前（Aler
   const b = t1.ctx.LbHome.API.boot({ classKey: '3-1' });
   assert.strictEqual(b.kinds.names.drop, t1.ctx.LbAlerts.KIND_NAME.drop); assert.strictEqual(b.kinds.labels.drop, '▼ ' + b.kinds.names.drop);
   assert.strictEqual(homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER).ctx.LbHome.API.boot({}).kinds, undefined, '児童には渡さない');
+});
+
+t('窓口：手を打つ（指示）は先生だけ・指示を受け取れるアプリだけ。作るとその項目に「判断が変わった」が付き、今週の3件から消える。やめる・結果を見る・続ける', () => {
+  const tc = homeEnv('na@edu.nishi.or.jp', ROSTER), A = tc.ctx.LbAlerts, hub = tc.hub;
+  tc.ctx.Base.learner = l => ROSTER.find(r => r.lid === l) || null;
+  tc.ctx.LbCatalog.publish(hub, { app: 'tamath', title: '算数', version: 1, skills: [{ key: 's', label: 'S' }], mastery: { minN: 20, acc: 0.9 }, directives: ['weight'] });
+  tc.ctx.LbCatalog.publish(hub, { app: 'kanzi', title: '漢字', version: 1, skills: [{ key: 'k', label: 'K' }], mastery: { minN: 20, acc: 0.9 } });
+  A.store(hub, { '3-1': [{ key: 'stall|La|tamath|s|w', kind: 'stall', lids: ['La'], app: 'tamath', skill: 's', ev: {}, week: '2026-11-09' },
+    { key: 'stall|La|kanzi|k|w', kind: 'stall', lids: ['La'], app: 'kanzi', skill: 'k', ev: {}, week: '2026-11-09' }] });
+  const b = tc.ctx.LbHome.API.boot({ classKey: '3-1' });
+  assert.strictEqual(J(b.now3.map(x => x.canDirect)), J([true, false]), '目録に weight があるアプリだけ「手を打つ」');
+  assert.throws(() => tc.ctx.LbHome.API.direct('3-1', 'stall|La|kanzi|k|w', 14, false), /まだ 指示を受け取れません/);
+  const kid = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);
+  assert.throws(() => kid.ctx.LbHome.API.direct('3-1', 'x', 14, false), /先生だけ/);
+  const r = tc.ctx.LbHome.API.direct('3-1', 'stall|La|tamath|s|w', 7, true);
+  assert.strictEqual(r.now3.length, 1, '指示した項目は消える'); assert.strictEqual(r.directives.length, 1);
+  assert.strictEqual(r.directives[0].show, true); assert.strictEqual(J(r.directives[0].names), J(['あ'])); assert.strictEqual(r.directives[0].skill, 'S');
+  assert.strictEqual(hub.sheets.decisions.v[1][5], '判断が変わった'); assert.match(hub.sheets.decisions.v[1][6], /^指示 D/);
+  assert.strictEqual(tc.ctx.LbDirectives.forLearner(hub, 'La', 'tamath', '2026-11-10')[0].show, true);
+  const id = r.directives[0].id;
+  assert.strictEqual(tc.ctx.LbHome.API.endDirective('3-1', id).directives.length, 0);
+  // 結果を見る・続ける（結果の行を作ってから）
+  const D = tc.ctx.LbDirectives;
+  const d2 = D.create(hub, { classKey: '3-1', lids: ['La'], app: 'tamath', skill: 's', days: 7, show: false }, 't', '2026-10-01');
+  D.evaluate(hub, {}, ROSTER, '2026-11-11');   // この検査の日付の模擬はいつも 2026-11-10 を返すので、翌日として結果を出す
+  assert.strictEqual(tc.ctx.LbHome.API.boot({ classKey: '3-1' }).results.length, 1);
+  const r2 = tc.ctx.LbHome.API.seeResult('3-1', d2.id, 14);
+  assert.strictEqual(r2.results.length, 0, '見た結果は消える'); assert.strictEqual(r2.directives.length, 1, '続けると同じ指示が新しく始まる');
+  assert.throws(() => tc.ctx.LbHome.API.seeResult('4-1', d2.id, 0), /担当していない|この学級/);
 });
 
 console.log(`pages ${n} 件 ok`);
