@@ -274,4 +274,33 @@ t('窓口：手を打つ（指示）は先生だけ・指示を受け取れる�
   assert.throws(() => tc.ctx.LbHome.API.seeResult('4-1', d2.id, 0), /担当していない|この学級/);
 });
 
+t('並び：先生が並べた順にする（無いページは元の順で後ろ）。学級・教科ごとに保存し、空なら目録の順に戻る。学級は文字のまま', () => {
+  const P = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+  assert.strictEqual(LbPages.sortByOrder(P, ['c', 'a']).map(p => p.id).join(), 'c,a,b,d');
+  assert.strictEqual(LbPages.sortByOrder(P, ['zz', 'b']).map(p => p.id).join(), 'b,a,c,d', '目録から消えたページは無視');
+  assert.strictEqual(LbPages.sortByOrder(P, []).map(p => p.id).join(), 'a,b,c,d');
+  const hub = makeSS('hub');
+  LbPages.setOrder(hub, '3-1', 'sansu', ['tamath-kuku', 'tamath-tasu'], 't@x');
+  LbPages.setOrder(hub, '3-2', 'sansu', ['tamath-tasu'], 't@x');
+  LbPages.setOrder(hub, '3-1', 'kokugo', ['kanzi'], 't@x');
+  assert.strictEqual(J(LbPages.readSettings(hub, '3-1').order), J({ sansu: ['tamath-kuku', 'tamath-tasu'], kokugo: ['kanzi'] }));
+  assert.ok(hub.sheets.class_order.v.slice(1).every(r => typeof r[0] === 'string'), '学級は文字のまま（書き直したほかの学級の行も化けない）');
+  assert.ok(hub.sheets.class_order.v.some(r => r[0] === '3-2'));
+  LbPages.setOrder(hub, '3-1', 'sansu', ['tamath-tasu'], 't@x');
+  assert.strictEqual(J(LbPages.readSettings(hub, '3-1').order.sansu), J(['tamath-tasu']), '置き換える（足さない）');
+  LbPages.setOrder(hub, '3-1', 'sansu', [], 't@x');
+  assert.strictEqual(LbPages.readSettings(hub, '3-1').order.sansu, undefined, '空なら目録の順');
+  assert.strictEqual(J(LbPages.readSettings(hub, '3-2').order.sansu), J(['tamath-tasu']), 'ほかの学級は変えない');
+  assert.throws(() => LbPages.setOrder(hub, '3-1', 'nope', ['a']), /知らない教科/);
+  assert.strictEqual(LbPages.setOrder(hub, '3-1', 'sansu', ['ok-1', '<bad>', 'Bad']).join(), 'ok-1', 'ページの名前の形でないものは捨てる');
+});
+t('窓口：並びを変えられるのは担当の学級の先生だけ', () => {
+  const kid = homeEnv('1@kyoiku.edu.nishi.or.jp', ROSTER);
+  assert.throws(() => kid.ctx.LbHome.API.setOrder('3-1', 'sansu', ['a']), /先生だけ/);
+  const sub = homeEnv('sub@example.jp', ROSTER);
+  assert.throws(() => sub.ctx.LbHome.API.setOrder('3-1', 'sansu', ['a']), /担当していない/);
+  const tc = homeEnv('na@edu.nishi.or.jp', ROSTER);
+  assert.strictEqual(J(tc.ctx.LbHome.API.setOrder('3-1', 'sansu', ['tamath-kuku']).order.sansu), J(['tamath-kuku']));
+});
+
 console.log(`pages ${n} 件 ok`);

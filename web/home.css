@@ -110,8 +110,6 @@
 .lb-tbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:8px 12px;margin:12px 0 0;border-radius:var(--radius);background:var(--fill-b)}
 .lb-tbar label{font-size:15px;color:var(--ink)}
 .lb-tbar select{font:inherit;font-size:16px;min-height:48px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
-.lb-toggle{min-height:48px;min-width:136px;padding:0 16px;border:2px solid var(--ink);border-radius:999px;background:#fff;cursor:pointer;font-size:15px;font-weight:700}
-.lb-toggle[aria-pressed="true"]{background:var(--ink);color:#fff}
 .lb-tstatus{font-size:14px;color:var(--ink)}
 .lb-link{border:0;background:none;color:var(--ink-link);text-decoration:underline;cursor:pointer;font-size:15px;min-height:48px;padding:0 8px}
 .lb-as{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:10px 0 0;border:2px solid var(--ink-alert);border-radius:var(--radius);font-size:16px}
@@ -119,7 +117,7 @@
 .lb-chips{position:absolute;top:8px;right:8px;display:flex;gap:6px}
 .lb-cell .lb-page{padding-right:16px}
 .lb-edit .lb-cell .lb-page{padding-top:52px}
-.lb-chip{min-width:48px;min-height:48px;padding:0 10px;border:2px solid var(--ink);border-radius:999px;background:#fff;color:var(--ink);font-size:14px;font-weight:700;cursor:pointer}
+.lb-chip{width:104px;min-height:48px;padding:0 8px;border:2px solid var(--ink);border-radius:999px;background:#fff;color:var(--ink);font-size:14px;font-weight:700;cursor:pointer}
 .lb-chip.off{border-style:dashed;color:var(--ink-alert);border-color:var(--ink-alert)}
 .lb-chip.star{border-color:var(--ink-link);color:var(--ink-link)}
 .lb-chip.star.on{background:var(--solid-on);color:#fff;border-color:var(--solid-on)}
@@ -174,8 +172,34 @@
 .lb-dnote,.lb-dhint{font-size:14px;color:var(--ink-sub);margin:0}
 .lb-drow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .lb-seg{min-height:48px;min-width:112px;padding:0 12px;border:2px solid var(--ink);border-radius:8px;background:#fff;color:var(--ink);font-weight:700;cursor:pointer}
-.lb-seg[aria-pressed="true"]{background:var(--ink);color:#fff}
 .lb-dlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
 .lb-dlist li{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:4px 12px;border:1px solid var(--line);border-radius:8px}
 .lb-dwho{font-weight:700}
 .lb-dwhat{font-size:15px;color:var(--ink-sub)}
+
+/* スイッチ（2値）：つまみの位置と「オン／オフ」の文字で状態を示す。色だけにしない */
+.lb-switch{display:inline-flex;align-items:center;gap:8px;min-height:48px;min-width:216px;padding:0 12px;border:2px solid var(--ink);border-radius:999px;background:#fff;color:var(--ink);font-size:15px;font-weight:700;cursor:pointer}
+.lb-sw-track{position:relative;width:44px;height:24px;border-radius:12px;background:#C9CED4;flex:none;transition:background .15s}
+.lb-sw-knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.35);transition:left .15s}
+.lb-sw-state{min-width:2.5em;text-align:left;color:var(--ink-sub)}
+.lb-switch[aria-checked="true"]{border-color:var(--solid-on);background:var(--fill-a)}
+.lb-switch[aria-checked="true"] .lb-sw-track{background:var(--solid-on)}
+.lb-switch[aria-checked="true"] .lb-sw-knob{left:22px}
+.lb-switch[aria-checked="true"] .lb-sw-state{color:var(--solid-on)}
+/* 先生モードがオンの間：帯と、画面の縁 */
+.lb-editbar{padding:8px 12px;margin:12px 0 0;border:2px solid var(--solid-on);border-radius:var(--radius);background:var(--fill-a);font-size:15px}
+.lb-editbar strong{color:var(--solid-on)}
+.lb.lb-edit{outline:4px dashed var(--solid-on);outline-offset:4px;border-radius:var(--radius)}
+/* 期間などの区切りボタン（セグメント） */
+.lb-segs{gap:0}
+.lb-segs .lb-seg{border-radius:0}
+.lb-segs .lb-seg:first-child{border-radius:8px 0 0 8px}
+.lb-segs .lb-seg:last-child{border-radius:0 8px 8px 0;border-left:0}
+.lb-seg[aria-checked="true"]{background:var(--ink);color:#fff}
+/* 並べかえ：⠿ をつかむ（タッチ・ペンでスクロールにならないように） */
+.lb-drag{position:absolute;top:8px;left:8px;width:48px;height:48px;border:2px solid var(--ink);border-radius:12px;background:#fff;color:var(--ink);font-size:24px;line-height:1;cursor:grab;touch-action:none}
+.lb-drag:active{cursor:grabbing}
+.lb-dragging{opacity:.6}
+.lb-dragging .lb-htile{outline:4px solid var(--solid-on)}
+.lb-ordbar{margin:8px 0}
+.lb .lb-chip.star{width:48px;padding:0;font-size:22px}   /* ★／☆ だけ。押しても幅が変わらない */

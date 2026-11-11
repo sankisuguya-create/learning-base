@@ -59,6 +59,7 @@
     homeEndDirective: function (k, id) { var s = store(); s.dirs = (s.dirs || []).filter(function (d) { return d.id !== id; }); put(s); return { now3: s.now3 || api.homeBoot().now3, directives: s.dirs, results: s.results || DEMO_RESULTS }; },
     homeSeeResult: function (k, id, again) { var s = store(); s.results = (s.results || DEMO_RESULTS).filter(function (r) { return r.id !== id; }); put(s); return { now3: s.now3 || api.homeBoot().now3, directives: s.dirs || [], results: s.results }; },
     homeSetPublish: function (k, id, on) { var s = settings(k); s.publish[id] = on; return setSettings(k, s); },
+    homeSetOrder: function (k, sub, ids) { var s = settings(k); s.order = s.order || {}; if (ids.length) s.order[sub] = ids; else delete s.order[sub]; return setSettings(k, s); },
     homeResetPublish: function (k) { var s = settings(k); s.publish = {}; return setSettings(k, s); },
     homeDecide: function (k, key) { var s = store(); s.now3 = (s.now3 || api.homeBoot().now3).filter(function (x) { return x.key !== key; }); put(s); return s.now3; },
     homeFeedback: function (k, v, t) { var s = store(); (s.fb = s.fb || []).push({ k: k, v: v, t: t }); put(s); return true; },

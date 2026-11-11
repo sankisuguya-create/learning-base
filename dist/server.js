@@ -2116,6 +2116,7 @@ var LbPages = (function () {
   var NOW_MAX = 3;                       // いまの学習は3件まで（多いと「いま」が分からなくなる）
   var PUB_SHEET = 'class_pages', PUB_HEAD = ['学級', 'ページ', '公開', '更新', '教師'];
   var NOW_SHEET = 'now_learning', NOW_HEAD = ['学級', 'ページ', '順', 'から', 'まで', '更新', '教師'];
+  var ORDER_SHEET = 'class_order', ORDER_HEAD = ['学級', '教科', '並び', '更新', '教師'];   // 先生モードでドラッグした教科の中の並び
 
   /* ---------- 目録 ---------- */
 
@@ -2202,8 +2203,21 @@ var LbPages = (function () {
   /* ---------- 保存（ハブのシート） ---------- */
 
   /** その学級の設定を読む */
+  /**
+   * 教科の中のページを、先生が並べた順にする（純粋な計算。画面でも使う）。
+   * ids：先生が並べたページの id の並び。そこに無いページ（後で目録に足したものなど）は、元の順のまま後ろに付ける
+   */
+  function sortByOrder(pages, ids) {
+    if (!ids || !ids.length) return pages.slice();
+    var pos = {}; ids.forEach(function (id, i) { pos[id] = i; });
+    return pages.map(function (p, i) { return { p: p, i: i }; }).sort(function (a, b) {
+      var x = pos.hasOwnProperty(a.p.id) ? pos[a.p.id] : ids.length + a.i, y = pos.hasOwnProperty(b.p.id) ? pos[b.p.id] : ids.length + b.i;
+      return x - y;
+    }).map(function (o) { return o.p; });
+  }
+
   function readSettings(hubSs, classKey) {
-    var out = { publish: {}, now: [] };
+    var out = { publish: {}, now: [], order: {} };
     var ps = hubSs.getSheetByName(PUB_SHEET);
     if (ps && ps.getLastRow() > 1) ps.getRange(2, 1, ps.getLastRow() - 1, 3).getValues().forEach(function (r) {
       if (clsCell(r[0]) === classKey && r[1]) out.publish[String(r[1])] = r[2] === true || String(r[2]).toUpperCase() === 'TRUE';
@@ -2211,6 +2225,10 @@ var LbPages = (function () {
     var ns = hubSs.getSheetByName(NOW_SHEET);
     if (ns && ns.getLastRow() > 1) ns.getRange(2, 1, ns.getLastRow() - 1, 5).getValues().forEach(function (r) {
       if (clsCell(r[0]) === classKey && r[1]) out.now.push({ page: String(r[1]), order: Number(r[2]) || 0, from: ymd(r[3]), to: ymd(r[4]) });
+    });
+    var os = hubSs.getSheetByName(ORDER_SHEET);
+    if (os && os.getLastRow() > 1) os.getRange(2, 1, os.getLastRow() - 1, 3).getValues().forEach(function (r) {
+      if (clsCell(r[0]) === classKey && r[1]) out.order[String(r[1])] = String(r[2] || '').split(',').filter(Boolean);
     });
     return out;
   }
@@ -2225,6 +2243,21 @@ var LbPages = (function () {
       if (clsCell(v[i][0]) === classKey && String(v[i][1]) === pageId) { sh.getRange(i + 1, 1, 1, 5).setValues([[classKey, pageId, !!on, new Date(), by || '']]); return; }
     }
     sh.appendRow([classKey, pageId, !!on, new Date(), by || '']);
+  }
+
+  /** 教科の中の並びを保存する（その学級・その教科の行を置き換える）。ids が空なら行を消す（目録の順に戻る） */
+  function setOrder(hubSs, classKey, subject, ids, by) {
+    if (SUBJECT_IDS.indexOf(subject) < 0) throw new Error('知らない教科です: ' + subject);
+    var clean = (ids || []).map(String).filter(function (id) { return /^[a-z0-9][a-z0-9-]{0,63}$/.test(id); });
+    var sh = sheet(hubSs, ORDER_SHEET, ORDER_HEAD), v = sh.getDataRange().getValues(), keep = [v[0]];
+    for (var i = 1; i < v.length; i++) {
+      if (clsCell(v[i][0]) === classKey && String(v[i][1]) === subject) continue;
+      var row = v[i].slice(0, ORDER_HEAD.length); row[0] = clsCell(row[0]); while (row.length < ORDER_HEAD.length) row.push(''); keep.push(row);
+    }
+    if (clean.length) keep.push([classKey, subject, clean.join(','), new Date(), by || '']);
+    sh.clearContents();
+    sh.getRange(1, 1, keep.length, ORDER_HEAD.length).setValues(keep);
+    return clean;
   }
 
   /** その学級の公開を全部、目録の既定に戻す */
@@ -2261,7 +2294,7 @@ var LbPages = (function () {
     return LbSheets.sheet(ss, name, head, cols, { always: true });
   }
 
-  return { SUBJECTS: SUBJECTS, NOW_MAX: NOW_MAX, validate: validate, isOn: isOn, inPeriod: inPeriod, home: home, teacherView: teacherView,
+  return { SUBJECTS: SUBJECTS, NOW_MAX: NOW_MAX, validate: validate, isOn: isOn, inPeriod: inPeriod, home: home, teacherView: teacherView, sortByOrder: sortByOrder, setOrder: setOrder,
     readSettings: readSettings, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow };
 })();
 
@@ -2432,6 +2465,12 @@ var LbHome = (function () {
     LbPages.setPublish(Base.hub(), classKey, String(pageId), !!on, m.email);
     return LbPages.readSettings(Base.hub(), classKey);
   }
+  /** 教科の中の並び（先生モードでドラッグ）。ids が空なら目録の順に戻す */
+  function setOrder(classKey, subject, ids) {
+    var m = requireClass(classKey);
+    LbPages.setOrder(Base.hub(), classKey, String(subject), Array.isArray(ids) ? ids : [], m.email);
+    return LbPages.readSettings(Base.hub(), classKey);
+  }
   function resetPublish(classKey) {
     requireClass(classKey);
     LbPages.resetPublish(Base.hub(), classKey);
@@ -2518,7 +2557,7 @@ var LbHome = (function () {
    * 画面は LB_PLATFORM.call('homeXxx', …) で呼ぶ（'home' を外して頭を小文字にした名前でこの表を引く）。
    * 中で必ず「誰が開いたか」と「その学級・その操作をしてよいか」を確かめる関数だけを置く
    */
-  var API = { boot: boot, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow,
+  var API = { boot: boot, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, setOrder: setOrder,
     feedback: feedback, report: report, 'export': exportForTuning, tuning: tuning, tryRules: tryRules, saveRules: saveRules,
     direct: direct, endDirective: endDirective, seeResult: seeResult };
 
