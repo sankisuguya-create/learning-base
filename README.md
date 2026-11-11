@@ -107,6 +107,7 @@ jsDelivr から版で固定して取ってきて実行する。
 | `gas/Facts.gs` | `LbFacts` | 全アプリのセッションを「児童×技能×週」に集計する（毎晩、新しい行だけ読む）。状態（未着手・練習中・到達）を目録の基準で判定する |
 | `gas/Pseudo.gs` | `LbPseudo` | 名前を記号に置き換える・戻す（Gemini・NotebookLM に渡す前） |
 | `gas/Alerts.gs` | `LbAlerts` | 今週の3件（初期値は `RULES`、変えられる項目は `SPEC`。所有者が変えた値はハブの `rules`）。ハブの `now3`・`decisions` |
+| `gas/Directives.gs` | `LbDirectives` | 指示：先生が今週の3件から「手を打つ」と、アプリの練習の「ぜんぶ」で指示した技能を半分出す（本番は変えない）。「★ おすすめ」は先生が選んだ時だけ。期間が終わった翌朝、本番の記録で同じ学年のほかの児童と比べた結果を出す（ハブの `directives`） |
 | `gas/Telemetry.gs` | `LbTelemetry` | 観察では見えないものを集める：失敗（エラー文つき）・実機の速さ（端末別）・始めるまで（ハブの `usage`） |
 | `gas/Tuning.gs` | `LbTuning` | 閾値を見直す材料（所有者の画面の中だけ）：出た記録（`now3_log`）・閾値を変えた時の候補の数・分布 |
 | `gas/Export.gs` | `LbExport` | 先生の気づき（`feedback`）・記号表（`pseudo_<年度>`）・「失敗と速さ」の書き出し（学習状態は入れない）。手順は `docs/tuning-log.md` |

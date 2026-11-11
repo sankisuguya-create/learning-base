@@ -2525,7 +2525,7 @@ var LbHome = (function () {
   return { API: API, boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@d143829） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@ec85262） =====
 LB_MODULES["tamath"] = (function () {
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
@@ -2955,7 +2955,7 @@ function tamathCatalog_() {
       skills.push(sk);
     });
   });
-  return { app: 'tamath', title: '算数タイムアタック', version: ENGINE_VER, skills: skills, mastery: { minN: 20, acc: 0.9, gmMs: 0, windowWeeks: 4 }, directives: [] };
+  return { app: 'tamath', title: '算数タイムアタック', version: ENGINE_VER, skills: skills, mastery: { minN: 20, acc: 0.9, gmMs: 0, windowWeeks: 4 }, directives: ['weight'] };
 }
 /** 集計が読む記録先（登録済みの単元のスプレッドシート）。学習BASE の夜の処理が使う */
 function lbSessionSources_() {
@@ -3699,7 +3699,25 @@ function boot() {
                            base.nGate ? figCount_(b.floor.tcm) : null);
   base.medals = medals_(classKey_(c), mail, cfg.limit_sec);
   base.coop = coopForChild_(c);   // 協力モード中なら自分の色（なければ active:false）
+  // 先生が「★ おすすめを見せる」を選んだ指示の型だけ（見せない指示は画面に渡さない。出題だけが変わる）
+  base.reco = lbDirectives_(mail).filter(function (d) { return d.show; }).map(function (d) { return d.t; });
   return base;
+}
+
+/**
+ * 学習BASE の指示（先生が今週の3件から「手を打つ」）のうち、いまの単元の型。[{ id, t, show }]
+ * 学習BASE の中で動く時だけ（LbDirectives が無い単体の GAS では []）。読めなくても練習は止めない。
+ * 本人は代わりに取り組む児童（ACT_）か、開いた児童。名簿にない人・学習者ID の無い人は []
+ */
+function lbDirectives_(mail) {
+  if (typeof LbDirectives === 'undefined' || typeof Base === 'undefined') return [];
+  try {
+    var learner = ACT_.learner || Base.child(mail);
+    if (!learner || !learner.lid) return [];
+    var pre = 'math/' + UNIT.id + '/';
+    return LbDirectives.forLearner(Base.hub(), learner.lid, 'tamath').filter(function (d) { return d.skill.indexOf(pre) === 0; })
+      .map(function (d) { return { id: d.id, t: d.skill.slice(pre.length), show: !!d.show }; });
+  } catch (e) { console.error('指示を読めません: ' + (e && e.message || e)); return []; }
 }
 
 /**
@@ -3717,6 +3735,15 @@ function nextPracticeItem(mode, type) {
 
   var rand = rng_(Math.floor(Math.random() * 2147483647));
   var it = UNIT.gen(rand, mode);
+
+  // 学習BASE の指示：「ぜんぶ」（型を選ばない練習）で、指示された型を半分の確率で出す（本番の出題は変えない）。
+  // 型の当たり待ちは下の棄却法をそのまま使う。このモードに無い型は使わない
+  if (!type && c) {
+    var dirs = lbDirectives_(mail), inMode = typesByMode_()[mode] || [];
+    var cand = dirs.filter(function (d) { return inMode.indexOf(d.t) >= 0; });
+    var share = typeof LbDirectives !== 'undefined' && LbDirectives.WEIGHT_SHARE ? LbDirectives.WEIGHT_SHARE : 0.5;
+    if (cand.length && Math.random() < share) type = cand[Math.floor(Math.random() * cand.length)].t;
+  }
 
   // 型を絞った練習。gen を引き直して当たりを待つ（棄却法）。
   // 型ごとの生成関数を Unit.gs に足させると gen と二重管理になるので、

@@ -352,6 +352,16 @@ t('指示：夜の処理で、期間が終わった指示の結果を出す（�
   const row = S.hub.sheets.directives.v.find(r => r[0] === d.id);
   assert.strictEqual(row[11], '終了'); assert.ok(JSON.parse(row[12]).enough === false, '記録が無いので「数が少ない」');
 });
+t('指示の継ぎ目：算数TA が呼ぶ形（LbDirectives.forLearner(ハブ, 学習者ID, "tamath") → [{ id, skill, show }]・WEIGHT_SHARE）と、学習BASE の形が合う', () => {
+  const S = school(), c = run(S); c.doGet({ parameter: {} });
+  const server = DIST('server.js');
+  assert.ok(server.includes("LbDirectives.forLearner(Base.hub(), learner.lid, 'tamath')"), '算数TA が学習BASE の指示を読む');
+  assert.ok(server.includes('LbDirectives.WEIGHT_SHARE'), '混ぜる割合は学習BASE の値を使う');
+  assert.ok(/directives: \['weight'\]/.test(server), '算数TA の目録が weight を受け取ると宣言');
+  const d = c.LbDirectives.create(S.hub, { classKey: '3-1', lids: ['Labcdefghij'], app: 'tamath', skill: 'math/kuku/k7', days: 7, show: true }, 't', c.LbSheets.day());
+  assert.strictEqual(JSON.stringify(c.LbDirectives.forLearner(S.hub, 'Labcdefghij', 'tamath')), JSON.stringify([{ id: d.id, skill: 'math/kuku/k7', show: true }]));
+  assert.strictEqual(c.LbDirectives.WEIGHT_SHARE, 0.5);
+});
 (async () => {
   const S = school();
   const html = run(S).doGet({ parameter: {} }).html;
