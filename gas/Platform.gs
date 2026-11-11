@@ -208,6 +208,7 @@ var LbPlatform = (function () {
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
       'var fn=String(name).replace(/^home(.)/,function(m,c){return c.toLowerCase();});' +   // homeSetNow → setNow（LbHome.API の名前）
       'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",fn,a);});},' +
+      'app:function(mod,name,a){return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall(mod,name,a);});},' +   // アプリの窓口（lbCall('app:<id>')）
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +
       'function lbLoadFail(){if(window.lbFailed)return;window.lbFailed=1;try{google.script.run.lbCall("home","report",["loadfail"]);}catch(e){}var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';

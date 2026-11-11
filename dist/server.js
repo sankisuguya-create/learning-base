@@ -10193,10 +10193,10 @@ return {
 };
 })(); } catch (e) { console.error("アプリ tamath を読み込めません: " + (e && e.message || e)); return { broken: String(e && e.message || e) }; } })();
 
-// ===== アプリ kanzi（sankisuguya-create/kanzi@6790a9b） =====
+// ===== アプリ kanzi（sankisuguya-create/kanzi@fc0d3b9） =====
 LB_MODULES["kanzi"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/kanzi";
-var LB_APP_COMMIT = "6790a9b97453dd6f84c155169272419ec806dd15";
+var LB_APP_COMMIT = "fc0d3b91c62ce01b12e6e14e7517ec113a28196d";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- gas/Scheduler.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/scheduler.js
@@ -10680,7 +10680,7 @@ var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval(
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // GAS 版ずれ検知の版（tools/build-gas.mjs が埋め込む）
-Sched.VER = "fd0e40f";
+Sched.VER = "6790a9b";
 
 // --- gas/Genko.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/genko.js（作文の形をそろえる normWork をサーバーでも使う）
@@ -10847,9 +10847,44 @@ function lbPage_() {
     .replace(/<script src="(src\/[\w.\-\/]+)"><\/script>/g, function (m, f) { return '<script src="' + base + f + '" onerror="kanziLoadFail()"><\/script>'; });
   return HtmlService.createHtmlOutput(html).setTitle('漢字の森').addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
+// ---- 名簿を学習BASE に切り替える（所有者だけ）。切り替える前に照らし合わせ、食い違いが0件の時だけ切り替えられる
+function owner_() {
+  if (!inBase_()) throw new Error('スプレッドシートの所有者が、学習BASE の中で使えます');
+  var a = String(Session.getActiveUser().getEmail() || '').toLowerCase(), e = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!a || a !== e) throw new Error('スプレッドシートの所有者が、学習BASE の中で使えます');
+}
+// 返す：{ using, ok, kanziOnly: [{klass,no,name}], classMoved: [{klass→base}], orphanSettings: [キー], baseOnlyClasses: [学級] }
+function api_lbRosterCheck() {
+  owner_(); begin_();
+  var mine = rosterFromSheet_(), base = rosterFromBase_(), byMail = {};
+  base.forEach(function (x) { byMail[x.email] = x; });
+  var kanziOnly = [], moved = [];
+  mine.forEach(function (x) {
+    var b = byMail[x.email];
+    if (!b) kanziOnly.push({ klass: x.klass, no: x.no, name: x.name });
+    else if (b.klass !== x.klass) moved.push({ klass: x.klass, base: b.klass, no: x.no, name: x.name });
+  });
+  var baseK = {}; base.forEach(function (x) { baseK[x.klass] = true; });
+  var mineK = {}; mine.forEach(function (x) { mineK[x.klass] = true; });
+  var orphan = Object.keys(settings_()).filter(function (k) {
+    var m = /^(?:grades|pointer|gates|bunkai|write|sakuShare|test):([^:]+)/.exec(k); return m && !baseK[m[1]];
+  });
+  return { using: baseRoster_() ? 'base' : 'sheet', ok: !kanziOnly.length && !moved.length && !orphan.length,
+    kanziOnly: kanziOnly, classMoved: moved, orphanSettings: orphan, baseOnlyClasses: Object.keys(baseK).filter(function (k) { return !mineK[k]; }).sort() };
+}
+function api_lbRosterUse(on) {
+  owner_();
+  var p = PropertiesService.getScriptProperties();
+  if (!on) { p.deleteProperty('KANZI_ROSTER'); return api_lbRosterCheck(); }
+  var c = api_lbRosterCheck();
+  if (!c.ok) throw new Error('食い違いが残っているので切り替えられません（漢字の森だけにいる児童 ' + c.kanziOnly.length + '人・学級が違う児童 ' + c.classMoved.length + '人・学級の無い設定 ' + c.orphanSettings.length + '件）');
+  p.setProperty('KANZI_ROSTER', 'base');
+  return api_lbRosterCheck();
+}
+
 // 画面から呼べる関数（ここに無いものは呼べない）。api_ を足したらここにも足す（tests/gas.test.mjs が照らし合わせる）
 function lbApi_(name, args) {
-  var API = { api_archiveAnonymize: api_archiveAnonymize, api_archiveSave: api_archiveSave, api_archiveView: api_archiveView, api_archiveYears: api_archiveYears, api_bunkai: api_bunkai, api_gates: api_gates, api_init: api_init, api_sakuComment: api_sakuComment, api_sakuDelete: api_sakuDelete, api_sakuFriends: api_sakuFriends, api_sakuMine: api_sakuMine, api_sakuRead: api_sakuRead, api_sakuSave: api_sakuSave, api_sakuShare: api_sakuShare, api_sakuTeacher: api_sakuTeacher, api_save: api_save, api_setBunkai: api_setBunkai, api_setGates: api_setGates, api_setGrades: api_setGrades, api_setOrder: api_setOrder, api_setPointer: api_setPointer, api_setTests: api_setTests, api_setWriteLevel: api_setWriteLevel, api_teacherView: api_teacherView };
+  var API = { api_archiveAnonymize: api_archiveAnonymize, api_archiveSave: api_archiveSave, api_archiveView: api_archiveView, api_archiveYears: api_archiveYears, api_bunkai: api_bunkai, api_gates: api_gates, api_init: api_init, api_lbRosterCheck: api_lbRosterCheck, api_lbRosterUse: api_lbRosterUse, api_sakuComment: api_sakuComment, api_sakuDelete: api_sakuDelete, api_sakuFriends: api_sakuFriends, api_sakuMine: api_sakuMine, api_sakuRead: api_sakuRead, api_sakuSave: api_sakuSave, api_sakuShare: api_sakuShare, api_sakuTeacher: api_sakuTeacher, api_save: api_save, api_setBunkai: api_setBunkai, api_setGates: api_setGates, api_setGrades: api_setGrades, api_setOrder: api_setOrder, api_setPointer: api_setPointer, api_setTests: api_setTests, api_setWriteLevel: api_setWriteLevel, api_teacherView: api_teacherView };
   if (!Object.prototype.hasOwnProperty.call(API, String(name))) throw new Error('呼べない関数です: ' + name);
   return API[name].apply(null, Array.isArray(args) ? args : []);
 }
@@ -10887,6 +10922,7 @@ function settingsSheet_() { return sheet_('設定', ['キー', '値']); }
 function me_() {
   var email = String(Session.getActiveUser().getEmail() || '').toLowerCase();
   if (!email) throw new Error('アカウントを確認できません（公開設定を「ドメイン内」にし、学校アカウントで開いてください）');
+  if (baseRoster_()) { var bm = Base.me(); return { email: email, role: bm.role === 'teacher' ? 'teacher' : STUDENT_RE.test(email) ? 'student' : 'unknown' }; }
   var role = STUDENT_RE.test(email) ? 'student' : TEACHER_RE.test(email) ? 'teacher' : 'unknown';
   return { email: email, role: role };
 }
@@ -10935,7 +10971,24 @@ function klassKey_(grade, cls) {
   return grade && cls ? grade + '-' + cls : cls; // 学年の列が無い旧版の名簿は、組の値をそのままキーにする
 }
 // 児童の名簿: [{ email, grade, klass, no, name }]
+// 名簿と担当の出どころ：学習BASE の中で、所有者が切り替えた後（スクリプトのプロパティ KANZI_ROSTER が base）は学習BASE の名簿と担当。
+// それまでは今まで通り、このスプレッドシートの「名簿」「教師」。切り替える前に api_lbRosterCheck で照らし合わせる
+function baseRoster_() { return inBase_() && String(PropertiesService.getScriptProperties().getProperty('KANZI_ROSTER') || '') === 'base'; }
+function rosterFromBase_() {
+  return Base.roster().filter(function (r) { return r.mail && r.name; }).map(function (r) {
+    return { email: String(r.mail).toLowerCase(), grade: Number(r.grade) || 0, klass: Base.classKey(r.grade, r.cls), no: r.no || '', name: r.name };
+  });
+}
+function rosterFromSheet_() {
+  return table_('名簿', ['メール', '学年', '組', '番号', '名前']).map(function (o) {
+    var email = String(o['メール'] || '').trim().toLowerCase();
+    var klass = klassKey_(o['学年'], o['組']);
+    var g = Number(o['学年']) || Number((klass.match(/^([1-6])/) || [])[1]) || 0;
+    return { email: email, grade: g, klass: klass, no: o['番号'] === '' ? '' : o['番号'], name: String(o['名前'] || '') };
+  }).filter(function (x) { return x.email && x.klass; });
+}
 function roster_() {
+  if (baseRoster_()) return memo_('roster', rosterFromBase_);
   return memo_('roster', function () { return table_('名簿', ['メール', '学年', '組', '番号', '名前']).map(function (o) {
     var email = String(o['メール'] || '').trim().toLowerCase();
     var klass = klassKey_(o['学年'], o['組']);
@@ -10953,6 +11006,10 @@ function teacherClasses_(email) {
 }
 function teacherClasses0_(email) {
   var all = {}, out = {};
+  if (baseRoster_()) {   // 学習BASE の決まり：教師ドメインの先生は全学級（決定 2026-11-11。作文も含む）
+    roster_().forEach(function (x) { all[x.klass] = x.grade; });
+    return Object.keys(all).filter(function (k) { var i = k.indexOf('-'); return Base.canSeeClass(email, Number(k.slice(0, i)), k.slice(i + 1)); }).sort();
+  }
   roster_().forEach(function (x) { all[x.klass] = x.grade; });
   table_('教師', ['メール', '学年', '組']).forEach(function (o) {
     if (String(o['メール'] || '').trim().toLowerCase() !== email) return;
@@ -11278,7 +11335,12 @@ function api_archiveSave(year) {
   year = archYear_(year);
   var ss = ss_();
   if (ss.getSheetByName('名簿' + year) || ss.getSheetByName('進捗' + year)) throw new Error(year + '年度は すでに残してあります');
+  if (baseRoster_()) {   // 名簿は学習BASE のもの：その時点の名簿を 名簿YYYY に書く（このスプレッドシートの「名簿」は古いので写さない）
+    var rows = [['メール', '学年', '組', '番号', '名前']].concat(roster_().map(function (x) { var i = x.klass.indexOf('-'); return [x.email, x.grade, x.klass.slice(i + 1), x.no, x.name]; }));
+    var rd = ss.insertSheet('名簿' + year); rd.getRange(1, 1, rows.length, 5).setValues(rows); rd.setFrozenRows(1);
+  }
   ['名簿', '進捗', '作文'].forEach(function (name) {
+    if (name === '名簿' && baseRoster_()) return;
     var sh = ss.getSheetByName(name);
     if (!sh) return; // 作文は 説明文を書く を使っていない学校には無い
     var dst = ss.insertSheet(name + year), n = sh.getLastRow(), w = sh.getLastColumn();
@@ -11800,6 +11862,7 @@ var LbPlatform = (function () {
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
       'var fn=String(name).replace(/^home(.)/,function(m,c){return c.toLowerCase();});' +   // homeSetNow → setNow（LbHome.API の名前）
       'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",fn,a);});},' +
+      'app:function(mod,name,a){return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall(mod,name,a);});},' +   // アプリの窓口（lbCall('app:<id>')）
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +
       'function lbLoadFail(){if(window.lbFailed)return;window.lbFailed=1;try{google.script.run.lbCall("home","report",["loadfail"]);}catch(e){}var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';

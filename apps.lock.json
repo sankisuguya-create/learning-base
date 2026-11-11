@@ -31,7 +31,7 @@
   },
   "kanzi": {
     "repo": "sankisuguya-create/kanzi",
-    "commit": "6790a9b97453dd6f84c155169272419ec806dd15",
+    "commit": "fc0d3b91c62ce01b12e6e14e7517ec113a28196d",
     "server": [
       "gas/Scheduler.js",
       "gas/Genko.js",

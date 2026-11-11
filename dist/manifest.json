@@ -1,7 +1,7 @@
 {
- "server": "441d950f8c09016fafb926dd9712d62e460c07874c8ce16a79813eb91e5abd71",
+ "server": "b390bb17384aa40310d8f93960420746239bdf0ac58423e255a943db677f0c3b",
  "html": "7292a71df48490cec2d02475536e41dfac059e0d68c62ea0f7a86db3df7af99e",
- "serverChars": 511945,
+ "serverChars": 516196,
  "htmlChars": 585399,
  "apps": {
   "tamath": {
@@ -10,7 +10,7 @@
   },
   "kanzi": {
    "repo": "sankisuguya-create/kanzi",
-   "commit": "6790a9b97453dd6f84c155169272419ec806dd15"
+   "commit": "fc0d3b91c62ce01b12e6e14e7517ec113a28196d"
   }
  }
 }

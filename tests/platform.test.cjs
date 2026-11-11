@@ -431,6 +431,15 @@ t('国語（漢字の森）：学習BASE の中で動く。準備（KANZI_SS_ID�
   const leaked = Object.keys(bare).filter(k => !before.has(k) && !/^(Lb[A-Z]|LB_|Base$|base[A-Z])/.test(k)).sort();
   assert.strictEqual(JSON.stringify(leaked), JSON.stringify(declared.slice().sort()), '宣言していない名前が大域に出ている');
   assert.strictEqual(typeof run(S, kid).apiCall, 'function'); assert.ok(run(S, kid).apiCall('kuku', 'unitIdsForTest', []).length >= 14, '算数は今まで通り');
+  // 段階2b：所有者が照らし合わせて、学習BASE の名簿と担当に切り替える
+  assert.throws(() => run(S, kid).lbCall('app:kanzi', 'api_lbRosterCheck', []), /所有者/);
+  let chk = run(S).lbCall('app:kanzi', 'api_lbRosterCheck', []);
+  assert.strictEqual(chk.using, 'sheet'); assert.strictEqual(chk.ok, true, JSON.stringify(chk));
+  chk = run(S).lbCall('app:kanzi', 'api_lbRosterUse', [true]);
+  assert.strictEqual(chk.using, 'base'); assert.strictEqual(S.props.KANZI_ROSTER, 'base');
+  book.sheets['名簿'].v.splice(1);                                   // 漢字の森のシートの名簿を空にしても
+  assert.strictEqual(run(S, kid).lbCall('app:kanzi', 'api_init', []).klass, '3-1', '学習BASE の名簿で開ける');
+  assert.deepEqual(run(S, 'other@edu.nishi.or.jp').lbCall('app:kanzi', 'api_init', []).classes, ['3-1'], '教師ドメインは全学級（教師シートに無くても）');
 });
 (async () => {
   const S = school();

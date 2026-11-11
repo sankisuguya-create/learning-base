@@ -80,6 +80,10 @@
     baseUrl: location.href.split('?')[0],
     call: function (name) { var a = Array.prototype.slice.call(arguments, 1); (window.LB_CALLS = window.LB_CALLS || []).push(name); return new Promise(function (ok) { setTimeout(function () { ok(JSON.parse(JSON.stringify(api[name].apply(null, a)))); }, 150); }); },
     // 見本では、まだページの無い教科にも見本のページを足す（全教科の見え方を確かめるため。本番の目録には入らない）
+    app: function (mod, name, a) { return new Promise(function (ok) { setTimeout(function () {
+      var st = JSON.parse(localStorage.getItem('lb-demo') || '{}'), using = st.kroster || 'sheet';
+      if (name === 'api_lbRosterUse') { using = a[0] ? 'base' : 'sheet'; st.kroster = using; localStorage.setItem('lb-demo', JSON.stringify(st)); }
+      ok({ using: using, ok: true, kanziOnly: [], classMoved: [], orphanSettings: [], baseOnlyClasses: [] }); }, 150); }); },
     fetchJson: function (u) { return fetch(u).then(function (r) { return r.json(); }).then(function (c) {
       var have = {}; c.pages.forEach(function (p) { have[p.subject] = true; });
       LbPages.SUBJECTS.forEach(function (s, i) { if (!have[s.id]) c.pages.push({ id: 'demo-' + s.id, subject: s.id, grades: [1, 2, 3, 4, 5, 6], unit: '見本', title: s.label + 'の見本ページ', ruby: s.ruby + 'の みほん', kind: 'app', app: 'demo', order: 99 }); });
