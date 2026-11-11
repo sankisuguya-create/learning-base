@@ -61,6 +61,7 @@
     homeSeeResult: function (k, id, again) { var s = store(); s.results = (s.results || DEMO_RESULTS).filter(function (r) { return r.id !== id; }); put(s); return { now3: s.now3 || api.homeBoot().now3, directives: s.dirs || [], results: s.results }; },
     homeSetPublish: function (k, id, on) { var s = settings(k); s.publish[id] = on; return setSettings(k, s); },
     homeSetLink: function (id, url) { var s = store(); s.links = s.links || {}; s.links[id] = url; put(s); return api.homeBoot().links; },
+    homeSetColor: function (k, id, color) { var s = settings(k); s.colors = s.colors || {}; if (color) s.colors[id] = color; else delete s.colors[id]; return setSettings(k, s); },
     homeSetOrder: function (k, sub, ids) { var s = settings(k); s.order = s.order || {}; if (ids.length) s.order[sub] = ids; else delete s.order[sub]; return setSettings(k, s); },
     homeResetPublish: function (k) { var s = settings(k); s.publish = {}; return setSettings(k, s); },
     homeDecide: function (k, key) { var s = store(); s.now3 = (s.now3 || api.homeBoot().now3).filter(function (x) { return x.key !== key; }); put(s); return s.now3; },

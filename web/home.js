@@ -30,7 +30,7 @@
   }
   window.addEventListener('error', function (e) { reportJs((e && e.message) || 'error'); });
   window.addEventListener('unhandledrejection', function (e) { reportJs('promise: ' + ((e && e.reason && e.reason.message) || (e && e.reason) || '')); });
-  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, shot: false, fb: '', exp: null, tune: null, linkEdit: '', dirKey: '', dirDays: 14, dirShow: false, readyAt: 0, started: false, opened: false };
+  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, shot: false, fb: '', exp: null, tune: null, linkEdit: '', sel: '', palette: false, dirKey: '', dirDays: 14, dirShow: false, readyAt: 0, started: false, opened: false };
   /** この端末だけの覚え（前回の往復の時間）。使えない時（シークレットなど）は覚えないだけ */
   function store(k, v) {
     try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, String(v)); } catch (e) { return null; }
@@ -60,22 +60,19 @@
    * タイルの色（算数TA のハブ apps/hub/Code.gs の COLORS と同じ30色）。どのページを何色にするかは、
    * 先生がハブの links シートの color 列で選んだもの（児童が見慣れた色のまま探せる）。色だけで見分けさせない（題を必ず出す）
    */
-  var TILE = {
-    mint: ['#12C48B', '#052A1F'], blue: ['#2B4CF2', '#F0F3FF'], amber: ['#FFC400', '#2E2200'], red: ['#FF5C38', '#2C0A02'],
-    purple: ['#6D4AE0', '#F3EEFF'], gray: ['#4A5568', '#EEF1F6'], lavender: ['#D3C9FB', '#1C152F'], olive: ['#696713', '#F6F6EB'],
-    wine: ['#900D2A', '#F7F7F7'], cyan: ['#0DA2C6', '#1A1A1A'], rose: ['#DE5F99', '#2C101C'], teal: ['#13745F', '#EBF9F4'],
-    brown: ['#964D0C', '#FEF3EC'], peach: ['#FCC1B6', '#2E100C'], lime: ['#9EB919', '#181E01'], aqua: ['#2CECF2', '#1A1A1A'],
-    plum: ['#80146F', '#FCF1F9'], periwinkle: ['#6B89F9', '#121932'], ochre: ['#CB7E19', '#1A1A1A'], sky: ['#A8D8FB', '#001D2F'],
-    orchid: ['#CE88F7', '#22132B'], peacock: ['#1C6E80', '#EBF8FC'], green: ['#057918', '#EFF8EF'], pink: ['#FEA4D2', '#2B101F'],
-    mustard: ['#AA9117', '#1A1A1A'], leaf: ['#97EB79', '#0E2007'], apricot: ['#FDB171', '#2B1401'], coral: ['#FB8087', '#2E1012'],
-    turquoise: ['#16A7A3', '#1A1A1A'], cobalt: ['#1468A3', '#EDF6FF']
-  };
+  var TILE = window.LbPages.TILE_COLORS;   // 30色（Pages.gs の1か所）
+  var COLOR_JA = { mint: 'ミント', blue: 'あお', amber: 'こはく', red: 'あか', purple: 'むらさき', gray: 'はいいろ', lavender: 'ラベンダー', olive: 'オリーブ',
+    wine: 'ワイン', cyan: 'シアン', rose: 'ローズ', teal: 'ふかみどり', brown: 'ちゃいろ', peach: 'もも', lime: 'ライム', aqua: 'みずいろ', plum: 'プラム',
+    periwinkle: 'あおむらさき', ochre: 'おうど', sky: 'そらいろ', orchid: 'うすむらさき', peacock: 'くじゃく', green: 'みどり', pink: 'ピンク',
+    mustard: 'からし', leaf: 'わかば', apricot: 'あんず', coral: 'さんご', turquoise: 'ターコイズ', cobalt: 'コバルト' };
   /** ハブの links シートの行（ページの params.unit・linkId・id の順で探す） */
   function hubLink(p) {
     var L = (S.boot && S.boot.links) || {};
     return L[(p.params && p.params.unit) || ''] || L[p.linkId || ''] || L[p.id] || null;
   }
-  function tileColor(p) { var h = hubLink(p), k = (h && h.color) || p.color || 'mint'; return TILE[k] || TILE.mint; }
+  /** タイルの色：先生が学級で選んだ色 → ハブの links の色 → 目録の色 → ミント */
+  function colorKey(p) { var h = hubLink(p), c = (settings().colors || {})[p.id]; return (c && TILE[c]) ? c : (h && TILE[h.color]) ? h.color : (TILE[p.color] ? p.color : 'mint'); }
+  function tileColor(p) { return TILE[colorKey(p)]; }
   var PLAY = '<svg class="lb-btn-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
 
   /* ---------- 文字（学年で読み方を変える） ---------- */
@@ -109,7 +106,8 @@
     if (S.boot.message && S.boot.role !== 'teacher') { root.innerHTML = top() + '<div class="lb-msg">' + esc(S.boot.message) + '</div>'; return; }
     if (!S.cat) { root.innerHTML = top() + '<div class="lb-msg">よみこみ中…</div>'; return; }
     root.classList.toggle('lb-edit', !!S.edit);
-    root.innerHTML = top() + teacherBar() + (S.view === 'subject' ? subjectView() : S.view === 'tuning' ? tuningView() : homeView());
+    root.classList.toggle('lb-docked', S.boot.role === 'teacher' && (S.edit || S.shot));   // 下の帯の分だけ、ページの下に余白（上の部分は動かない）
+    root.innerHTML = top() + teacherBar() + (S.view === 'subject' ? subjectView() : S.view === 'tuning' ? tuningView() : homeView()) + dock();
     if (S.view === 'subject') {
       loadMincho(Array.prototype.map.call(root.querySelectorAll('.lb-mincho'), function (e) { return e.textContent; }).join(''));
       fitTiles();
@@ -131,22 +129,51 @@
     var mem = '<option value="">（先生として見る）</option>' + members().map(function (m) {
       return '<option value="' + esc(m.lid) + '"' + (S.as && S.as.lid === m.lid ? ' selected' : '') + '>' + esc(m.no + ' ' + m.name + (m.provisional ? '（メールなし）' : '')) + '</option>';
     }).join('');
-    var off = S.cat ? S.cat.pages.filter(function (p) { return p.grades.indexOf(S.grade) >= 0 && !isOn(p); }).length : 0;
-    var status = S.edit ? '<span class="lb-tstatus">かくしている：' + off + '件　いまの学習：' + nowIds().length + '／3件</span>' +
-      (off ? '<button class="lb-link" data-act="reset">ぜんぶ みせる に もどす</button>' : '') : '';
-    var editBar = S.edit ? '<div class="lb-editbar" role="status"><strong>先生モード：オン</strong>　押しても ページは開きません。' +
-      '✓ みせる／✕ かくす・★ いまの学習・⠿ をつかんで並べかえ（教科の中）</div>' : '';
     var as = S.as ? '<div class="lb-as" role="status"><strong>代わりに取り組む：</strong>' + esc(S.as.name) + '　の記録になります <button class="lb-link" data-act="as-clear">やめる</button></div>' : '';
     return '<div class="lb-tbar"><label>学級 <select id="lb-class" aria-label="学級">' + opts + '</select></label>' +
       sw('edit', '先生モード', S.edit) + sw('shot', '撮影用', S.shot) +
-      (canActAs() ? '<label>代わりに取り組む <select id="lb-as" aria-label="代わりに取り組む児童">' + mem + '</select></label>' : '') + status + '</div>' + editBar + as +
-      (S.shot ? '<div class="lb-shot" role="status"><strong>撮影用の表示：</strong>児童の名前と数字は見本です（ページは開きません・押しても記録しません） <button class="lb-link" data-act="shot">もどす</button></div>' : '');
+      (canActAs() ? '<label>代わりに取り組む <select id="lb-as" aria-label="代わりに取り組む児童">' + mem + '</select></label>' : '') + '</div>' + as;
+  }
+  /**
+   * 下の帯（先生モード・撮影用の間だけ。画面の下に固定するので、出しても消しても上の部分は動かない）。
+   * 先生モード：教科の中でタイルを押して選ぶ → ここで みせる／いまの学習／色。⠿ をつかむと並べかえ
+   */
+  function dock() {
+    if (S.boot.role !== 'teacher' || (!S.edit && !S.shot)) return '';
+    var html = '<div class="lb-dock" role="region" aria-label="先生の操作">';
+    if (S.shot) html += '<div class="lb-dock-row"><span class="lb-dock-tag shot">撮影用</span><span class="lb-dock-text">児童の名前と数字は見本です（ページは開きません・押しても記録しません）</span>' +
+      '<button class="lb-link" data-act="shot">もどす</button></div>';
+    if (S.edit) {
+      var p = S.sel ? pageById(S.sel) : null;
+      if (p && S.view === 'subject') {
+        var on = isOn(p), star = nowIds().indexOf(p.id) >= 0, c = tileColor(p);
+        if (S.palette) {
+          html += '<div class="lb-palette" role="radiogroup" aria-label="タイルの色">' + Object.keys(TILE).map(function (k) {
+            return '<button class="lb-pal" role="radio" aria-checked="' + (colorKey(p) === k) + '" aria-label="' + esc(COLOR_JA[k] || k) + '" title="' + esc(COLOR_JA[k] || k) + '" data-act="color" data-color="' + k + '" style="background:' + TILE[k][0] + '"></button>';
+          }).join('') + '</div>';
+        }
+        html += '<div class="lb-dock-row"><span class="lb-dock-tag">先生モード</span><span class="lb-dock-title"><span class="lb-chipcolor" style="background:' + c[0] + '"></span>' + esc(p.title) + '</span>' +
+          sw('sel-pub', 'みせる', on) + sw('sel-now', 'いまの学習', star) +
+          '<button class="lb-dock-btn" data-tier="std" data-act="sel-color" aria-expanded="' + !!S.palette + '">色をえらぶ</button>' +
+          ((settings().colors || {})[p.id] ? '<button class="lb-link" data-tier="small" data-act="color-reset">もとの色</button>' : '') +
+          '<button class="lb-link" data-tier="small" data-act="sel-close">閉じる</button></div>';
+      } else {
+        var off = S.cat ? S.cat.pages.filter(function (q) { return q.grades.indexOf(S.grade) >= 0 && !isOn(q); }).length : 0;
+        var ord = S.view === 'subject' && ((settings().order || {})[S.subject] || []).length;
+        html += '<div class="lb-dock-row"><span class="lb-dock-tag">先生モード</span><span class="lb-dock-text">' +
+          (S.view === 'subject' ? 'タイルを押すと、みせる・いまの学習・色を変えられます。⠿ をつかむと並べかえ。' : '教科を開くと、ページごとに変えられます。押しても ページは開きません。') +
+          '</span><span class="lb-dock-count">かくしている ' + off + '件・いまの学習 ' + nowIds().length + '／3件</span>' +
+          (off ? '<button class="lb-link" data-act="reset">ぜんぶ みせる に もどす</button>' : '') +
+          (ord ? '<button class="lb-link" data-act="order-reset">もとの並びに もどす</button>' : '') + '</div>';
+      }
+    }
+    return html + '</div>';
   }
   /**
    * スイッチ（2値の切り替え。ui-layout：押した瞬間に反映）。つまみの位置と「オン／オフ」の文字で状態を示す（色だけにしない）
    */
   function sw(act, label, on) {
-    return '<button class="lb-switch" role="switch" aria-checked="' + !!on + '" data-act="' + act + '"><span class="lb-sw-track" aria-hidden="true"><span class="lb-sw-knob"></span></span>' +
+    return '<button class="lb-switch" data-tier="std" role="switch" aria-checked="' + !!on + '" data-act="' + act + '"><span class="lb-sw-track" aria-hidden="true"><span class="lb-sw-knob"></span></span>' +
       '<span class="lb-sw-label">' + esc(label) + '</span><span class="lb-sw-state" aria-hidden="true">' + (on ? 'オン' : 'オフ') + '</span></button>';
   }
   /**
@@ -168,12 +195,13 @@
   SAMPLE.directives = [{ id: 'sd', app: '算数', skill: '見本の技能E', to: '2026-11-24', show: false, names: ['見本 みお'] }];
   function members() { return S.shot ? SAMPLE.members : (S.boot.members || []); }
   function canActAs() { return !!(S.cat && S.cat.pages.some(function (p) { return p.actAs === true; })); }
-  function chips(p) {
+  /** 先生モードでタイルに重ねる状態の印（押すものではない。タイルの大きさは変えない） */
+  function badges(p) {
     if (!S.edit) return '';
-    var on = isOn(p), star = nowIds().indexOf(p.id) >= 0;
-    // いまの学習は ★（入れている）／☆（入れていない）の形で示す（色だけにしない。幅は変えない）
-    return '<span class="lb-chips"><button class="lb-chip' + (on ? '' : ' off') + '" data-tier="std" data-act="pub" data-id="' + esc(p.id) + '" aria-pressed="' + on + '">' + (on ? '✓ みせる' : '✕ かくす') + '</button>' +
-      '<button class="lb-chip star' + (star ? ' on' : '') + '" data-tier="small" data-act="now" data-id="' + esc(p.id) + '" aria-pressed="' + star + '" aria-label="いまの学習' + (star ? '（入れている）' : '') + '">' + (star ? '★' : '☆') + '</button></span>';
+    var b = [];
+    if (!isOn(p)) b.push('<span class="lb-badge-s off">かくしている</span>');
+    if (nowIds().indexOf(p.id) >= 0) b.push('<span class="lb-badge-s now">★ いまの学習</span>');
+    return b.length ? '<span class="lb-badges" aria-hidden="true">' + b.join('') + '</span>' : '';
   }
   /**
    * 今週の3件（先生だけ）。いまの学習より上に置く：先生がこの画面で最初にすることは「次に手を打つ相手を知る」だから。
@@ -355,13 +383,14 @@
     (units || []).forEach(function (u) { pages = pages.concat(u.pages); });
     pages = LbPagesView.sortByOrder(pages, ord);                    // 先生が並べた順（学級ごと）。無ければ目録の順
     if (!pages.length) return html + '<div class="lb-msg">いまは ありません</div></div>';
-    if (S.edit && ord.length) html += '<div class="lb-ordbar"><button class="lb-link" data-act="order-reset">もとの並びに もどす</button></div>';
     html += linkPanel(pages);
     html += '<div class="lb-hgrid">' + pages.map(function (p) {
       var c = tileColor(p), h = hubLink(p), sub = (h && h.subtitle) || '', title = S.grade <= 2 && p.ruby ? p.ruby : p.title;
-      return '<div class="lb-cell" data-id="' + esc(p.id) + '"><button class="lb-htile' + (isOn(p) ? '' : ' is-off') + '" data-tier="main" data-act="open" data-id="' + esc(p.id) + '" style="background:' + c[0] + ';color:' + c[1] + '">' +
+      var sel = S.edit && S.sel === p.id;
+      return '<div class="lb-cell' + (sel ? ' is-sel' : '') + '" data-id="' + esc(p.id) + '"><button class="lb-htile' + (isOn(p) ? '' : ' is-off') + '" data-tier="main" data-act="open" data-id="' + esc(p.id) + '"' +
+        (S.edit ? ' aria-pressed="' + sel + '"' : '') + ' style="background:' + c[0] + ';color:' + c[1] + '">' +
         '<span class="t lb-mincho">' + esc(title) + '</span>' + (sub ? '<span class="s">' + esc(sub) + '</span>' : '') +
-        '</button>' + (S.edit ? '<button class="lb-drag" data-tier="small" data-drag="' + esc(p.id) + '" aria-label="並べかえ：' + esc(title) + '（つかんで動かす・矢印キーでも動く）">⠿</button>' : '') + chips(p) + '</div>';
+        '</button>' + (S.edit ? '<button class="lb-drag" data-tier="small" data-drag="' + esc(p.id) + '" aria-label="並べかえ：' + esc(title) + '（つかんで動かす・矢印キーでも動く）">' + GRIP + '</button>' : '') + badges(p) + '</div>';
     }).join('') + '</div></div>';
     return html;
   }
@@ -384,6 +413,7 @@
         '<button class="lb-link" data-act="link-edit" data-id="' + esc(p.id) + '">' + (has ? 'URL を変える' : 'URL を入れる') + '</button></div>';
     }).join('') + '</div>';
   }
+  var GRIP = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><g fill="currentColor"><circle cx="9" cy="6" r="1.8"/><circle cx="15" cy="6" r="1.8"/><circle cx="9" cy="12" r="1.8"/><circle cx="15" cy="12" r="1.8"/><circle cx="9" cy="18" r="1.8"/><circle cx="15" cy="18" r="1.8"/></g></svg>';
   /** 題を2行に収める（ハブと同じ段の大きさを上から試す。実際の描画の高さで判定する） */
   var STEPS = [2.35, 2.0, 1.7, 1.45, 1.25, 1.1];
   function fitTiles() {
@@ -432,13 +462,24 @@
     var b = ev.target.closest('[data-act]');
     if (!b) return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id');
-    if (act === 'pub' || act === 'now') ev.stopPropagation();
-    if (act === 'subject') { S.view = 'subject'; S.subject = id; S.opened = false; render(); window.scrollTo(0, 0); return; }
+    if (act === 'subject') { S.view = 'subject'; S.subject = id; S.opened = false; S.sel = ''; S.palette = false; render(); window.scrollTo(0, 0); return; }
     if (act === 'back') {
+      S.sel = ''; S.palette = false;
       if (S.view === 'subject' && !S.opened && !S.edit) store('lb-dead', (Number(store('lb-dead')) || 0) + 1);   // 行き止まり：教科に入って何も開かずに戻った
       S.view = 'home'; render(); return;
     }
-    if (act === 'edit') { S.edit = !S.edit; render(); return; }
+    if (act === 'edit') { S.edit = !S.edit; S.sel = ''; S.palette = false; render(); return; }
+    if (act === 'sel-close') { S.sel = ''; S.palette = false; render(); return; }
+    if (act === 'sel-color') { S.palette = !S.palette; render(); return; }
+    if (act === 'sel-pub') { act = 'pub'; id = S.sel; }
+    if (act === 'sel-now') { act = 'now'; id = S.sel; }
+    if (act === 'color' || act === 'color-reset') {
+      var col = act === 'color' ? b.getAttribute('data-color') : '', st = settings(), pid = S.sel;
+      st.colors = st.colors || {}; if (col) st.colors[pid] = col; else delete st.colors[pid];
+      render();                                                     // すぐ画面に返す
+      save('homeSetColor', [S.boot.classKey, pid, col], col ? '色を「' + (COLOR_JA[col] || col) + '」にしました' : 'もとの色に もどしました');
+      return;
+    }
     if (act === 'order-reset') { saveOrder([]); return; }
     if (act === 'link-edit') { S.linkEdit = id; render(); var li = document.getElementById('lb-linkurl'); if (li) li.focus(); return; }
     if (act === 'link-cancel') { S.linkEdit = ''; render(); return; }
@@ -529,7 +570,10 @@
       return;
     }
     if (act === 'open') {
-      if (S.edit) return;
+      if (S.edit) {                                                 // 先生モードでは開かない。教科の中では、押したタイルを選ぶ（下の帯で変える）
+        if (S.view === 'subject' && b.classList.contains('lb-htile')) { S.sel = S.sel === id ? '' : id; S.palette = false; render(); }
+        return;
+      }
       if (S.shot) { toast('撮影用の表示では開きません'); return; }                                           // 先生モードでは開かない（切り替えの押し間違いで遷移しない）
       var pg = pageById(id);
       if (pg.kind === 'link' && !urlFor(pg)) {
