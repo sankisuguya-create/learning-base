@@ -88,6 +88,8 @@ var LbHome = (function () {
           return { lid: r.lid, no: r.no, name: r.name, provisional: !!r.provisional };
         });
         try { out.now3 = now3(pick.key); } catch (e) { out.now3 = []; console.error('今週の3件を読めません: ' + e.message); }
+        try { var dv = directiveView(pick.key); out.directives = dv.directives; out.results = dv.results; }
+        catch (e) { out.directives = []; out.results = []; console.error('指示を読めません: ' + e.message); }
       }
       return out;
     }
@@ -101,8 +103,51 @@ var LbHome = (function () {
     return LbAlerts.read(hub, classKey).map(function (x) {
       var cat = cats[x.app], sk = cat ? LbCatalog.index(cat)[x.skill] : null;
       return { key: x.key, kind: x.kind, label: LbAlerts.LABEL[x.kind] || x.kind, skill: sk ? sk.label : x.skill, app: cat ? cat.title : x.app,
-        names: x.lids.map(function (l) { var r = Base.learner(l); return r ? r.name : '（名簿にない）'; }), text: LbAlerts.describe(x) };
+        names: x.lids.map(function (l) { var r = Base.learner(l); return r ? r.name : '（名簿にない）'; }), text: LbAlerts.describe(x),
+        canDirect: !!(cat && (cat.directives || []).indexOf('weight') >= 0) };   // その技能のアプリが指示（練習の重み）を受け取れるか
     });
+  }
+
+  /* ---------- 指示（Directives.gs） ---------- */
+
+  /** その学級の、いま効いている指示と、まだ見ていない結果（名前・技能の名前を付ける。名前は教師にだけ） */
+  function directiveView(classKey) {
+    var hub = Base.hub(), cats = LbCatalog.readAll(hub), t = today();
+    function dress(d) {
+      var cat = cats[d.app], sk = cat ? LbCatalog.index(cat)[d.skill] : null;
+      return { id: d.id, skill: sk ? sk.label : d.skill, app: cat ? cat.title : d.app, from: d.from, to: d.to, show: d.show,
+        names: d.lids.map(function (l) { var r = Base.learner(l); return r ? r.name : '（名簿にない）'; }), text: LbDirectives.describe(d.result) };
+    }
+    return { directives: LbDirectives.active(hub, classKey, t).map(dress),
+      results: LbDirectives.results(hub, classKey, t, LbAlerts.decidedKeys(hub)).map(dress) };
+  }
+  function afterDirective(classKey) { var dv = directiveView(classKey); return { now3: now3(classKey), directives: dv.directives, results: dv.results }; }
+  /**
+   * 今週の3件の項目から指示を作る（手を打つ）。days：7 か 14、show：児童に「★ おすすめ」を見せるか。
+   * 作ると、その項目には「判断が変わった」も記録する（2回押させない）
+   */
+  function direct(classKey, key, days, show) {
+    var m = requireClass(classKey), hub = Base.hub();
+    var item = LbAlerts.read(hub, classKey).filter(function (x) { return x.key === String(key); })[0];
+    if (!item) throw new Error('もう ない項目です（ページを開き直してください）');
+    var cat = LbCatalog.readAll(hub)[item.app];
+    if (!cat || (cat.directives || []).indexOf('weight') < 0) throw new Error('このアプリは まだ 指示を受け取れません');
+    var d = LbDirectives.create(hub, { classKey: classKey, lids: item.lids, app: item.app, skill: item.skill, days: days, show: !!show, fromKey: item.key }, m.email, today());
+    LbAlerts.decide(hub, classKey, item, 'changed', '指示 ' + d.id, m.email);
+    return afterDirective(classKey);
+  }
+  function endDirective(classKey, id) {
+    requireClass(classKey);
+    LbDirectives.end(Base.hub(), id, classKey);
+    return afterDirective(classKey);
+  }
+  /** 結果を見た（結果の欄から消える）。again が 7 か 14 なら、同じ対象・技能でもう1期間続ける */
+  function seeResult(classKey, id, again) {
+    var m = requireClass(classKey), hub = Base.hub(), d = LbDirectives.find(hub, id);
+    if (!d || d.classKey !== String(classKey)) throw new Error('この学級の指示ではありません');
+    LbAlerts.decide(hub, classKey, { key: 'result|' + d.id, kind: 'result' }, again ? 'changed' : 'seen', again ? '続ける' : '', m.email);
+    if (again) LbDirectives.create(hub, { classKey: classKey, lids: d.lids, app: d.app, skill: d.skill, days: again, show: d.show, fromKey: 'result|' + d.id }, m.email, today());
+    return afterDirective(classKey);
   }
   /** 判断の記録（判断が変わった／見た）。押した項目は今週の3件から消える */
   function decide(classKey, key, action, memo) {
@@ -206,7 +251,8 @@ var LbHome = (function () {
    * 中で必ず「誰が開いたか」と「その学級・その操作をしてよいか」を確かめる関数だけを置く
    */
   var API = { boot: boot, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow,
-    feedback: feedback, report: report, 'export': exportForTuning, tuning: tuning, tryRules: tryRules, saveRules: saveRules };
+    feedback: feedback, report: report, 'export': exportForTuning, tuning: tuning, tryRules: tryRules, saveRules: saveRules,
+    direct: direct, endDirective: endDirective, seeResult: seeResult };
 
   return { API: API, boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();

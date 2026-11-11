@@ -165,3 +165,17 @@
 .lb-dists h4{margin:4px 0;font-size:14px}
 @media (max-width:520px){.lb-rules{grid-template-columns:1fr}}
 .lb-fbowner .lb-link{min-width:224px;text-align:left}   /* 所有者の2つの入口は同じ重さ：幅を揃える */
+
+/* 先生：手を打つ（指示）・指示の結果・手を打っている */
+.lb-alert[data-kind=result]{border-color:var(--solid-on);background:var(--card)}
+.lb-alert-direct{margin-top:4px}
+.lb .lb-dbtn{width:100%;min-height:48px;border:2px solid var(--solid-on);border-radius:999px;background:#fff;color:var(--solid-on);font-weight:700;cursor:pointer}
+.lb-dform{display:flex;flex-direction:column;gap:8px;margin-top:4px;padding-top:8px;border-top:1px solid var(--line)}
+.lb-dnote,.lb-dhint{font-size:14px;color:var(--ink-sub);margin:0}
+.lb-drow{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.lb-seg{min-height:48px;min-width:112px;padding:0 12px;border:2px solid var(--ink);border-radius:8px;background:#fff;color:var(--ink);font-weight:700;cursor:pointer}
+.lb-seg[aria-pressed="true"]{background:var(--ink);color:#fff}
+.lb-dlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.lb-dlist li{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:4px 12px;border:1px solid var(--line);border-radius:8px}
+.lb-dwho{font-weight:700}
+.lb-dwhat{font-size:15px;color:var(--ink-sub)}

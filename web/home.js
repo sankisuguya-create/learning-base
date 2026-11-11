@@ -30,7 +30,7 @@
   }
   window.addEventListener('error', function (e) { reportJs((e && e.message) || 'error'); });
   window.addEventListener('unhandledrejection', function (e) { reportJs('promise: ' + ((e && e.reason && e.reason.message) || (e && e.reason) || '')); });
-  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, shot: false, fb: '', exp: null, tune: null, readyAt: 0, started: false, opened: false };
+  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, shot: false, fb: '', exp: null, tune: null, dirKey: '', dirDays: 14, dirShow: false, readyAt: 0, started: false, opened: false };
   /** この端末だけの覚え（前回の往復の時間）。使えない時（シークレットなど）は覚えないだけ */
   function store(k, v) {
     try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, String(v)); } catch (e) { return null; }
@@ -150,10 +150,13 @@
   var SAMPLE = {
     members: [{ lid: 'sample1', no: 1, name: '見本 あおい' }, { lid: 'sample2', no: 2, name: '見本 かいと' }, { lid: 'sample3', no: 3, name: '見本 さくら' }],
     now3: [
-      { key: 's1', kind: 'drop', app: '算数', skill: '見本の技能A', names: ['見本 あおい'], text: '正答率 90% → 60%・時間 1.5秒 → 2.0秒（今週 12問・前の4週と比べて）' },
+      { key: 's1', kind: 'drop', canDirect: true, app: '算数', skill: '見本の技能A', names: ['見本 あおい'], text: '正答率 90% → 60%・時間 1.5秒 → 2.0秒（今週 12問・前の4週と比べて）' },
       { key: 's2', kind: 'klass', app: '算数', skill: '見本の技能B', names: ['見本 かいと', '見本 さくら', '見本 ゆうま'], text: '取り組んだ 10人のうち 6人が正答率70%未満（直近2週）' },
-      { key: 's3', kind: 'stall', app: '算数', skill: '見本の技能C', names: ['見本 さくら'], text: '正答率 65% → 66%・時間 3.0秒 → 3.0秒（前の4週 30問 → 直近4週 28問）' }]
+      { key: 's3', kind: 'stall', canDirect: true, app: '算数', skill: '見本の技能C', names: ['見本 さくら'], text: '正答率 65% → 66%・時間 3.0秒 → 3.0秒（前の4週 30問 → 直近4週 28問）' }]
   };
+  SAMPLE.results = [{ id: 'sr', app: '算数', skill: '見本の技能D', from: '2026-11-02', to: '2026-11-15', names: ['見本 りく'],
+    text: '正答率 62% → 80%・時間 2.8秒 → 2.2秒（同じ学年のほかの児童 20人は正答率 +4ポイント）。本番の記録で、前の4週と期間中を比べた目安です' }];
+  SAMPLE.directives = [{ id: 'sd', app: '算数', skill: '見本の技能E', to: '2026-11-24', show: false, names: ['見本 みお'] }];
   function members() { return S.shot ? SAMPLE.members : (S.boot.members || []); }
   function canActAs() { return !!(S.cat && S.cat.pages.some(function (p) { return p.actAs === true; })); }
   function chips(p) {
@@ -166,18 +169,57 @@
    * 今週の3件（先生だけ）。いまの学習より上に置く：先生がこの画面で最初にすることは「次に手を打つ相手を知る」だから。
    * 種類は記号と語で示す（色だけで伝えない）。押すと判断の記録が残り、その項目は消える
    */
+  /**
+   * 今週の3件（先生だけ）。いまの学習より上に置く：先生がこの画面で最初にすることは「次に手を打つ相手を知る」だから。
+   * 種類は記号と語で示す（色だけで伝えない）。押すと判断の記録が残り、その項目は消える。
+   * 指示を受け取れるアプリの項目には「手を打つ」：期間（1週間／2週間）と、児童に「★ おすすめ」を見せるかを選んで指示する。
+   * 期間が終わった指示の結果も、ここに並べる（同じ「次に目を向けるもの」なので）
+   */
   function now3View() {
     if (S.boot.role !== 'teacher') return '';
     var list = S.shot ? SAMPLE.now3.map(function (a) { var o = {}; for (var k in a) o[k] = a[k]; o.label = kindLabel(a.kind); return o; }) : (S.boot.now3 || []);
+    var res = S.shot ? SAMPLE.results : (S.boot.results || []);
     var html = '<h2 class="lb-h">今週の3件</h2>';
-    if (!list.length) return html + '<div class="lb-nownone">今週は ありません（毎晩、記録から計算します）</div>';
-    return html + '<div class="lb-alerts">' + list.map(function (a) {
+    if (!list.length && !res.length) return html + '<div class="lb-nownone">今週は ありません（毎晩、記録から計算します）</div>' + directivesView();
+    return html + '<div class="lb-alerts">' + res.map(resultCard).join('') + list.map(function (a) {
       return '<div class="lb-alert" data-kind="' + esc(a.kind) + '"><div class="lb-alert-head"><span class="lb-alert-kind">' + esc(a.label) + '</span>' +
         '<span class="lb-alert-skill">' + esc(a.app) + '・' + esc(a.skill) + '</span></div>' +
         '<div class="lb-alert-who">' + a.names.map(esc).join('、') + '</div><div class="lb-alert-text">' + esc(a.text) + '</div>' +
-        '<div class="lb-alert-acts"><button class="lb-abtn" data-tier="main" data-act="decide" data-how="changed" data-key="' + esc(a.key) + '">判断が変わった</button>' +
-        '<button class="lb-abtn sub" data-tier="small" data-act="decide" data-how="seen" data-key="' + esc(a.key) + '">見た</button></div></div>';
-    }).join('') + '</div>';
+        (S.dirKey === a.key ? directForm(a) :
+          (a.canDirect ? '<div class="lb-alert-direct"><button class="lb-dbtn" data-act="direct-open" data-key="' + esc(a.key) + '">手を打つ（練習に多めに出す）</button></div>' : '') +
+          '<div class="lb-alert-acts"><button class="lb-abtn" data-tier="main" data-act="decide" data-how="changed" data-key="' + esc(a.key) + '">判断が変わった</button>' +
+          '<button class="lb-abtn sub" data-tier="small" data-act="decide" data-how="seen" data-key="' + esc(a.key) + '">見た</button></div>') + '</div>';
+    }).join('') + '</div>' + directivesView();
+  }
+  /** 手を打つ：期間と「おすすめを見せる」を選んで指示する（カードの中で開く） */
+  function directForm(a) {
+    var seg = [7, 14].map(function (d) {
+      return '<button class="lb-seg" data-act="direct-days" data-days="' + d + '" aria-pressed="' + (S.dirDays === d) + '">' + (d === 7 ? '1週間' : '2週間') + '</button>';
+    }).join('');
+    return '<div class="lb-dform"><p class="lb-dnote">練習の「ぜんぶ」で、この技能の問題を半分まぜます（本番の出題は変えません）。期間が終わったら、本番の記録で結果を出します。</p>' +
+      '<div class="lb-drow" role="group" aria-label="期間">' + seg + '</div>' +
+      '<div class="lb-drow"><button class="lb-toggle" data-act="direct-show" aria-pressed="' + S.dirShow + '">★ おすすめを見せる</button>' +
+      '<span class="lb-dhint">' + (S.dirShow ? '児童の練習の画面に「★ おすすめ」が出ます' : '児童には見えません（出題だけ変わります）') + '</span></div>' +
+      '<div class="lb-alert-acts"><button class="lb-abtn" data-tier="main" data-act="direct" data-key="' + esc(a.key) + '">指示する</button>' +
+      '<button class="lb-abtn sub" data-tier="small" data-act="direct-cancel">やめる</button></div></div>';
+  }
+  /** 指示の結果のカード */
+  function resultCard(r) {
+    return '<div class="lb-alert" data-kind="result"><div class="lb-alert-head"><span class="lb-alert-kind">◆ 指示の結果</span>' +
+      '<span class="lb-alert-skill">' + esc(r.app) + '・' + esc(r.skill) + '（' + esc(r.from.slice(5)) + '〜' + esc(r.to.slice(5)) + '）</span></div>' +
+      '<div class="lb-alert-who">' + r.names.map(esc).join('、') + '</div><div class="lb-alert-text">' + esc(r.text) + '</div>' +
+      '<div class="lb-alert-acts"><button class="lb-abtn" data-tier="main" data-act="result" data-again="14" data-id="' + esc(r.id) + '">2週間 続ける</button>' +
+      '<button class="lb-abtn sub" data-tier="small" data-act="result" data-again="" data-id="' + esc(r.id) + '">見た</button></div></div>';
+  }
+  /** いま効いている指示（やめられる） */
+  function directivesView() {
+    var list = S.shot ? SAMPLE.directives : (S.boot.directives || []);
+    if (!list.length) return '';
+    return '<h3 class="lb-h">手を打っている（' + list.length + '件）</h3><ul class="lb-dlist">' + list.map(function (d) {
+      return '<li><span class="lb-dwho">' + d.names.map(esc).join('、') + '</span><span class="lb-dwhat">' + esc(d.app) + '・' + esc(d.skill) + '　' +
+        esc(d.to.slice(5)) + ' まで' + (d.show ? '・★おすすめを見せている' : '') + '</span>' +
+        '<button class="lb-link" data-act="direct-end" data-id="' + esc(d.id) + '">やめる</button></li>';
+    }).join('') + '</ul>';
   }
   /**
    * 学習BASE への気づき（先生）。ホームの一番下：毎日使う物の邪魔をしない。所有者には書き出しのボタンも
@@ -405,6 +447,22 @@
       return;
     }
     if (act === 'as-clear') { S.as = null; render(); return; }
+    if (act === 'direct-open') { S.dirKey = b.getAttribute('data-key'); S.dirDays = 14; S.dirShow = false; render(); return; }
+    if (act === 'direct-cancel') { S.dirKey = ''; render(); return; }
+    if (act === 'direct-days') { S.dirDays = Number(b.getAttribute('data-days')); render(); return; }
+    if (act === 'direct-show') { S.dirShow = !S.dirShow; render(); return; }
+    if (act === 'direct' || act === 'direct-end' || act === 'result') {
+      if (S.shot) { toast('撮影用の表示では記録しません'); return; }
+      var call = act === 'direct' ? ['homeDirect', S.boot.classKey, b.getAttribute('data-key'), S.dirDays, S.dirShow]
+        : act === 'direct-end' ? ['homeEndDirective', S.boot.classKey, b.getAttribute('data-id')]
+        : ['homeSeeResult', S.boot.classKey, b.getAttribute('data-id'), Number(b.getAttribute('data-again')) || 0];
+      var msg = act === 'direct' ? '指示しました（' + (S.dirDays === 7 ? '1週間' : '2週間') + '。練習に多めに出ます）' : act === 'direct-end' ? '指示をやめました'
+        : (b.getAttribute('data-again') ? '同じ指示を2週間 続けます' : '「見た」を記録しました');
+      P.call.apply(null, call).then(function (r) {
+        S.boot.now3 = r.now3; S.boot.directives = r.directives; S.boot.results = r.results; S.dirKey = ''; render(); toast(msg);
+      }).catch(function (e) { toast('できませんでした：' + (e && e.message || e)); });
+      return;
+    }
     if (act === 'decide') {
       if (S.shot) { toast('撮影用の表示では記録しません'); return; }
       var key = b.getAttribute('data-key'), how = b.getAttribute('data-how');

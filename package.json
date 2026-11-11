@@ -2,7 +2,7 @@
   "name": "learning-base",
   "private": true,
   "scripts": {
-    "test": "node tools/build.cjs --check && node tools/bundle.cjs --check && node tests/base.test.cjs && node tests/pseudo.test.cjs && node tests/learning.test.cjs && node tests/alerts.test.cjs && node tests/tune.test.cjs && node tests/pages.test.cjs && node tests/platform.test.cjs",
+    "test": "node tools/build.cjs --check && node tools/bundle.cjs --check && node tests/base.test.cjs && node tests/pseudo.test.cjs && node tests/learning.test.cjs && node tests/alerts.test.cjs && node tests/directives.test.cjs && node tests/tune.test.cjs && node tests/pages.test.cjs && node tests/platform.test.cjs",
     "ui": "node tests/ui.check.cjs",
     "build": "node tools/build.cjs",
     "bundle": "node tools/build.cjs && node tools/bundle.cjs"
