@@ -227,3 +227,7 @@
 @media (max-width:600px){.lb-palette{grid-template-columns:repeat(6,48px)}}
 .lb-edit .lb-htile .s{visibility:hidden}   /* 先生モードではつまみの場所。visibility なので場所は残り、タイルの中も動かない */
 .lb-dock .lb-switch,.lb-dock .lb-dock-btn{width:224px;min-width:0}   /* 下の帯の操作は同じ重さ：幅を揃える */
+
+/* ページを開く間 */
+.lb-opening{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.75)}
+.lb-opening-box{padding:16px 28px;border-radius:var(--radius);background:var(--ink);color:#fff;font-size:20px;font-weight:700}

@@ -146,6 +146,25 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if (kid2 !== 'kanzi') fails.push('child3: URL を入れた漢字の森が児童に出ない');
       await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.goto(`http://localhost:${port}/web/demo.html?role=teacher`); await p.waitForTimeout(600);
     }
+    if (role === 'child3') {   // 開くのを速く：枠に入れたホームの情報を使う（homeBoot を呼ばない）。記録は表示の後に送る。開く時は「ひらいています…」
+      await p.evaluate(() => localStorage.setItem('lb-rt', '3000'));
+      await p.goto(`http://localhost:${port}/web/demo.html?role=child3&embed=1`);
+      await p.waitForFunction(() => (JSON.parse(localStorage.getItem('lb-demo') || '{}').beats || []).length && document.querySelector('link[href*="Zen+Old+Mincho"]'), null, { timeout: 5000 }).catch(() => {});
+      const calls = await p.evaluate(() => window.LB_CALLS || []);
+      if (calls.includes('homeBoot')) fails.push('child3: 枠にホームの情報があるのに homeBoot を呼ぶ');
+      if (!calls.includes('homeBeat')) fails.push('child3: 前回分の記録を表示の後に送らない');
+      const beat = await p.evaluate(() => (JSON.parse(localStorage.getItem('lb-demo') || '{}').beats || []).pop());
+      if (!beat || beat.lastMs !== 3000) fails.push('child3: 送る記録に前回の時間が無い: ' + JSON.stringify(beat));
+      if (!(await p.locator('.lb-nowcard').count())) fails.push('child3: 枠の情報で表示できない');
+      if (!(Number(await p.evaluate(() => localStorage.getItem('lb-rt'))) > 0)) fails.push('child3: 開いてから使えるまでの時間を覚えない');
+      await p.evaluate(() => { window.LB_PLATFORM.open = () => {}; });
+      await p.click('.lb-nowcard'); await p.waitForTimeout(100);
+      if (!/ひらいて/.test(await p.locator('.lb-opening').textContent())) fails.push('child3: 開く時に「ひらいています」が出ない');
+      await p.evaluate(() => document.querySelectorAll('.lb-opening').forEach(e => e.remove()));
+      const links = await p.evaluate(() => Array.from(document.querySelectorAll('link[href*="Zen+Old+Mincho"]')).map(l => decodeURIComponent(l.href)).join(''));
+      if (!/九/.test(links) || !/算/.test(links)) fails.push('child3: 教科の題の明朝を先に読んでいない');   // 文字は1回ずつ並ぶ
+      await p.evaluate(() => localStorage.removeItem('lb-demo'));
+    }
     if (role === 'teacher') {   // 先生モードのオン／オフで、上の部分（帯・見出し・カード・タイル）が1px も動かない
       await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
       const pos = async sel => JSON.stringify(await p.$$eval(sel, es => es.map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round); })));
