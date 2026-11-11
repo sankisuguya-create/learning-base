@@ -23,15 +23,17 @@ function gitShow(repo, commit, file) {
 function wrap(id, a, code) {
   const locals = Object.entries(a.locals || {}).map(([k, v]) => `var ${k} = ${JSON.stringify(v)};`).join('\n');
   const exp = Object.entries(a.exports).map(([k, v]) => `${JSON.stringify(k)}: (typeof ${v} === 'function' ? ${v} : undefined)`).join(',\n  ');
+  // 読み込みの時点で失敗したアプリは、そのアプリだけ { broken } にする（学習BASE とほかのアプリは動き続ける）。
+  // 文法の誤りはここでは閉じ込められないので、検査（server.js を実際に読み込む platform.test）で落とす
   return `// ===== アプリ ${id}（${a.repo}@${a.commit.slice(0, 7)}） =====
-LB_MODULES[${JSON.stringify(id)}] = (function () {
+LB_MODULES[${JSON.stringify(id)}] = (function () { try { return (function () {
 ${locals}
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 ${code}
 return {
   ${exp}
 };
-})();
+})(); } catch (e) { console.error(${JSON.stringify('アプリ ' + id + ' を読み込めません: ')} + (e && e.message || e)); return { broken: String(e && e.message || e) }; } })();
 `;
 }
 

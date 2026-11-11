@@ -378,6 +378,20 @@ t('開くのを速く：ホームの情報をページの枠に入れて返す�
   const sum2 = Object.keys(S.props).filter(k => k.startsWith('LB_U|')).map(k => JSON.parse(S.props[k])).reduce((a, o) => { for (const k in o) a[k] = (a[k] || 0) + o[k]; return a; }, {});
   assert.strictEqual(sum2['child|rt:4GB以下:2〜4秒'], 1, '前回分の記録は表示の後に送る');
 });
+t('隔離：読み込みで失敗したアプリはそのアプリだけ止まり、学習BASE のホームと夜の処理は動く', () => {
+  const S = school();
+  const mark = 'var LB_RESOLVE_ = function';
+  const i = S.files['server.js'].indexOf(mark);
+  assert.ok(i > 0);
+  S.files['server.js'] = S.files['server.js'].slice(0, i) + "throw new Error('壊れた版');\n" + S.files['server.js'].slice(i);
+  const c = run(S); const home = c.doGet({ parameter: {} }).html;
+  assert.match(home, /home\.js/, 'ホームは開く');
+  assert.match(run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: { app: 'tamath', unit: 'kuku' } }).html, /いまは ひらけません/);
+  assert.throws(() => run(S).apiCall('kuku', 'unitIdsForTest', []), /読み込めません/);
+  assert.strictEqual(JSON.stringify(run(S).lbNightly()), '[]', '夜の処理はほかの部分を続ける');
+  const sum = Object.keys(S.props).filter(k => k.startsWith('LB_U|')).map(k => JSON.parse(S.props[k])).reduce((a, o) => Object.assign(a, o), {});
+  assert.ok(Object.keys(sum).some(k => /err:tamath\.load:壊れた版/.test(k)), '失敗として数える');
+});
 (async () => {
   const S = school();
   const html = run(S).doGet({ parameter: {} }).html;

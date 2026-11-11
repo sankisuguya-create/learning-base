@@ -1,9 +1,24 @@
 # learning-base
 
-学習アプリ（算数タイムアタック・漢字の森・といボード・アンケートなど）が共通で使う部品の正本。
+学習BASE の正本。学習BASE が大元で、各教科のアプリ（いまは 算数＝算数タイムアタック・国語＝漢字の森）がその上に載る。
+教科を足す時の約束は [docs/add-app.md](docs/add-app.md)。
 設計は `-` リポジトリの `principles/learning-app-foundation.md`、配り方は同 `principles/jsdelivr-delivery.md`。
 
 **このリポジトリは公開。名簿・記録・児童名など個人情報を置かない。**
+
+## 学習BASE のデータ（スプレッドシート）
+
+学習BASE のデータは1つのスプレッドシートにある（スクリプトのプロパティ `HUB_ID`）。もとは算数TA のハブだったので、コードと古い文書では「ハブ」「hub」と呼んでいる（`Base.hub()` など。読み込み係を貼り直さずに済むよう、名前は変えていない）。中身は学習BASE のもの：
+
+| シート | 中身 |
+|---|---|
+| `roster`・`teachers` | 名簿・先生の担当（全教科がここだけを使う） |
+| `pages` | ページの設定（開く先の URL・既定の色・補足）。移る間は算数TA の `links` も読む（書かない） |
+| `class_pages`・`now_learning`・`class_order`・`class_colors` | 学級ごとの公開・いまの学習・並び・色 |
+| `catalog`・`facts_<年度>`・`facts_cursor` | 技能の目録・集計（児童×技能×週） |
+| `now3`・`now3_log`・`decisions`・`rules`・`directives` | 今週の3件・判断・閾値・指示 |
+| `usage`・`feedback`・`pseudo_<年度>` | 失敗と速さ・先生の気づき・記号表 |
+| `platform`・`platform_code` | 版の固定・中身の写し（読み込み係） |
 
 ## 学習BASE を動かす（GAS に貼るのは `gas/Loader.gs` の1枚だけ）
 
