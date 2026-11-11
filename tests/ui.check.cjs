@@ -130,6 +130,22 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if (opened) fails.push('teacher: 代わりに取り組むに対応していないページが開いた');
       await p.goto(p.url()); await p.waitForTimeout(600);
     }
+    if (role === 'teacher') {   // 開く先（漢字の森・といボード）：所有者は先生モードで URL を入れられる。URL が無いページは児童に出さない
+      await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
+      await p.click('[data-act=edit]'); await p.click('[data-act=subject][data-id=kokugo]'); await p.waitForTimeout(200);
+      if (!/設定ずみ/.test(await p.locator('.lb-linkpanel').textContent())) fails.push('teacher: 開く先の欄が出ない');
+      await p.click('[data-act=link-edit][data-id=kanzi]'); await p.fill('#lb-linkurl', '');
+      await p.click('[data-act=link-save]'); await p.waitForTimeout(300);
+      if (!/まだ/.test(await p.locator('.lb-linkpanel').textContent())) fails.push('teacher: URL を消しても「まだ」にならない');
+      const kidTiles = await p.goto(`http://localhost:${port}/web/demo.html?role=child3`).then(() => p.waitForTimeout(600)).then(() => p.locator('.lb-tile[data-subject=kokugo]').count());
+      if (kidTiles) fails.push('child3: 開く先の URL が無い漢字の森が児童に出る');
+      await p.goto(`http://localhost:${port}/web/demo.html?role=teacher`); await p.waitForTimeout(600);
+      await p.click('[data-act=edit]'); await p.click('[data-act=subject][data-id=kokugo]');
+      await p.click('[data-act=link-edit][data-id=kanzi]'); await p.fill('#lb-linkurl', 'https://script.google.com/a/macros/edu.nishi.or.jp/s/AKfy123/exec'); await p.click('[data-act=link-save]'); await p.waitForTimeout(300);
+      const kid2 = await p.goto(`http://localhost:${port}/web/demo.html?role=child3`).then(() => p.waitForTimeout(600)).then(() => p.locator('.lb-tile[data-subject=kokugo]').getAttribute('data-id'));
+      if (kid2 !== 'kanzi') fails.push('child3: URL を入れた漢字の森が児童に出ない');
+      await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.goto(`http://localhost:${port}/web/demo.html?role=teacher`); await p.waitForTimeout(600);
+    }
     if (role === 'teacher') {   // 先生モード：スイッチ（オン／オフの文字）と帯。教科の中で ⠿ をドラッグ・矢印キーで並べかえ → 保存 → 児童も同じ順
       const sw = p.locator('[data-act=edit]');
       if ((await sw.getAttribute('role')) !== 'switch' || !/オフ/.test(await sw.textContent())) fails.push('teacher: 先生モードがオフと分かるスイッチでない');

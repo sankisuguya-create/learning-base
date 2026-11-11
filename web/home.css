@@ -203,3 +203,12 @@
 .lb-dragging .lb-htile{outline:4px solid var(--solid-on)}
 .lb-ordbar{margin:8px 0}
 .lb .lb-chip.star{width:48px;padding:0;font-size:22px}   /* ★／☆ だけ。押しても幅が変わらない */
+
+/* 所有者：開く先（別の GAS のページ）の URL */
+.lb-linkpanel{margin:8px 0 16px;padding:8px 12px;border:2px dashed var(--line);border-radius:var(--radius);background:#fff}
+.lb-linkpanel .lb-h{margin:4px 0 8px}
+.lb-linkrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:4px 0}
+.lb-linkname{font-weight:700}
+.lb-linkstate{font-size:15px;color:var(--ink-sub)}
+.lb-linklabel{display:flex;flex-direction:column;gap:4px;width:100%;font-size:15px}
+.lb-linklabel input{box-sizing:border-box;width:100%;min-height:48px;font:inherit;font-size:16px;padding:0 12px;border:1px solid var(--line);border-radius:8px}

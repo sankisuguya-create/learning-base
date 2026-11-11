@@ -303,4 +303,21 @@ t('窓口：並びを変えられるのは担当の学級の先生だけ', () =>
   assert.strictEqual(J(tc.ctx.LbHome.API.setOrder('3-1', 'sansu', ['tamath-kuku']).order.sansu), J(['tamath-kuku']));
 });
 
+t('窓口：開く先の URL（別の GAS のページ）は所有者だけ。Apps Script のウェブアプリの URL だけ。links の行を書き換え、無ければ足す（算数TA のハブには出さない）', () => {
+  const tc = homeEnv('na@edu.nishi.or.jp', ROSTER);
+  assert.throws(() => tc.ctx.LbHome.API.setLink('kanzi', 'https://script.google.com/macros/s/AKfy/exec'), /所有者だけ/);
+  const own = homeEnv('owner@edu.nishi.or.jp', ROSTER), hub = own.hub;
+  hub.insertSheet('links').v.push(['id', 'title', 'subtitle', 'url', 'grades', 'color', 'visible'], ['toi-board', 'といボード', '', '', '3', 'lavender', true]);
+  const ok = 'https://script.google.com/a/macros/edu.nishi.or.jp/s/AKfycbx_1-2/exec';
+  let L = own.ctx.LbHome.API.setLink('toi-board', ok);
+  assert.strictEqual(L['toi-board'].url, ok); assert.strictEqual(hub.sheets.links.v[1][5], 'lavender', 'ほかの列は変えない');
+  L = own.ctx.LbHome.API.setLink('kanzi', 'https://script.google.com/macros/s/AKfy/exec?x=1', '漢字の森');
+  assert.strictEqual(L.kanzi.url, 'https://script.google.com/macros/s/AKfy/exec?x=1');
+  assert.strictEqual(J(hub.sheets.links.v[2]), J(['kanzi', '漢字の森', '', 'https://script.google.com/macros/s/AKfy/exec?x=1', '', '', false]), '足した行は算数TA のハブに出さない');
+  ['https://evil.example.com/exec', 'http://script.google.com/macros/s/A/exec', 'https://script.google.com.evil.jp/macros/s/A/exec', 'javascript:alert(1)', 'https://script.google.com/macros/s/A/exec"onload'].forEach(u =>
+    assert.throws(() => own.ctx.LbHome.API.setLink('kanzi', u), /Apps Script/, u));
+  assert.throws(() => own.ctx.LbHome.API.setLink('<x>', ok), /リンクの名前/);
+  assert.strictEqual(own.ctx.LbHome.API.setLink('kanzi', '').kanzi.url, '', '空にすると消せる');
+});
+
 console.log(`pages ${n} 件 ok`);
