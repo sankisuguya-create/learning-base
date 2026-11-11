@@ -39,15 +39,26 @@ var LbHome = (function () {
   }
 
   /**
-   * ハブの links シート（算数TA のハブのリンク一覧。列：id / title / subtitle / url / grades / color / visible / order / sheet / place）。
-   * ページの色（先生が選んだ色）と、別の GAS で動くページ（kind: link）の URL をここから取る。{ id: { url, color, subtitle } }
+   * ページの設定（開く先の URL・既定の色・補足）。学習BASE のデータの pages シートが持ち主。
+   *   pages：キー（算数TA の単元の id・目録の linkId・ページの id）／URL／色／補足
+   * 移る間は、算数TA のハブの links シートの値も読み、pages に同じキーがあれば pages を使う（links は読むだけ。書かない）。
+   * 返す：{ キー: { url, color, subtitle } }
    */
+  var PAGES_SHEET = 'pages', PAGES_HEAD = ['キー', 'URL', '色', '補足', '更新'];
   function hubLinks() {
-    var sh = Base.hub().getSheetByName('links'), out = {};
-    if (!sh || sh.getLastRow() < 2) return out;
-    sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
+    var hub = Base.hub(), out = {};
+    var lk = hub.getSheetByName('links');
+    if (lk && lk.getLastRow() >= 2) lk.getRange(2, 1, lk.getLastRow() - 1, 6).getValues().forEach(function (r) {
       var id = String(r[0] || '').trim();
       if (id) out[id] = { url: String(r[3] || '').trim(), color: String(r[5] || '').trim(), subtitle: String(r[2] || '').trim() };
+    });
+    LbSheets.rows(hub, PAGES_SHEET, 4).forEach(function (r) {
+      var id = String(r[0] || '').trim();
+      if (!id) return;
+      var o = out[id] || (out[id] = { url: '', color: '', subtitle: '' });
+      o.url = String(r[1] || '').trim();                            // pages に行があれば、URL は pages のもの（空なら「無い」。所有者が消した時）
+      if (String(r[2] || '').trim()) o.color = String(r[2]).trim();
+      if (String(r[3] || '').trim()) o.subtitle = String(r[3]).trim();
     });
     return out;
   }
@@ -55,20 +66,20 @@ var LbHome = (function () {
   //   https://script.google.com/macros/s/<ID>/exec  または  https://script.google.com/a/macros/<学校のドメイン>/s/<ID>/exec
   var LINK_URL = /^https:\/\/script\.google\.com\/(a\/macros\/[A-Za-z0-9.\-]+|macros)\/s\/[A-Za-z0-9_\-]+\/exec(\?[A-Za-z0-9_=&%.\-]*)?$/;
   /**
-   * 別の GAS のページ（目録の kind: link）の開く先を、ハブの links シートに書く（所有者だけ）。
-   * 全校の児童が開く先なので、所有者以外は変えられない。links に行が無ければ足す（算数TA のハブには出さない：visible は FALSE）
+   * 別の GAS のページ（目録の kind: link）の開く先を、学習BASE のデータの pages シートに書く（所有者だけ）。
+   * 全校の児童が開く先なので、所有者以外は変えられない。算数TA のハブの links シートには書かない
    */
   function setLink(linkId, url, title) {
     requireOwner();
     linkId = String(linkId || ''); url = String(url || '').trim();
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(linkId)) throw new Error('リンクの名前が不正です');
     if (url && !LINK_URL.test(url)) throw new Error('Apps Script のウェブアプリの URL（https://script.google.com/…/exec）を貼ってください');
-    var hub = Base.hub(), sh = hub.getSheetByName('links');
-    if (!sh) { sh = hub.insertSheet('links'); sh.getRange(1, 1, 1, 7).setValues([['id', 'title', 'subtitle', 'url', 'grades', 'color', 'visible']]); }
+    var hub = Base.hub(), sh = LbSheets.sheet(hub, PAGES_SHEET, PAGES_HEAD, [1, 2]);
     var n = sh.getLastRow(), ids = n >= 2 ? sh.getRange(2, 1, n - 1, 1).getValues().map(function (r) { return String(r[0] || '').trim(); }) : [];
     var i = ids.indexOf(linkId);
-    if (i >= 0) sh.getRange(i + 2, 4).setValue(url);
-    else sh.appendRow([linkId, String(title || linkId).slice(0, 60), '', url, '', '', false]);
+    if (i >= 0) { sh.getRange(i + 2, 2).setValue(url); sh.getRange(i + 2, 5).setValue(new Date()); }
+    else sh.appendRow([linkId, url, '', '', new Date()]);
+    void title;
     return hubLinks();
   }
 

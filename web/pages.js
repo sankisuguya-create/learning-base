@@ -17,7 +17,7 @@
  *   { id: 'sakubun-1', subject: 'kokugo', grades: [3, 4], unit: '作文', title: '…', kind: 'page',
  *     src: { repo: 'sankisuguya-create/worksheet-platform', path: 'pages/sakubun-1.js', ver: '<コミット>' } },
  *   { id: 'toi-board', subject: 'sogo', grades: [3], title: 'といボード', kind: 'link', linkId: 'toi-board' }
- *     … 別の GAS で動くもの。開く先の URL は公開の目録に書かず、ハブの links シートの id=linkId の行の url を使う
+ *     … 別の GAS で動くもの。開く先の URL は公開の目録に書かず、学習BASE のデータの pages シート（キー＝linkId）の URL を使う
  * ] }
  */
 var LbPages = (function () {
@@ -45,7 +45,7 @@ var LbPages = (function () {
   var COLOR_SHEET = 'class_colors', COLOR_HEAD = ['学級', 'ページ', '色', '更新', '教師'];   // 先生モードで選んだタイルの色
   /**
    * タイルの色（算数TA のハブ apps/hub/Code.gs の COLORS と同じ30色）：名前 → [地の色, 文字の色]。
-   * 先生が学級ごとに選べる（無ければハブの links シートの color）。色だけで見分けさせない（題を必ず出す）
+   * 先生が学級ごとに選べる（無ければ学習BASE のデータの pages、移る間は算数TA の links の色）。色だけで見分けさせない（題を必ず出す）
    */
   var TILE_COLORS = {
     mint: ['#12C48B', '#052A1F'], blue: ['#2B4CF2', '#F0F3FF'], amber: ['#FFC400', '#2E2200'], red: ['#FF5C38', '#2C0A02'],
@@ -77,7 +77,7 @@ var LbPages = (function () {
         var s = p.src || {};
         if (!s.repo || !s.path || !/^[0-9a-f]{7,40}$|^v[\w.\-]+$/.test(String(s.ver || ''))) e.push(w + ' の src は repo・path・ver（コミットかタグ）');
       } else if (p.kind === 'link') {
-        if (!/^[a-z0-9][a-z0-9-]*$/.test(String(p.linkId || ''))) e.push(w + ' の linkId（ハブの links シートの id）が不正');
+        if (!/^[a-z0-9][a-z0-9-]*$/.test(String(p.linkId || ''))) e.push(w + ' の linkId（pages シートのキー）が不正');
       } else e.push(w + ' の kind は app・page・link');
       if (p.actAs != null && typeof p.actAs !== 'boolean') e.push(w + ' の actAs は true / false（代わりに取り組むに対応しているか）');
     });

@@ -58,14 +58,14 @@
   }
   /**
    * タイルの色（算数TA のハブ apps/hub/Code.gs の COLORS と同じ30色）。どのページを何色にするかは、
-   * 先生がハブの links シートの color 列で選んだもの（児童が見慣れた色のまま探せる）。色だけで見分けさせない（題を必ず出す）
+   * 先生が選んだもの（学級ごとの色 → 学習BASE のデータの pages → 移る間は算数TA の links）（児童が見慣れた色のまま探せる）。色だけで見分けさせない（題を必ず出す）
    */
   var TILE = window.LbPages.TILE_COLORS;   // 30色（Pages.gs の1か所）
   var COLOR_JA = { mint: 'ミント', blue: 'あお', amber: 'こはく', red: 'あか', purple: 'むらさき', gray: 'はいいろ', lavender: 'ラベンダー', olive: 'オリーブ',
     wine: 'ワイン', cyan: 'シアン', rose: 'ローズ', teal: 'ふかみどり', brown: 'ちゃいろ', peach: 'もも', lime: 'ライム', aqua: 'みずいろ', plum: 'プラム',
     periwinkle: 'あおむらさき', ochre: 'おうど', sky: 'そらいろ', orchid: 'うすむらさき', peacock: 'くじゃく', green: 'みどり', pink: 'ピンク',
     mustard: 'からし', leaf: 'わかば', apricot: 'あんず', coral: 'さんご', turquoise: 'ターコイズ', cobalt: 'コバルト' };
-  /** ハブの links シートの行（ページの params.unit・linkId・id の順で探す） */
+  /** ページの設定（学習BASE のデータの pages。移る間は算数TA の links も。ページの params.unit・linkId・id の順で探す） */
   function hubLink(p) {
     var L = (S.boot && S.boot.links) || {};
     return L[(p.params && p.params.unit) || ''] || L[p.linkId || ''] || L[p.id] || null;
@@ -396,7 +396,7 @@
   }
   /**
    * 開く先（別の GAS のページ：漢字の森・といボードなど）の URL を入れる（先生モード・所有者だけ）。
-   * URL はハブの links シートに入る（公開の目録には書かない）。URL がまだ無いページは児童には出さない
+   * URL は学習BASE のデータの pages シートに入る（公開の目録には書かない）。URL がまだ無いページは児童には出さない
    */
   function linkPanel(pages) {
     var links = pages.filter(function (p) { return p.kind === 'link'; });

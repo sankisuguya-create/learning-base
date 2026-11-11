@@ -303,21 +303,29 @@ t('窓口：並びを変えられるのは担当の学級の先生だけ', () =>
   assert.strictEqual(J(tc.ctx.LbHome.API.setOrder('3-1', 'sansu', ['tamath-kuku']).order.sansu), J(['tamath-kuku']));
 });
 
-t('窓口：開く先の URL（別の GAS のページ）は所有者だけ。Apps Script のウェブアプリの URL だけ。links の行を書き換え、無ければ足す（算数TA のハブには出さない）', () => {
+t('ページの設定：学習BASE のデータの pages シートが持ち主。開く先の URL は所有者だけが pages に書く（算数TA の links には書かない）。移る間は links も読み、pages があればそちらを使う', () => {
   const tc = homeEnv('na@edu.nishi.or.jp', ROSTER);
   assert.throws(() => tc.ctx.LbHome.API.setLink('kanzi', 'https://script.google.com/macros/s/AKfy/exec'), /所有者だけ/);
   const own = homeEnv('owner@edu.nishi.or.jp', ROSTER), hub = own.hub;
-  hub.insertSheet('links').v.push(['id', 'title', 'subtitle', 'url', 'grades', 'color', 'visible'], ['toi-board', 'といボード', '', '', '3', 'lavender', true]);
+  hub.insertSheet('links').v.push(['id', 'title', 'subtitle', 'url', 'grades', 'color', 'visible'], ['toi-board', 'といボード', '3年', 'https://script.google.com/macros/s/OLD/exec', '3', 'lavender', true], ['kuku', '九九', '', '', '3', 'mint', true]);
+  let L = own.ctx.LbHome.API.boot({}).links;
+  assert.strictEqual(L['toi-board'].url, 'https://script.google.com/macros/s/OLD/exec', 'pages が無ければ links の値');
+  assert.strictEqual(L.kuku.color, 'mint');
   const ok = 'https://script.google.com/a/macros/edu.nishi.or.jp/s/AKfycbx_1-2/exec';
-  let L = own.ctx.LbHome.API.setLink('toi-board', ok);
-  assert.strictEqual(L['toi-board'].url, ok); assert.strictEqual(hub.sheets.links.v[1][5], 'lavender', 'ほかの列は変えない');
+  L = own.ctx.LbHome.API.setLink('toi-board', ok);
+  assert.strictEqual(L['toi-board'].url, ok, 'pages の URL を使う'); assert.strictEqual(L['toi-board'].color, 'lavender', '色は links のまま（pages に色が無い）');
+  assert.strictEqual(L['toi-board'].subtitle, '3年');
+  assert.strictEqual(hub.sheets.links.v[1][3], 'https://script.google.com/macros/s/OLD/exec', '算数TA の links には書かない');
+  assert.strictEqual(J(hub.sheets.pages.v[0]), J(['キー', 'URL', '色', '補足', '更新']));
+  assert.strictEqual(hub.sheets.pages.v[1][0], 'toi-board'); assert.strictEqual(hub.sheets.pages.v[1][1], ok);
   L = own.ctx.LbHome.API.setLink('kanzi', 'https://script.google.com/macros/s/AKfy/exec?x=1', '漢字の森');
   assert.strictEqual(L.kanzi.url, 'https://script.google.com/macros/s/AKfy/exec?x=1');
-  assert.strictEqual(J(hub.sheets.links.v[2]), J(['kanzi', '漢字の森', '', 'https://script.google.com/macros/s/AKfy/exec?x=1', '', '', false]), '足した行は算数TA のハブに出さない');
   ['https://evil.example.com/exec', 'http://script.google.com/macros/s/A/exec', 'https://script.google.com.evil.jp/macros/s/A/exec', 'javascript:alert(1)', 'https://script.google.com/macros/s/A/exec"onload'].forEach(u =>
     assert.throws(() => own.ctx.LbHome.API.setLink('kanzi', u), /Apps Script/, u));
   assert.throws(() => own.ctx.LbHome.API.setLink('<x>', ok), /リンクの名前/);
-  assert.strictEqual(own.ctx.LbHome.API.setLink('kanzi', '').kanzi.url, '', '空にすると消せる');
+  assert.strictEqual(own.ctx.LbHome.API.setLink('toi-board', '')['toi-board'].url, '', '空にすると消せる（links に古い URL があっても使わない）');
+  hub.sheets.pages.v.push(['kuku', '', 'wine', '', '']);
+  assert.strictEqual(own.ctx.LbHome.API.boot({}).links.kuku.color, 'wine', 'pages の色が links の色より先');
 });
 
 t('色：学級・ページごとに保存し、空ならハブの links の色に戻る。知らない色・ページの名前の形でないものは保存しない。先生だけ', () => {

@@ -25,6 +25,7 @@ var LbPlatform = (function () {
     if (app) {
       var m = LB_MODULES[app];
       if (!m) return message('アプリが見つかりません: ' + app);
+      if (m.broken) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.load', m.broken)); return message('いまは ひらけません。すこし まってから、ひらきなおしてね'); }
       LB_LOADER.files();                      // アプリの画面のファイルを読む（LB_FILES）
       try { return m.doGet(e); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
     }
@@ -39,6 +40,7 @@ var LbPlatform = (function () {
   }
   function appApi(app, unit, name, args) {
     var m = LB_MODULES[app];
+    if (m && m.broken) throw new Error('いまは つかえません（' + app + ' を読み込めません）');
     if (!m || !m.apiCall) throw new Error('アプリが見つかりません: ' + app);
     try { return m.apiCall(unit, name, args); }
     catch (e) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.' + String(name).slice(0, 40), e)); throw e; }
