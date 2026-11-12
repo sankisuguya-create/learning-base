@@ -269,7 +269,30 @@
       '<textarea id="lb-fbtext" rows="3" maxlength="1000" aria-label="学習BASE への気づき" placeholder="例：1年の算数の画面で、九九を探そうとして、どこを押せばよいか迷っていた（2人）">' + esc(S.fb) + '</textarea>' +
       '<div class="lb-fbacts"><button class="lb-abtn" data-act="fb">気づきを送る</button></div>' +
       (S.boot.owner && !S.shot ? '<div class="lb-fbowner">所有者だけ：<button class="lb-link" data-act="tune">閾値を見直す（学校の中だけ）</button>' +
-        '<button class="lb-link" data-act="export">失敗と速さを見る・書き出す</button></div>' : '') + '</section>';
+        '<button class="lb-link" data-act="export">失敗と速さを見る・書き出す</button>' +
+        (((S.boot.apps || {}).kanzi) ? '<button class="lb-link" data-act="kroster">漢字の森の名簿</button>' : '') + '</div>' + krosterView() : '') + '</section>';
+  }
+  /**
+   * 漢字の森の名簿を学習BASE に切り替える（所有者だけ）。照らし合わせて、食い違いが0件の時だけ切り替えられる。元にも戻せる
+   */
+  function krosterView() {
+    var k = S.kr;
+    if (!k) return '';
+    var html = '<div class="lb-export" aria-label="漢字の森の名簿"><div class="lb-exphead"><h2 class="lb-h">漢字の森の名簿</h2><button class="lb-link" data-act="kroster-close">閉じる</button></div>';
+    if (k.busy) return html + '<p>照らし合わせています…</p></div>';
+    if (k.error) return html + '<p class="lb-expng">' + esc(k.error) + '</p></div>';
+    var row = function (x) { return esc(x.klass + ' ' + (x.no || '') + '番 ' + (x.name || '')) + (x.base ? ' → 学習BASE では ' + esc(x.base) : ''); };
+    html += '<p>いま使っている名簿：<strong>' + (k.using === 'base' ? '学習BASE の名簿と担当' : '漢字の森のシート（名簿・教師）') + '</strong></p>';
+    if (k.using !== 'base') {
+      html += '<ul class="lb-expnotes">' +
+        '<li>漢字の森だけにいる児童：' + k.kanziOnly.length + '人' + (k.kanziOnly.length ? '（' + k.kanziOnly.slice(0, 20).map(row).join('、') + '）→ 学習BASE の名簿に足す' : '') + '</li>' +
+        '<li>学級が違う児童：' + k.classMoved.length + '人' + (k.classMoved.length ? '（' + k.classMoved.slice(0, 20).map(row).join('、') + '）→ どちらかを直す' : '') + '</li>' +
+        '<li>学習BASE の名簿に無い学級の設定：' + k.orphanSettings.length + '件' + (k.orphanSettings.length ? '（' + k.orphanSettings.slice(0, 20).map(esc).join('、') + '）→ 学級の書き方を揃えるか、漢字の森の「設定」シートから消す' : '') + '</li></ul>';
+      html += k.ok ? '<p>食い違いはありません。切り替えると、漢字の森は学習BASE の名簿と担当を使います（教師ドメインの先生は全学級・作文も）。</p>' +
+        '<div class="lb-fbacts"><button class="lb-abtn" data-act="kroster-use">切り替える</button></div>'
+        : '<p class="lb-expng">食い違いを直してから、もう一度照らし合わせてください。</p><div class="lb-fbacts"><button class="lb-abtn" data-act="kroster">照らし合わせ直す</button></div>';
+    } else html += '<div class="lb-fbacts"><button class="lb-abtn sub lb-wide" data-act="kroster-back">漢字の森のシートに戻す</button></div>';
+    return html + '</div>';
   }
   /** 改善用の書き出しの結果。機械の確かめで止めた時は、文を出さずに理由だけ */
   function exportView() {
@@ -399,7 +422,7 @@
    * URL は学習BASE のデータの pages シートに入る（公開の目録には書かない）。URL がまだ無いページは児童には出さない
    */
   function linkPanel(pages) {
-    var links = pages.filter(function (p) { return p.kind === 'link'; });
+    var links = pages.filter(function (p) { return p.kind === 'link' || appWaiting(p); });
     if (!S.edit || !S.boot.owner || !links.length) return '';
     return '<div class="lb-linkpanel"><h3 class="lb-h">開く先（所有者だけ）</h3>' + links.map(function (p) {
       var h = hubLink(p), has = !!(h && h.url);
@@ -440,9 +463,11 @@
   }
 
   /* ---------- 操作 ---------- */
+  /** アプリのページだが、学習BASE の中でまだ準備ができていない（その間は、目録の linkId の開く先を開く） */
+  function appWaiting(p) { return p.kind === 'app' && ((S.boot && S.boot.apps) || {})[p.app] === false; }
   function pageById(id) { return S.cat.pages.filter(function (p) { return p.id === id; })[0]; }
   function urlFor(p) {
-    if (p.kind === 'link') { var h = hubLink(p); return h && h.url ? h.url : ''; }
+    if (p.kind === 'link' || appWaiting(p)) { var h = hubLink(p); return h && h.url ? h.url : ''; }
     var q = [];
     if (p.kind === 'app') { q.push('app=' + encodeURIComponent(p.app)); for (var k in (p.params || {})) q.push(encodeURIComponent(k) + '=' + encodeURIComponent(p.params[k])); }
     else q.push('doc=' + encodeURIComponent(p.id));   // page= はアプリが使う（算数TA の教師画面）
@@ -491,6 +516,14 @@
       return;
     }
     if (act === 'shot') { S.shot = !S.shot; S.as = null; S.exp = null; if (S.view === 'tuning') S.view = 'home'; render(); return; }
+    if (act === 'kroster' || act === 'kroster-use' || act === 'kroster-back') {
+      S.kr = { busy: true }; render();
+      var kc = act === 'kroster' ? ['app:kanzi', 'api_lbRosterCheck', []] : ['app:kanzi', 'api_lbRosterUse', [act === 'kroster-use']];
+      P.app(kc[0], kc[1], kc[2]).then(function (r) { S.kr = r; render(); if (act !== 'kroster') toast(act === 'kroster-use' ? '漢字の森を学習BASE の名簿に切り替えました' : '漢字の森のシートに戻しました'); })
+        .catch(function (e) { S.kr = { error: String(e && e.message || e) }; render(); });
+      return;
+    }
+    if (act === 'kroster-close') { S.kr = null; render(); return; }
     if (act === 'tune') { S.view = 'tuning'; S.exp = null; window.scrollTo(0, 0); loadTuning(); return; }
     if (act === 'rule-try') {
       var vals = ruleValues();
@@ -576,7 +609,7 @@
       }
       if (S.shot) { toast('撮影用の表示では開きません'); return; }                                           // 先生モードでは開かない（切り替えの押し間違いで遷移しない）
       var pg = pageById(id);
-      if (pg.kind === 'link' && !urlFor(pg)) {
+      if ((pg.kind === 'link' || appWaiting(pg)) && !urlFor(pg)) {
         toast(S.boot.role !== 'teacher' ? 'まだ ひらけません。せんせいに つたえてね'
           : S.boot.owner ? '先生モードで この教科を開き、「開く先」に URL を入れてください' : '開く先の URL がまだありません。所有者に設定を頼んでください');
         return;
@@ -654,7 +687,7 @@
     if (b.role === 'teacher') return c;
     var L = b.links || {}, out = {}; for (var k in c) out[k] = c[k];
     out.pages = (c.pages || []).filter(function (p) {
-      if (p.kind !== 'link') return true;
+      if (p.kind !== 'link' && !(p.kind === 'app' && (b.apps || {})[p.app] === false)) return true;
       var h = L[p.linkId || ''] || L[p.id]; return !!(h && h.url);
     });
     return out;

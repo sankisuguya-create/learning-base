@@ -72,7 +72,11 @@ var LbPages = (function () {
       if (SUBJECT_IDS.indexOf(p.subject) < 0) e.push(w + ' の教科が不明: ' + p.subject);
       if (!Array.isArray(p.grades) || !p.grades.length || p.grades.some(function (g) { return !(g >= 1 && g <= 6); })) e.push(w + ' の grades は 1〜6 の配列');
       if (!p.title) e.push(w + ' に title がありません');
-      if (p.kind === 'app') { if (!/^[a-z][a-z0-9-]*$/.test(String(p.app || ''))) e.push(w + ' の app が不正'); }
+      if (p.kind === 'app') {
+        if (!/^[a-z][a-z0-9-]*$/.test(String(p.app || ''))) e.push(w + ' の app が不正');
+        // linkId：アプリの準備ができるまでの開く先（移る間。pages シートのキー）
+        if (p.linkId !== undefined && !/^[a-z0-9][a-z0-9-]*$/.test(String(p.linkId))) e.push(w + ' の linkId が不正');
+      }
       else if (p.kind === 'page') {
         var s = p.src || {};
         if (!s.repo || !s.path || !/^[0-9a-f]{7,40}$|^v[\w.\-]+$/.test(String(s.ver || ''))) e.push(w + ' の src は repo・path・ver（コミットかタグ）');

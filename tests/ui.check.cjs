@@ -146,6 +146,28 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if (kid2 !== 'kanzi') fails.push('child3: URL を入れた漢字の森が児童に出ない');
       await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.goto(`http://localhost:${port}/web/demo.html?role=teacher`); await p.waitForTimeout(600);
     }
+    if (role === 'child3') {   // 国語（漢字の森）：準備の前は開く先のリンク、準備ができたら学習BASE の中のアプリを開く
+      await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
+      let o1 = ''; await p.exposeFunction('lbOpenK', u => { o1 = u; });
+      await p.evaluate(() => { window.LB_PLATFORM.open = u => window.lbOpenK(u); });
+      await p.click('.lb-tile[data-subject=kokugo]'); await p.waitForTimeout(200);
+      if (o1 !== 'https://example.com/kanzi') fails.push('child3: 準備の前の漢字の森がリンクを開かない: ' + o1);
+      await p.evaluate(() => localStorage.setItem('lb-demo', JSON.stringify({ kanziReady: true }))); await p.reload(); await p.waitForTimeout(700);
+      await p.evaluate(() => { window.LB_PLATFORM.open = u => window.lbOpenK(u); });
+      await p.click('.lb-tile[data-subject=kokugo]'); await p.waitForTimeout(200);
+      if (!/[?&]app=kanzi$/.test(o1)) fails.push('child3: 準備ができた漢字の森が学習BASE の中で開かない: ' + o1);
+      await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
+    }
+    if (role === 'teacher') {   // 漢字の森の名簿（所有者）：照らし合わせ → 切り替え → 戻す
+      await p.evaluate(() => localStorage.setItem('lb-demo', JSON.stringify({ kanziReady: true }))); await p.reload(); await p.waitForTimeout(700);
+      await p.click('[data-act=kroster]'); await p.waitForTimeout(300);
+      if (!/漢字の森のシート/.test(await p.locator('.lb-export').textContent())) fails.push('teacher: 漢字の森の名簿の照らし合わせが出ない');
+      await p.click('[data-act=kroster-use]'); await p.waitForTimeout(300);
+      if (!/学習BASE の名簿と担当/.test(await p.locator('.lb-export').textContent())) fails.push('teacher: 切り替えた後の表示にならない');
+      await p.click('[data-act=kroster-back]'); await p.waitForTimeout(300);
+      if (!/漢字の森のシート/.test(await p.locator('.lb-export').textContent())) fails.push('teacher: 戻せない');
+      await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
+    }
     if (role === 'child3') {   // 開くのを速く：枠に入れたホームの情報を使う（homeBoot を呼ばない）。記録は表示の後に送る。開く時は「ひらいています…」
       await p.evaluate(() => localStorage.setItem('lb-rt', '3000'));
       await p.goto(`http://localhost:${port}/web/demo.html?role=child3&embed=1`);

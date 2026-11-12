@@ -33,6 +33,15 @@ var LbPlatform = (function () {
   }
 
   function call(mod, name, args) {
+    // 'app:<id>'：アプリの画面からの呼び出し（アプリの apiCall(名前, 引数) へ。呼べる関数はアプリが表で決める）。算数TA は今までの入口（Loader の apiCall）
+    var am = /^app:([a-z][a-z0-9-]*)$/.exec(String(mod));
+    if (am) {
+      var m = LB_MODULES[am[1]];
+      if (m && m.broken) throw new Error('いまは つかえません（' + am[1] + ' を読み込めません）');
+      if (!m || typeof m.apiCall !== 'function') throw new Error('アプリが見つかりません: ' + am[1]);
+      try { return m.apiCall(String(name), Array.isArray(args) ? args : []); }
+      catch (e) { LbTelemetry.count(roleNow(), LbTelemetry.err(am[1] + '.' + String(name).slice(0, 40), e)); throw e; }
+    }
     var api = API[String(mod)];
     if (!api || !Object.prototype.hasOwnProperty.call(api, String(name))) throw new Error('呼べない関数です: ' + mod + '.' + name);
     try { return api[name].apply(null, Array.isArray(args) ? args : []); }
@@ -199,6 +208,7 @@ var LbPlatform = (function () {
       'call:function(name){var a=Array.prototype.slice.call(arguments,1);' +
       'var fn=String(name).replace(/^home(.)/,function(m,c){return c.toLowerCase();});' +   // homeSetNow → setNow（LbHome.API の名前）
       'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",fn,a);});},' +
+      'app:function(mod,name,a){return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall(mod,name,a);});},' +   // アプリの窓口（lbCall('app:<id>')）
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
       'open:function(u){window.open(u,"_top");}};' +
       'function lbLoadFail(){if(window.lbFailed)return;window.lbFailed=1;try{google.script.run.lbCall("home","report",["loadfail"]);}catch(e){}var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';
@@ -208,7 +218,17 @@ var LbPlatform = (function () {
       String(text).replace(/[<>&]/g, '') + '</div>').setTitle('学習BASE');
   }
 
-  return { doGet: doGet, call: call, appApi: appApi, setup: setup,
+  /** アプリが使える状態か（{ id: true/false }）。ready を持たないアプリは使える扱い。読み込めなかったアプリは false */
+  function appsReady() {
+    var out = {};
+    Object.keys(LB_MODULES).forEach(function (k) {
+      var m = LB_MODULES[k];
+      try { out[k] = !m.broken && (typeof m.ready !== 'function' || !!m.ready()); } catch (e) { out[k] = false; }
+    });
+    return out;
+  }
+
+  return { appsReady: appsReady, doGet: doGet, call: call, appApi: appApi, setup: setup,
     nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); e = e.concat(directives()); e = e.concat(alerts()); return e.concat(usage()); },
     weekly: weekly, daily: function () { return each('daily'); },
     rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };
