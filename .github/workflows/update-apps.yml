@@ -1,0 +1,80 @@
+# 教科（アプリ）のリポジトリの main が進んだら、学習BASE の取り込み版を上げる PR を自動で作る。
+# マージは人が押す（マージ＝「学校に出してよい」の承認、という決まりは変えない）。
+# 1時間ごとに見る。すぐ見たい時は Actions の「教科の版を上げる」→ Run workflow。
+# 検査が落ちた版では PR を作らない（この仕事が失敗として残り、GitHub からメールが来る）。
+# 初めに1回だけ：リポジトリの Settings → Actions → General → 「Allow GitHub Actions to create and approve pull requests」をオン
+name: 教科の版を上げる
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-apps
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 教科のリポジトリの main の版を調べ、apps.lock.json を書き換える
+        id: bump
+        run: |
+          node -e '
+            const fs = require("fs"), { execSync } = require("child_process");
+            const lock = JSON.parse(fs.readFileSync("apps.lock.json", "utf8")), changed = [];
+            for (const [id, a] of Object.entries(lock)) {
+              if (id === "_") continue;
+              const head = execSync(`git ls-remote https://github.com/${a.repo}.git refs/heads/${a.branch || "main"}`, { encoding: "utf8" }).split("\t")[0];
+              if (/^[0-9a-f]{40}$/.test(head) && head !== a.commit) { changed.push(`${id}: ${a.commit.slice(0, 7)} → ${head.slice(0, 7)}`); a.commit = head; }
+            }
+            fs.writeFileSync("apps.lock.json", JSON.stringify(lock, null, 2) + "\n");
+            fs.writeFileSync(process.env.GITHUB_OUTPUT, "changed=" + changed.join(" / ") + "\n", { flag: "a" });'
+
+      - name: 取り込む版で dist/ を作り直し、全部の検査
+        if: steps.bump.outputs.changed != ''
+        env:
+          LB_APPS_DIR: apps-src
+        run: |
+          mkdir -p apps-src
+          node -e '
+            const lock = require("./apps.lock.json"), { execSync } = require("child_process");
+            for (const [id, a] of Object.entries(lock)) {
+              if (id === "_") continue;
+              const dir = "apps-src/" + a.repo.split("/")[1];
+              execSync(`git clone --filter=blob:none --quiet https://github.com/${a.repo}.git ${dir}`, { stdio: "inherit" });
+              execSync(`git -C ${dir} checkout --quiet ${a.commit}`, { stdio: "inherit" });
+            }'
+          node tools/build.cjs
+          node tools/bundle.cjs
+          npm test
+
+      - name: PR を作る（同じブランチの PR があれば中身を入れ替える）
+        if: steps.bump.outputs.changed != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED: ${{ steps.bump.outputs.changed }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git checkout -B auto/update-apps
+          git add apps.lock.json dist web
+          git commit -m "教科の版を上げる：${CHANGED}"
+          git push --force origin auto/update-apps
+          BODY="教科のリポジトリの main が進んだので、学習BASE の取り込み版を上げます（自動）。
+
+          ${CHANGED}
+
+          検査（npm test）は通っています。**マージすると学校に届きます**（release.json が書かれ、読み込み係が5分以内に新しい版を使う）。中身は各教科のリポジトリの PR を見てください。"
+          if gh pr view auto/update-apps --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit auto/update-apps --title "教科の版を上げる：${CHANGED}" --body "$BODY"
+          else
+            gh pr create --base main --head auto/update-apps --title "教科の版を上げる：${CHANGED}" --body "$BODY"
+          fi

@@ -1,6 +1,8 @@
-// dist/server.js — 学習BASE のサーバー側のコード（tools/bundle.cjs が作る。直接直さない）
+// dist/server.js — 学習BASE のサーバー側のコード（全部入り。前の読み込み係のため。tools/bundle.cjs が作る）
 var LB_MODULES = (typeof LB_MODULES !== "undefined" && LB_MODULES) || {};
 var LB_PLATFORM_TRIGGERS = true;   // 自動実行は読み込み係が置く（アプリは置かない）
+var LB_APP_IDS = ["tamath","kanzi"];   // 載っている教科（アプリ）
+var LB_APP_READY = {"kanzi":"KANZI_SS_ID"};   // 準備に要るスクリプトのプロパティ
 
 // ===== gas/Sheets.gs =====
 /**
@@ -11808,15 +11810,29 @@ var LbPlatform = (function () {
   var API = { home: LbHome.API };
   function roleNow() { try { return Base.me().role; } catch (e) { return '-'; } }
 
+  /**
+   * アプリ（教科）を、要る時だけ読み込む。新しい読み込み係（LB_LOADER.app がある）は dist/app-<id>.js をその時に取ってくる。
+   * 古い読み込み係は dist/server.js で全アプリを最初に読み込んでいるので、そのまま使う
+   */
+  function appIds() { return typeof LB_APP_IDS !== 'undefined' ? LB_APP_IDS.slice() : Object.keys(LB_MODULES); }
+  function appMod(id) {
+    if (appIds().indexOf(String(id)) < 0) return null;
+    if (!LB_MODULES[id] && typeof LB_LOADER !== 'undefined' && typeof LB_LOADER.app === 'function') {
+      try { LB_LOADER.app(id); } catch (e) { LB_MODULES[id] = { broken: String(e && e.message || e) }; console.error('アプリ ' + id + ' を取ってこられません: ' + (e && e.message || e)); }
+    }
+    return LB_MODULES[id] || null;
+  }
+  function eachApp(fn) { appIds().forEach(function (k) { var m = appMod(k); if (m) fn(k, m); }); }
+
   function doGet(e) {
     var p = (e && e.parameter) || {};
     var app = p.app || (p.unit ? 'tamath' : '');
     if (p.doc && !app) return message('このページは じゅんび中です');
     if (app) {
-      var m = LB_MODULES[app];
+      var m = appMod(app);
       if (!m) return message('アプリが見つかりません: ' + app);
       if (m.broken) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.load', m.broken)); return message('いまは ひらけません。すこし まってから、ひらきなおしてね'); }
-      LB_LOADER.files();                      // アプリの画面のファイルを読む（LB_FILES）
+      LB_LOADER.files(app);                   // そのアプリの画面のファイルを読む（LB_FILES。古い読み込み係は全アプリ分）
       try { return m.doGet(e); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
@@ -11826,7 +11842,7 @@ var LbPlatform = (function () {
     // 'app:<id>'：アプリの画面からの呼び出し（アプリの apiCall(名前, 引数) へ。呼べる関数はアプリが表で決める）。算数TA は今までの入口（Loader の apiCall）
     var am = /^app:([a-z][a-z0-9-]*)$/.exec(String(mod));
     if (am) {
-      var m = LB_MODULES[am[1]];
+      var m = appMod(am[1]);
       if (m && m.broken) throw new Error('いまは つかえません（' + am[1] + ' を読み込めません）');
       if (!m || typeof m.apiCall !== 'function') throw new Error('アプリが見つかりません: ' + am[1]);
       try { return m.apiCall(String(name), Array.isArray(args) ? args : []); }
@@ -11838,7 +11854,7 @@ var LbPlatform = (function () {
     catch (e) { LbTelemetry.count(roleNow(), LbTelemetry.err(mod + '.' + name, e)); throw e; }
   }
   function appApi(app, unit, name, args) {
-    var m = LB_MODULES[app];
+    var m = appMod(app);
     if (m && m.broken) throw new Error('いまは つかえません（' + app + ' を読み込めません）');
     if (!m || !m.apiCall) throw new Error('アプリが見つかりません: ' + app);
     try { return m.apiCall(unit, name, args); }
@@ -11848,8 +11864,7 @@ var LbPlatform = (function () {
   /** 自動実行：各アプリの夜・朝の処理。1つのアプリが失敗しても他は続ける */
   function each(job) {
     var errs = [];
-    Object.keys(LB_MODULES).forEach(function (k) {
-      var m = LB_MODULES[k];
+    eachApp(function (k, m) {
       if (typeof m[job] !== 'function') return;
       try { m[job](); } catch (e) { errs.push(k + ': ' + (e && e.message || e)); console.error(job + ' ' + k + ' 失敗: ' + (e && e.message || e)); }
     });
@@ -11861,8 +11876,7 @@ var LbPlatform = (function () {
    */
   function legacy() {
     var hub = Base.hub(), fy = Base.fy(), errs = [];
-    Object.keys(LB_MODULES).forEach(function (k) {
-      var m = LB_MODULES[k];
+    eachApp(function (k, m) {
       if (typeof m.legacySources !== 'function' || typeof m.legacySessions !== 'function') return;
       var srcs = []; try { srcs = m.legacySources(); } catch (e) { errs.push(k + ': ' + e.message); return; }
       var ss = {}; try { (m.sessionSources ? m.sessionSources() : []).forEach(function (s) { ss[s.key] = s.ss; }); } catch (e) {}
@@ -11954,8 +11968,7 @@ var LbPlatform = (function () {
   /** 全アプリの新しい形の記録を「児童×技能×週」に足す（ハブの facts_<年度>）。時間切れなら残りは次の夜 */
   function facts() {
     var sources = [];
-    Object.keys(LB_MODULES).forEach(function (k) {
-      var m = LB_MODULES[k];
+    eachApp(function (k, m) {
       if (typeof m.sessionSources === 'function') { try { sources = sources.concat(m.sessionSources()); } catch (e) { console.error(k + ' の記録先: ' + e.message); } }
     });
     if (!sources.length) return [];
@@ -11964,8 +11977,9 @@ var LbPlatform = (function () {
   }
 
   function setup() {
-    return Object.keys(LB_MODULES).map(function (k) {
-      var m = LB_MODULES[k];
+    return appIds().map(function (k) {
+      var m = appMod(k) || { broken: '見つかりません' };
+      if (m.broken) return k + '：× 読み込めません（' + m.broken + '）';
       if (typeof m.setup !== 'function') return k + '：準備は要らない';
       try { return k + '：' + m.setup(); } catch (e) { return k + '：× ' + e.message; }
     }).join('\n');
@@ -12010,10 +12024,12 @@ var LbPlatform = (function () {
 
   /** アプリが使える状態か（{ id: true/false }）。ready を持たないアプリは使える扱い。読み込めなかったアプリは false */
   function appsReady() {
-    var out = {};
-    Object.keys(LB_MODULES).forEach(function (k) {
+    // ホームを開くたびに呼ぶので、アプリを読み込まずに決める：準備に要るプロパティ（apps.lock.json の readyProp → LB_APP_READY）が入っていれば使える
+    var out = {}, props = PropertiesService.getScriptProperties(), need = typeof LB_APP_READY !== 'undefined' ? LB_APP_READY : {};
+    appIds().forEach(function (k) {
       var m = LB_MODULES[k];
-      try { out[k] = !m.broken && (typeof m.ready !== 'function' || !!m.ready()); } catch (e) { out[k] = false; }
+      if (m && m.broken) { out[k] = false; return; }
+      try { out[k] = need[k] ? !!String(props.getProperty(need[k]) || '').trim() : (m && typeof m.ready === 'function' ? !!m.ready() : true); } catch (e) { out[k] = false; }
     });
     return out;
   }

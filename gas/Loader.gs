@@ -12,6 +12,10 @@
  *   3. エディタで lbSetup を実行（承認・自動実行の設置）→ ウェブアプリとしてデプロイ（自分として実行・ドメイン内の全員）
  *   （platform シートは要らない。無い・「版」が空・「自動」なら release.json に従う）
  *
+ * 読む量（2026-11-17 から）：毎回読むのは共通部品（dist/core.js）だけ。教科（アプリ）のコードは、その教科を使う時だけ
+ *   dist/app-<id>.js を読む（教科を足しても1回に読む量が増えない）。どのファイルも dist/manifest.json の指紋と照らし合わせてから実行する。
+ *   manifest に files が無い古い版（戻した時など）は、前の形の dist/server.js（全部入り）を読む
+ *
  * 取ってくる順（実測：一時保存から読むと約120ms、jsDelivr から取ると約1.4秒。2026-11-09）
  *   1. 一時保存（CacheService。版ごと・最長6時間。1時間ごとに温め直す）
  *   2. jsDelivr（版で固定した URL。指紋が設定されていれば照合し、違えば実行しない）
@@ -41,11 +45,11 @@ function lbRollover() { lbNeed_(); return LbPlatform.rollover(); }
 function lbWeekly() { lbNeed_(); return LbPlatform.weekly(); }
 /** 時間切れで残った夜の処理の続き（算数TA が1回だけの自動実行で呼ぶ） */
 function continueAll() { lbNeed_(); return LbPlatform.continueAll(); }
-/** 1時間ごと：中身の一時保存を温め直す（児童が開いた時に取り直しで待たせない） */
+/** 1時間ごと：中身の一時保存を温め直す（児童が開いた時に取り直しで待たせない）。共通部品と全教科のファイル */
 function lbHourly() {
-  var v = lbVersion_(true);
-  lbText_('server.js', v.ver, v.sha, true);
-  lbText_('html.json', v.ver, '', true);
+  var v = lbVersion_(true), m = lbManifest_(v, true);
+  if (!m.files) { lbText_('server.js', v.ver, m.server || '', true); lbText_('html.json', v.ver, '', true); return; }
+  Object.keys(m.files).forEach(function (f) { if (f !== 'server.js' && f !== 'html.json') lbText_(f, v.ver, m.files[f], true); });
 }
 
 /* ---------- エディタから実行する（所有者だけ） ---------- */
@@ -79,8 +83,9 @@ function lbReload() {
 function lbStatus() {
   lbOwnerOnly_();
   var out = [];
-  try { var v = lbVersion_(true); out.push('版: ' + v.ver + '（' + v.mode + '・' + (v.sha ? '指紋あり' : '指紋なし') + '）'); } catch (e) { out.push('版: × ' + e.message); }
-  try { lbNeed_(); out.push('中身: ○ 読み込めた'); } catch (e2) { out.push('中身: × ' + e2.message); }
+  try { var v = lbVersion_(true); out.push('版: ' + v.ver + '（' + v.mode + '・' + (v.msha || v.sha ? '指紋あり' : '指紋なし') + '）'); } catch (e) { out.push('版: × ' + e.message); }
+  try { lbNeed_(); out.push('中身: ○ 読み込めた（' + (LB_.m && LB_.m.files ? '教科ごとに読む形' : '前の形：全部入り') + '）'); } catch (e2) { out.push('中身: × ' + e2.message); }
+  try { (typeof LB_APP_IDS !== 'undefined' ? LB_APP_IDS : []).forEach(function (id) { var m = lbApp_(id) || LB_MODULES[id]; out.push('教科 ' + id + ': ' + (m && m.broken ? '× ' + m.broken : '○')); }); } catch (e3) { out.push('教科: × ' + e3.message); }
   console.log(out.join('\n'));
   return out.join('\n');
 }
@@ -89,10 +94,32 @@ function lbStatus() {
 
 function lbNeed_() {
   if (LB_.ready) return;
-  var v = lbVersion_();
-  var code = lbText_('server.js', v.ver, v.sha);
-  (0, eval)(code);                                   // 大域に共通部品・入口の振り分け（LbPlatform）・各アプリを定義する
-  LB_.ver = v.ver; LB_.sha = v.sha; LB_.ready = true;
+  var v = lbVersion_(), m = lbManifest_(v);
+  LB_.ver = v.ver; LB_.sha = v.sha; LB_.m = m;
+  if (m.files && m.files['core.js']) (0, eval)(lbText_('core.js', v.ver, m.files['core.js']));   // 共通部品と振り分け（LbPlatform）。教科は要る時に LB_LOADER.app
+  else (0, eval)(lbText_('server.js', v.ver, m.server || v.sha));                                 // 前の形の版：全部入り
+  LB_.ready = true;
+}
+/**
+ * dist/manifest.json（各ファイルの指紋）。版ごとに一時保存。release.json か platform シートの「指紋」が manifest の指紋ならそれと照らし合わせる。
+ * 前の形の版（manifest に files が無い）でも server の指紋は入っている
+ */
+function lbManifest_(v, refresh) {
+  if (!refresh && LB_.m && LB_.mver === v.ver) return LB_.m;
+  var text = lbText_('manifest.json', v.ver, v.msha || '', refresh);
+  var m = JSON.parse(text);
+  LB_.m = m; LB_.mver = v.ver;
+  return m;
+}
+/** 教科（アプリ）のサーバーのコードを読む（1回の実行で1回だけ）。前の形の版では server.js に全部入っているので何もしない */
+function lbApp_(id) {
+  if (!/^[a-z][a-z0-9-]*$/.test(String(id))) throw new Error('アプリの名前が不正です: ' + id);
+  if (typeof LB_MODULES !== 'undefined' && LB_MODULES[id]) return LB_MODULES[id];
+  var m = LB_.m || lbManifest_(lbVersion_()), name = 'app-' + id + '.js';
+  if (!m.files) return null;
+  if (!m.files[name]) throw new Error('この版に教科 ' + id + ' はありません');
+  (0, eval)(lbText_(name, LB_.ver, m.files[name]));
+  return LB_MODULES[id];
 }
 
 /**
@@ -102,7 +129,7 @@ function lbNeed_() {
  */
 function lbVersion_(fresh) {
   var c = CacheService.getScriptCache(), hit = fresh ? null : c.get('lb:ver');
-  if (hit) { var p = hit.split('|'); return { ver: p[0], sha: p[1] || '', mode: p[2] || '' }; }
+  if (hit) { var p = hit.split('|'); return { ver: p[0], sha: p[1] || '', mode: p[2] || '', msha: p[3] || '' }; }
   var id = String(PropertiesService.getScriptProperties().getProperty('HUB_ID') || '').trim();
   if (!id) throw new Error('スクリプト プロパティ HUB_ID（ハブのスプレッドシートの ID）が設定されていません');
   var sh = SpreadsheetApp.openById(id).getSheetByName('platform');
@@ -112,13 +139,14 @@ function lbVersion_(fresh) {
     if (k === '版') ver = val;
     if (k === '指紋') sha = val.toLowerCase();
   });
+  var msha = sha;   // platform シートの「指紋」は manifest.json の指紋（新しい形）。前の形の server.js の指紋なら下で使う
   if (!ver || ver === '自動') {
     var rel = lbRelease_();
-    ver = rel.ver; sha = rel.sha; mode = '自動';
+    ver = rel.ver; sha = rel.sha; msha = rel.msha || ''; mode = '自動';
   }
   if (!/^[0-9a-f]{7,40}$|^v[\w.\-]+$/.test(ver)) throw new Error('platform シートの 版 がコミット番号でもタグでもありません: ' + ver + '（自動に戻すなら「自動」と書くか空にする）');
-  c.put('lb:ver', ver + '|' + sha + '|' + mode, LB_VER_TTL);
-  return { ver: ver, sha: sha, mode: mode };
+  c.put('lb:ver', ver + '|' + sha + '|' + mode + '|' + msha, LB_VER_TTL);
+  return { ver: ver, sha: sha, mode: mode, msha: msha };
 }
 /** GitHub の release.json（{ ver, sha }）。取れたら覚えておき、取れない時は覚えた版を返す */
 function lbRelease_() {
@@ -128,14 +156,15 @@ function lbRelease_() {
     if (res.getResponseCode() === 200) {
       var j = JSON.parse(res.getContentText('UTF-8'));
       if (j && /^[0-9a-f]{40}$/.test(String(j.ver))) {
-        props.setProperty('LB_RELEASE', j.ver + '|' + String(j.sha || '').toLowerCase());
-        return { ver: j.ver, sha: String(j.sha || '').toLowerCase() };
+        var rs = String(j.sha || '').toLowerCase(), rm = String(j.manifest || '').toLowerCase();
+        props.setProperty('LB_RELEASE', j.ver + '|' + rs + '|' + rm);
+        return { ver: j.ver, sha: rs, msha: rm };
       }
       why = 'release.json の形が違う';
     } else why = 'release.json ' + res.getResponseCode();
   } catch (e) { why = 'GitHub に届かない（' + e.message + '）'; }
   var last = String(props.getProperty('LB_RELEASE') || '');
-  if (last) { var p = last.split('|'); console.error(why + '。最後に取れた版 ' + p[0].slice(0, 7) + ' で動きます'); return { ver: p[0], sha: p[1] || '' }; }
+  if (last) { var p = last.split('|'); console.error(why + '。最後に取れた版 ' + p[0].slice(0, 7) + ' で動きます'); return { ver: p[0], sha: p[1] || '', msha: p[2] || '' }; }
   throw new Error('使う版が決まりません（' + why + '。ハブの platform シートの「版」にコミット番号を書けば、その版で動きます）');
 }
 
@@ -150,7 +179,7 @@ function lbText_(name, ver, sha, refresh) {
     else why = 'jsDelivr ' + res.getResponseCode();
   } catch (e) { why = 'jsDelivr に届かない（' + e.message + '）'; }
   if (fetched != null) {
-    if (sha && lbSha_(fetched) !== sha) throw new Error(name + ' の指紋が platform シートの指紋と違います。実行しません（版 ' + ver + '）');
+    if (sha && lbSha_(fetched) !== sha) throw new Error(name + ' の指紋が合いません。実行しません（版 ' + ver + '）');
     lbCachePut_(key, fetched);
     try { lbHubCopyPut_(name, ver, fetched); } catch (e2) { console.error('ハブの写しを残せません: ' + e2.message); }
     return fetched;
@@ -208,15 +237,20 @@ function lbHubCopyGet_(name, ver) {
   } catch (e) { return null; }
 }
 
-/** 画面のファイル（html.json）。アプリの画面を返す時だけ読む（呼び出しのたびには読まない） */
-function lbFiles_() {
-  if (typeof LB_FILES !== 'undefined' && LB_FILES) return LB_FILES;
-  var v = lbVersion_();
-  globalThis.LB_FILES = JSON.parse(lbText_('html.json', v.ver, ''));
+/** 画面のファイル。教科のページを返す時に、その教科の分（dist/html-<id>.json）だけ読む。前の形の版は html.json（全部） */
+function lbFiles_(id) {
+  if (typeof LB_FILES === 'undefined' || !LB_FILES) globalThis.LB_FILES = {};
+  LB_.files = LB_.files || {};
+  var m = LB_.m || lbManifest_(lbVersion_()), name = m.files && id ? 'html-' + id + '.json' : 'html.json';
+  if (LB_.files[name]) return LB_FILES;
+  if (m.files && !m.files[name]) return LB_FILES;                  // 画面のファイルを持たない教科
+  var got = JSON.parse(lbText_(name, LB_.ver, m.files ? m.files[name] : ''));
+  for (var k in got) LB_FILES[k] = got[k];
+  LB_.files[name] = true;
   return LB_FILES;
 }
 /** 共通部品・振り分けが読み込み係に問い合わせる口 */
-var LB_LOADER = { files: function () { return lbFiles_(); }, ver: function () { return LB_.ver; }, repo: LB_REPO };
+var LB_LOADER = { files: function (id) { return lbFiles_(id); }, app: function (id) { return lbApp_(id); }, ver: function () { return LB_.ver; }, repo: LB_REPO };
 
 /**
  * 権限の宣言（呼ばない）。GAS は貼られたファイルに書かれた命令を見て承認を求める権限を決めるので、

@@ -13,11 +13,12 @@ function school(opts = {}) {
   const S = { cache: {}, props: { HUB_ID: 'HUBxxxxxxxxxxxxxxxxxxxxxx', 'u:kuku:ready_schema': '7' }, fetches: [], down: false, triggers: [], hub: makeSS('hub') };
   S.hub.insertSheet('platform').v.push(['版', VER], ['指紋', opts.sha === undefined ? '' : opts.sha]);
   S.hub.insertSheet('roster').v.push(['メール', '学年', '組', '番号', '姓', '名'], ['11111111@kyoiku.edu.nishi.or.jp', 3, 1, 5, '田中', 'はなこ']);
-  S.files = { 'server.js': DIST('server.js'), 'html.json': DIST('html.json') };
+  S.files = {};   // jsDelivr の dist/ にあるファイル全部
+  for (const f of fs.readdirSync(path.join(R, 'dist'))) S.files[f] = DIST(f);
   return S;
 }
 /** 1回の実行（新しいコンテキストに Loader.gs を読み込む） */
-function run(S, user = 'owner@edu.nishi.or.jp') {
+function run(S, user = 'owner@edu.nishi.or.jp', loader = LOADER) {
   const store = S.cache;
   const ctx = {
     console: { log() {}, error() {} },
@@ -65,7 +66,7 @@ function run(S, user = 'owner@edu.nishi.or.jp') {
   };
   ctx.globalThis = ctx;
   vm.createContext(ctx);
-  vm.runInContext(LOADER, ctx, { filename: 'Loader.gs' });
+  vm.runInContext(loader, ctx, { filename: 'Loader.gs' });
   return ctx;
 }
 const jsd = S => S.fetches.filter(u => u.includes('jsdelivr'));
@@ -76,8 +77,33 @@ t('ホーム：初回は jsDelivr から取り、版で固定した画面のプ�
   assert.match(page.html, new RegExp(`learning-base@${VER}/web/home\\.js`));
   assert.match(page.html, new RegExp(`learning-base@${VER}/web/pages\\.js`));
   assert.match(page.html, /lbCall\("home"/);
-  assert.strictEqual(jsd(S).length, 1);
-  assert.ok(S.hub.sheets.platform_code.v.some(r => r[0] === 'server.js' && r[1] === VER));
+  assert.strictEqual(JSON.stringify(jsd(S).map(u => u.split('/dist/')[1])), JSON.stringify(['manifest.json', 'core.js']), 'ホームでは教科のコードを読まない');
+  assert.ok(S.hub.sheets.platform_code.v.some(r => r[0] === 'core.js' && r[1] === VER));
+});
+t('教科は使う時だけ読む：算数のページで app-tamath.js と html-tamath.json だけ。国語のコードは読まない。教科を足しても毎回読む量は増えない', () => {
+  const S = school();
+  run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: { app: 'tamath', unit: 'kuku' } });
+  const got = jsd(S).map(u => u.split('/dist/')[1]);
+  assert.ok(got.includes('app-tamath.js') && got.includes('html-tamath.json'), got.join());
+  assert.ok(!got.some(f => /kanzi|server\.js|html\.json$/.test(f) && f !== 'html-tamath.json'), '他の教科・全部入りは読まない: ' + got.join());
+  const m = JSON.parse(DIST('manifest.json'));
+  assert.ok(m.chars['core.js'] < m.chars['server.js'] * 0.4, '毎回読むのは全部入りの4割未満（' + m.chars['core.js'] + '／' + m.chars['server.js'] + '字）');
+});
+t('ファイルは manifest の指紋と照らし合わせる：中身が違えば、その教科は実行しない（その教科だけ止まる）', () => {
+  const S = school();
+  S.files['app-tamath.js'] = S.files['app-tamath.js'].replace('var LB_RESOLVE_', "globalThis.HACKED = 1; var LB_RESOLVE_");
+  const c = run(S, '11111111@kyoiku.edu.nishi.or.jp');
+  assert.match(c.doGet({ parameter: { app: 'tamath', unit: 'kuku' } }).html, /いまは ひらけません/);
+  assert.strictEqual(c.HACKED, undefined, '書き換えられた中身は実行しない');
+  assert.match(run(S).doGet({ parameter: {} }).html, /home\.js/, 'ホームは動く');
+});
+t('前の形の版（manifest に files が無い。戻した時など）は、全部入りの server.js を読む', () => {
+  const S = school();
+  const old = JSON.parse(S.files['manifest.json']); delete old.files; delete old.chars;
+  S.files['manifest.json'] = JSON.stringify(old);
+  const c = run(S, '11111111@kyoiku.edu.nishi.or.jp');
+  assert.match(c.doGet({ parameter: { app: 'tamath', unit: 'kuku' } }).html, /var APP_ID = "kuku";/);
+  assert.ok(jsd(S).some(u => u.endsWith('/dist/server.js')) && jsd(S).some(u => u.endsWith('/dist/html.json')));
 });
 t('2回目からは一時保存から読む（jsDelivr に行かない）。版はハブを開かずに一時保存から', () => {
   const S = school(); run(S).doGet({ parameter: {} });
@@ -90,15 +116,16 @@ t('読み込み係の入口は、アプリの同じ名前の関数に上書き�
   assert.ok(String(c.doGet).includes('LbPlatform'));
   assert.ok(String(c.apiCall).includes('appApi'));
   assert.strictEqual(typeof c.UNIT_DEFS, 'undefined');
+  c.apiCall('kuku', 'unitIdsForTest', []);
   assert.strictEqual(typeof c.LB_MODULES.tamath.doGet, 'function');
 });
 t('算数TA：?app=tamath は単元の一覧（リンクに app=tamath）。?unit=… だけの今までの URL も算数TA へ。画面のファイルはこの時だけ読む', () => {
   const S = school();
   run(S).doGet({ parameter: {} });
-  assert.ok(!jsd(S).some(u => u.endsWith('html.json')), 'ホームでは画面のファイルを読まない');
+  assert.ok(!jsd(S).some(u => /html.*\.json$/.test(u)), 'ホームでは画面のファイルを読まない');
   const p = run(S).doGet({ parameter: { app: 'tamath' } });
   assert.match(p.html, /exec\?app=tamath&unit=kuku/);
-  assert.ok(jsd(S).some(u => u.endsWith('html.json')));
+  assert.ok(jsd(S).some(u => u.endsWith('html-tamath.json')));
   assert.match(run(S).doGet({ parameter: { unit: 'zzz' } }).html, /app=tamath&unit=/, '知らない単元は一覧へ');
   assert.match(run(S).doGet({ parameter: { app: 'nope' } }).html, /アプリが見つかりません/);
   assert.match(run(S).doGet({ parameter: { doc: 'x' } }).html, /じゅんび中/, '教材ページは doc=');
@@ -127,7 +154,8 @@ t('指紋：ハブの指紋と違えば実行しない（児童には案内、�
   const c = run(bad), p = c.doGet({ parameter: {} });
   assert.match(p.html, /ひらけません/); assert.match(p.html, /指紋/);
   assert.strictEqual(typeof c.LbPlatform, 'undefined', '中身を実行していない');
-  const good = school({ sha: MANIFEST.server });
+  // platform シートの「指紋」は dist/manifest.json の指紋（各ファイルは manifest の指紋で照らし合わせる）
+  const good = school({ sha: crypto.createHash('sha256').update(DIST('manifest.json'), 'utf8').digest('hex') });
   assert.match(run(good).doGet({ parameter: {} }).html, /home\.js/);
 });
 t('jsDelivr が止まった時：一時保存が無くてもハブの写しで動く。写しも無ければ案内を出す', () => {
@@ -141,10 +169,12 @@ t('jsDelivr が止まった時：一時保存が無くてもハブの写しで�
 t('ハブの写し：区切りの頭が「+」「=」でも数式にならずに戻る（頭に # を付ける）', () => {
   const S = school();
   // 2つ目のセルの頭（30000字目）が「+」になる中身にする：行の境目まで詰め物の注釈を入れ、そこに実行できる文「+0;」を置く
-  const orig = S.files['server.js'], cut = orig.lastIndexOf('\n', 29000) + 1, head = orig.slice(0, cut);
+  const orig = S.files['core.js'], cut = orig.lastIndexOf('\n', 29000) + 1, head = orig.slice(0, cut);
   const pad = '//' + ' '.repeat(30000 - head.length - 3) + '\n';
-  S.files['server.js'] = head + pad + '+0;\n' + orig.slice(cut);
-  assert.strictEqual(S.files['server.js'].charAt(30000), '+');
+  S.files['core.js'] = head + pad + '+0;\n' + orig.slice(cut);
+  assert.strictEqual(S.files['core.js'].charAt(30000), '+');
+  const man = JSON.parse(S.files['manifest.json']); man.files['core.js'] = crypto.createHash('sha256').update(S.files['core.js'], 'utf8').digest('hex');
+  S.files['manifest.json'] = JSON.stringify(man);   // 書き換えた中身の指紋を manifest に（照らし合わせを通すため）
   run(S).doGet({ parameter: {} });
   assert.ok(S.hub.sheets.platform_code.v.some(r => String(r[3]).startsWith('#+')), '頭が + のセルができる');
   S.cache = {}; S.down = true;
@@ -159,7 +189,7 @@ t('版の切り替え：ハブの版を書き換え、lbReload（または5分�
   assert.ok(!jsd(S).some(u => u.includes('@v2026.1110.0900')), '5分の間は前の版');
   run(S).lbReload();
   run(S).doGet({ parameter: {} });
-  assert.ok(jsd(S).some(u => u.includes('@v2026.1110.0900/dist/server.js')));
+  assert.ok(jsd(S).some(u => u.includes('@v2026.1110.0900/dist/manifest.json')));
 });
 t('自動：platform シートが無い・「版」が空・「自動」なら GitHub の release.json の版で動く', () => {
   const FULL = 'a'.repeat(40);
@@ -167,7 +197,7 @@ t('自動：platform シートが無い・「版」が空・「自動」なら G
     const S = school(); setup(S);
     S.release = { ver: FULL, sha: '' }; S.files = Object.assign({}, S.files);
     run(S).doGet({ parameter: {} });
-    assert.ok(jsd(S).some(u => u.includes('@' + FULL + '/dist/server.js')), 'release.json の版を取りに行く');
+    assert.ok(jsd(S).some(u => u.includes('@' + FULL + '/dist/manifest.json')), 'release.json の版を取りに行く');
   }
 });
 t('自動：GitHub に届かない時は、最後に取れた版で動く。一度も取れていなければ理由を出す', () => {
@@ -177,7 +207,7 @@ t('自動：GitHub に届かない時は、最後に取れた版で動く。一�
   assert.strictEqual(S.props.LB_RELEASE.split('|')[0], 'b'.repeat(40));
   S.cache = {}; S.githubDown = true;
   run(S).doGet({ parameter: {} });
-  assert.ok(jsd(S).some(u => u.includes('@' + 'b'.repeat(40) + '/dist/server.js')));
+  assert.ok(jsd(S).some(u => u.includes('@' + 'b'.repeat(40) + '/dist/manifest.json')));
   const S2 = school(); delete S2.hub.sheets.platform; S2.githubDown = true;
   assert.match(run(S2).doGet({ parameter: {} }).html, /使う版が決まりません/);
 });
@@ -191,7 +221,7 @@ t('固定：「版」にコミット番号があれば release.json に関わら
 t('新しい形の記録：送信で単元のスプレッドシートに1行（学習者ID・全問）。夜の処理でハブの集計へ（練習は除く）', () => {
   const S = school();
   S.units = { KUKUxxxxxxxxxxxxxxxxxxxxxx: makeSS('kuku') }; S.props['unit_sheet:kuku'] = 'KUKUxxxxxxxxxxxxxxxxxxxxxx';
-  const c = run(S); c.doGet({ parameter: {} });
+  const c = run(S); c.doGet({ parameter: {} }); c.apiCall('kuku', 'unitIdsForTest', []);   // 算数を読み込む（使う時だけ読む形）
   const M = c.LB_MODULES.tamath, mail = '11111111@kyoiku.edu.nishi.or.jp';
   const items = [{ i: 0, q: '7x8', t: 'x7', a: '56', tries: 1, hit: true, ok: true, skill: 'math/kuku/x7', first: 1200 },
     { i: 1, q: '7x6', t: 'x7', a: '41/42', tries: 2, hit: true, ok: false, skill: 'math/kuku/x7' }];
@@ -234,7 +264,7 @@ t('段階D：過去の log を1回だけ集計へ（新しい形の記録より�
   log.v.push([day(0), mail, 3, '1', 5, '田中 はなこ', 3, 'm', 60, 10, 10, 'x7:a,x7:b,x7:c,x7:d,x7:e,x7:f', '', 'x7:6:0:6:6000:0:41.4:286', '']);
   // 新しい形の記録が始まった後の1回（log にも同じ回があるが、二重に数えない）
   run(S).lbStatus();
-  c.LB_MODULES.tamath.writeForUnit('kuku', { mode: 3 }, mail, false, [{ i: 0, q: '7x8', t: 'x7', a: '56', tries: 1, hit: true, ok: true, skill: 'math/kuku/x7', first: 1000 }]);
+  c.LbPlatform.appApi('tamath', 'kuku', 'unitIdsForTest', []); c.LB_MODULES.tamath.writeForUnit('kuku', { mode: 3 }, mail, false, [{ i: 0, q: '7x8', t: 'x7', a: '56', tries: 1, hit: true, ok: true, skill: 'math/kuku/x7', first: 1000 }]);
   const sessTs = kuku.sheets.sessions_2026.v[1][0];
   log.v.push([new Date(sessTs.getTime() + 1), mail, 3, '1', 5, '田中 はなこ', 3, 'm', 60, 1, 1, '', '', 'x7:1:0:1:1000:0:6.9:47.7', '']);   // 新しい形が始まった後の回（いまより前）
   run(S).lbSetup();                                                  // 技能の目録をハブへ
@@ -286,9 +316,13 @@ t('lbSetup：所有者だけ。自動実行（夜・朝・4/1・毎時）を1回
 t('自動実行：夜の処理は各アプリへ（算数TA は未登録の単元を飛ばす）。毎時は jsDelivr に行かずに一時保存を延ばす', () => {
   const S = school(); run(S).doGet({ parameter: {} }); run(S).doGet({ parameter: { app: 'tamath' } });
   assert.strictEqual(JSON.stringify(run(S).lbNightly()), '[]');
+  run(S).lbHourly();                                                // 1回目：まだ一時保存に無い教科のファイル（国語の画面など）を取る
+  const got = jsd(S).map(u => u.split('/dist/')[1]);
+  assert.ok(['core.js', 'app-tamath.js', 'app-kanzi.js', 'html-tamath.json', 'html-kanzi.json'].every(f => got.includes(f)), '全教科のファイルを温める: ' + got.join());
+  assert.ok(!got.includes('server.js'), '全部入りは温めない');
   const before = S.fetches.length;
   run(S).lbHourly();
-  assert.strictEqual(S.fetches.length, before);
+  assert.strictEqual(S.fetches.length, before, '2回目からは jsDelivr に行かずに延ばす');
 });
 
 t('直すための材料：開いた・往復・始めるまで・失敗（エラー文つき）を数え、夜に前日までを usage へ。所有者は画面から失敗と速さの書き出しを受け取れる（名前は入らない）', () => {
@@ -381,9 +415,11 @@ t('開くのを速く：ホームの情報をページの枠に入れて返す�
 t('隔離：読み込みで失敗したアプリはそのアプリだけ止まり、学習BASE のホームと夜の処理は動く', () => {
   const S = school();
   const mark = 'var LB_RESOLVE_ = function';
-  const i = S.files['server.js'].indexOf(mark);
+  const f = 'app-tamath.js', i = S.files[f].indexOf(mark);
   assert.ok(i > 0);
-  S.files['server.js'] = S.files['server.js'].slice(0, i) + "throw new Error('壊れた版');\n" + S.files['server.js'].slice(i);
+  S.files[f] = S.files[f].slice(0, i) + "throw new Error('壊れた版');\n" + S.files[f].slice(i);
+  const man = JSON.parse(S.files['manifest.json']); man.files[f] = crypto.createHash('sha256').update(S.files[f], 'utf8').digest('hex');
+  S.files['manifest.json'] = JSON.stringify(man);   // 指紋は合っているが、読み込みで失敗する版
   const c = run(S); const home = c.doGet({ parameter: {} }).html;
   assert.match(home, /home\.js/, 'ホームは開く');
   assert.match(run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: { app: 'tamath', unit: 'kuku' } }).html, /いまは ひらけません/);
@@ -428,6 +464,7 @@ t('国語（漢字の森）：学習BASE の中で動く。準備（KANZI_SS_ID�
   const lock = JSON.parse(fs.readFileSync(path.join(R, 'apps.lock.json'), 'utf8'));
   const declared = [].concat(...Object.keys(lock).filter(k => k !== '_').map(k => lock[k].globals || []));
   const bare = run(S, kid), before = new Set(Object.keys(bare)); bare.doGet({ parameter: {} });
+  bare.lbCall('app:kanzi', 'api_init', []); bare.apiCall('kuku', 'unitIdsForTest', []);   // 両方の教科を読み込んでから見る
   const leaked = Object.keys(bare).filter(k => !before.has(k) && !/^(Lb[A-Z]|LB_|Base$|base[A-Z])/.test(k)).sort();
   assert.strictEqual(JSON.stringify(leaked), JSON.stringify(declared.slice().sort()), '宣言していない名前が大域に出ている');
   assert.strictEqual(typeof run(S, kid).apiCall, 'function'); assert.ok(run(S, kid).apiCall('kuku', 'unitIdsForTest', []).length >= 14, '算数は今まで通り');
@@ -440,6 +477,17 @@ t('国語（漢字の森）：学習BASE の中で動く。準備（KANZI_SS_ID�
   book.sheets['名簿'].v.splice(1);                                   // 漢字の森のシートの名簿を空にしても
   assert.strictEqual(run(S, kid).lbCall('app:kanzi', 'api_init', []).klass, '3-1', '学習BASE の名簿で開ける');
   assert.deepEqual(run(S, 'other@edu.nishi.or.jp').lbCall('app:kanzi', 'api_init', []).classes, ['3-1'], '教師ドメインは全学級（教師シートに無くても）');
+});
+t('貼り直す前の読み込み係（前の形）でも、新しい dist/ で今まで通り動く（全部入りの server.js・html.json を読む）', () => {
+  const OLD = fs.readFileSync(path.join(__dirname, 'fixtures-old-loader.gs'), 'utf8');
+  assert.ok(!OLD.includes('lbApp_'), '前の形の読み込み係');
+  const S = school({ sha: MANIFEST.server }), kid = '11111111@kyoiku.edu.nishi.or.jp';
+  assert.match(run(S, kid, OLD).doGet({ parameter: {} }).html, /home\.js/);
+  assert.match(run(S, kid, OLD).doGet({ parameter: { app: 'tamath', unit: 'kuku' } }).html, /var APP_ID = "kuku";/);
+  assert.ok(run(S, kid, OLD).apiCall('kuku', 'unitIdsForTest', []).length >= 14);
+  assert.strictEqual(run(S, kid, OLD).lbCall('home', 'boot', [{}]).apps.kanzi, false);
+  assert.strictEqual(JSON.stringify(run(S, 'owner@edu.nishi.or.jp', OLD).lbNightly()), '[]');
+  assert.ok(!jsd(S).some(u => /app-|core\.js|html-/.test(u)), '前の形は全部入りだけを読む');
 });
 (async () => {
   const S = school();

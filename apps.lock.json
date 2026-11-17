@@ -49,6 +49,7 @@
     "globals": [
       "Sched",
       "Genko"
-    ]
+    ],
+    "readyProp": "KANZI_SS_ID"
   }
 }

@@ -39,25 +39,45 @@ return {
 `;
 }
 
+/**
+ * 作るもの
+ *   dist/core.js         … 共通部品＋振り分け（新しい読み込み係が毎回読む）
+ *   dist/app-<id>.js     … 教科（アプリ）ごとのサーバーのコード（その教科を使う時だけ読む）
+ *   dist/html-<id>.json  … 教科ごとの画面のファイル（その教科のページを返す時だけ読む）
+ *   dist/server.js・dist/html.json … 全部をまとめたもの（前の読み込み係のため。貼り直した後は使わない）
+ *   dist/manifest.json   … 各ファイルの指紋（読み込み係が照らし合わせる）・取り込んだアプリの版
+ * 教科を足しても、1回の呼び出しで読む量は「共通部品＋その教科」のまま増えない
+ */
 function build() {
-  const parts = ['// dist/server.js — 学習BASE のサーバー側のコード（tools/bundle.cjs が作る。直接直さない）',
-    'var LB_MODULES = (typeof LB_MODULES !== "undefined" && LB_MODULES) || {};',
-    'var LB_PLATFORM_TRIGGERS = true;   // 自動実行は読み込み係が置く（アプリは置かない）', ''];
-  for (const f of GAS_ORDER) parts.push(`// ===== gas/${f} =====\n` + fs.readFileSync(path.join(R, 'gas', f), 'utf8'));
-  const html = {}, apps = {};
+  const head = ['var LB_MODULES = (typeof LB_MODULES !== "undefined" && LB_MODULES) || {};',
+    'var LB_PLATFORM_TRIGGERS = true;   // 自動実行は読み込み係が置く（アプリは置かない）'];
+  const common = GAS_ORDER.map(f => `// ===== gas/${f} =====\n` + fs.readFileSync(path.join(R, 'gas', f), 'utf8'));
+  const platform = '// ===== gas/Platform.gs =====\n' + fs.readFileSync(path.join(R, 'gas', 'Platform.gs'), 'utf8');
+  const out = {}, apps = {}, ids = [], ready = {}, htmlAll = {}, appCode = [];
   for (const [id, a] of Object.entries(lock)) {
     if (id === '_') continue;
+    if (!/^[a-z][a-z0-9-]*$/.test(id)) throw new Error('アプリの名前が不正: ' + id);
+    ids.push(id);
+    if (a.readyProp) ready[id] = a.readyProp;
     const code = a.server.map(f => `// --- ${f} ---\n` + gitShow(a.repo, a.commit, f)).join('\n');
-    parts.push(wrap(id, a, code));
-    for (const [name, f] of Object.entries(a.files || {})) html[`${id}/${name}`] = gitShow(a.repo, a.commit, f);
+    const w = wrap(id, a, code);
+    appCode.push(w);
+    out[`dist/app-${id}.js`] = `// dist/app-${id}.js — 教科 ${id} のサーバーのコード（tools/bundle.cjs が作る。直接直さない）\n` + w;
+    const html = {};
+    for (const [name, f] of Object.entries(a.files || {})) html[`${id}/${name}`] = htmlAll[`${id}/${name}`] = gitShow(a.repo, a.commit, f);
+    out[`dist/html-${id}.json`] = JSON.stringify(html);
     apps[id] = { repo: a.repo, commit: a.commit };
   }
-  parts.push('// ===== gas/Platform.gs =====\n' + fs.readFileSync(path.join(R, 'gas', 'Platform.gs'), 'utf8'));
-  const server = parts.join('\n');
-  const htmlJson = JSON.stringify(html);
+  const reg = `var LB_APP_IDS = ${JSON.stringify(ids)};   // 載っている教科（アプリ）\nvar LB_APP_READY = ${JSON.stringify(ready)};   // 準備に要るスクリプトのプロパティ`;
+  out['dist/core.js'] = ['// dist/core.js — 学習BASE の共通部品と振り分け（tools/bundle.cjs が作る。直接直さない）', ...head, reg, ''].concat(common, [platform]).join('\n');
+  out['dist/server.js'] = ['// dist/server.js — 学習BASE のサーバー側のコード（全部入り。前の読み込み係のため。tools/bundle.cjs が作る）', ...head, reg, ''].concat(common, appCode, [platform]).join('\n');
+  out['dist/html.json'] = JSON.stringify(htmlAll);
   const sha = t => crypto.createHash('sha256').update(t, 'utf8').digest('hex');
-  const manifest = JSON.stringify({ server: sha(server), html: sha(htmlJson), serverChars: server.length, htmlChars: htmlJson.length, apps }, null, 1) + '\n';
-  return { 'dist/server.js': server, 'dist/html.json': htmlJson, 'dist/manifest.json': manifest };
+  const files = {}, chars = {};
+  for (const f of Object.keys(out).sort()) { files[f.slice(5)] = sha(out[f]); chars[f.slice(5)] = out[f].length; }
+  out['dist/manifest.json'] = JSON.stringify({ server: files['server.js'], html: files['html.json'], serverChars: chars['server.js'], htmlChars: chars['html.json'],
+    files, chars, apps }, null, 1) + '\n';
+  return out;
 }
 
 const out = build();
@@ -69,5 +89,7 @@ if (process.argv.includes('--check')) {
   fs.mkdirSync(path.join(R, 'dist'), { recursive: true });
   for (const f in out) fs.writeFileSync(path.join(R, f), out[f]);
   const m = JSON.parse(out['dist/manifest.json']);
-  console.log(`dist/ を作った：server.js ${m.serverChars} 字・html.json ${m.htmlChars} 字・指紋 ${m.server}`);
+  // 前の形で作った dist/ の古いアプリのファイルを消す（apps.lock.json から外したアプリ）
+  for (const f of fs.readdirSync(path.join(R, 'dist'))) if (/^(app-.*\.js|html-.*\.json)$/.test(f) && !m.files[f]) fs.unlinkSync(path.join(R, 'dist', f));
+  console.log('dist/ を作った：' + Object.keys(m.chars).map(f => f + ' ' + m.chars[f] + '字').join('・'));
 }
