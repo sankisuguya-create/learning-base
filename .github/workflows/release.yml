@@ -43,8 +43,10 @@ jobs:
       - name: release.json を書いて push
         run: |
           node -e '
-            const m = require("./dist/manifest.json"), fs = require("fs");
-            fs.writeFileSync("release.json", JSON.stringify({ ver: process.env.GITHUB_SHA, sha: m.server, apps: m.apps,
+            const m = require("./dist/manifest.json"), fs = require("fs"), crypto = require("crypto");
+            // manifest：dist/manifest.json の指紋（新しい読み込み係はこれを照らし合わせ、各ファイルは manifest の指紋で照らし合わせる）。sha：前の読み込み係のための server.js の指紋
+            const msha = crypto.createHash("sha256").update(fs.readFileSync("dist/manifest.json", "utf8"), "utf8").digest("hex");
+            fs.writeFileSync("release.json", JSON.stringify({ ver: process.env.GITHUB_SHA, sha: m.server, manifest: msha, apps: m.apps,
               at: new Date().toISOString(), note: "学習BASE の読み込み係が使う版。GitHub の自動処理が書く（直接直さない）" }, null, 1) + "\n");'
           cat release.json
           git config user.name "github-actions[bot]"

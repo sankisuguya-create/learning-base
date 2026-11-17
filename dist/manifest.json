@@ -1,8 +1,26 @@
 {
- "server": "d27a24a3f56500e76c8751073d285ab9fd866d2c54ebc36e1c41949aa8eb5081",
+ "server": "48e72b66e73350a68122ccb9b0322ccbda407e029959310d612c587ce17a9fc4",
  "html": "d99ecb09b15c377d32abe6e5934c4b5c820e8891bcb15559bcc94ab9cc9358f1",
- "serverChars": 524071,
+ "serverChars": 525197,
  "htmlChars": 587083,
+ "files": {
+  "app-kanzi.js": "1d712353490c12b074d6c287afa921ebb9be648af4c0aa91c1d3b9576f8957f9",
+  "app-tamath.js": "5c59bd0937a8e41c361f75ef2fc33848778b5ef7f3ea4f8aac67d222c4bffbce",
+  "core.js": "2166f7acb2fb5f111e8c9ec1ba2bd2e1c75ff818a57ac5a3cd0491fa45fc18b4",
+  "html-kanzi.json": "9389d7bb62df6509fe14846073ac01c498f7c931fd8924f7e31d108d631ded0c",
+  "html-tamath.json": "d487d71be44d1e9e567432c1a5498d126c073f247ce31aff7b2ea40dc0853406",
+  "html.json": "d99ecb09b15c377d32abe6e5934c4b5c820e8891bcb15559bcc94ab9cc9358f1",
+  "server.js": "48e72b66e73350a68122ccb9b0322ccbda407e029959310d612c587ce17a9fc4"
+ },
+ "chars": {
+  "app-kanzi.js": 81386,
+  "app-tamath.js": 300742,
+  "core.js": 143200,
+  "html-kanzi.json": 64495,
+  "html-tamath.json": 522589,
+  "html.json": 587083,
+  "server.js": 525197
+ },
  "apps": {
   "tamath": {
    "repo": "sankisuguya-create/arithmetic-timeattack",

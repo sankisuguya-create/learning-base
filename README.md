@@ -22,8 +22,20 @@
 
 ## 学習BASE を動かす（GAS に貼るのは `gas/Loader.gs` の1枚だけ）
 
-読み込み係（`Loader.gs`）が、共通部品・各アプリのサーバー側のコード（`dist/server.js`）と画面のファイル（`dist/html.json`）を
-jsDelivr から版で固定して取ってきて実行する。
+読み込み係（`Loader.gs`）が、`dist/` のファイルを jsDelivr から版で固定して取ってきて実行する。
+
+| ファイル | いつ読むか |
+|---|---|
+| `dist/manifest.json` | 毎回（各ファイルの指紋。読んだファイルはすべてこれと照らし合わせてから実行する） |
+| `dist/core.js` | 毎回（共通部品・ホーム・振り分け） |
+| `dist/app-<教科>.js` | その教科を使う時だけ（`app-tamath.js`＝算数、`app-kanzi.js`＝国語） |
+| `dist/html-<教科>.json` | その教科のページを返す時だけ |
+| `dist/server.js`・`dist/html.json` | 全部入り。2026-11-17 より前の読み込み係のため（貼り直した後は使わない） |
+
+教科を足しても、1回の呼び出しで読むのは「共通部品＋その教科」だけなので、読む量は増えない。
+
+**教科のリポジトリを直した時**：教科のリポジトリにマージすると、1時間以内に「教科の版を上げる」PR が自動でできる（`.github/workflows/update-apps.yml`。検査が通った時だけ）。それをマージすると学校に届く。
+初めに1回だけ、このリポジトリの Settings → Actions → General →「Allow GitHub Actions to create and approve pull requests」をオンにする。
 
 **更新は PR のマージだけ。** main にマージされると GitHub の自動処理（`.github/workflows/release.yml`）が検査を通した上で
 `release.json`（版と指紋）を書き、読み込み係が5分以内にその版を使い始める。検査が落ちれば `release.json` は変わらない（学校は前の版のまま）。
@@ -36,7 +48,7 @@ jsDelivr から版で固定して取ってきて実行する。
 3. エディタで `lbSetup` を実行（承認・自動実行の設置・技能の目録をハブに書く。実行ログに結果）
 4. デプロイ → 新しいデプロイ → ウェブアプリ（次のユーザーとして実行：自分、アクセス：ドメイン内の全員）
 
-（`platform` シートは要らない。版を固定したい時だけ作る：A1「版」・B1 にコミット番号、A2「指紋」・B2 に `dist/manifest.json` の `server`）
+（`platform` シートは要らない。版を固定したい時だけ作る：A1「版」・B1 にコミット番号、A2「指紋」・B2 は空でよい。入れるなら、その版の `dist/manifest.json` の SHA-256（`release.json` の `manifest`））
 
 ### 更新
 
