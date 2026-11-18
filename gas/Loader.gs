@@ -31,13 +31,13 @@ var LB_ = { ready: false, ver: '', sha: '' };
 /* ---------- 画面・自動実行から呼ばれる入口（この名前は変えない） ---------- */
 
 function doGet(e) {
-  try { lbNeed_(); return LbPlatform.doGet(e || { parameter: {} }); }
+  try { var q = (e && e.parameter) || {}; lbNeed_(q.app || (q.unit ? 'tamath' : '')); return LbPlatform.doGet(e || { parameter: {} }); }
   catch (err) { return lbErrorPage_(err); }
 }
 /** 学習BASE の画面（web/home.js など）からの呼び出し */
-function lbCall(mod, name, args) { lbNeed_(); return LbPlatform.call(mod, name, args); }
+function lbCall(mod, name, args) { var am = /^app:([a-z][a-z0-9-]*)$/.exec(String(mod)); lbNeed_(am ? am[1] : ''); return LbPlatform.call(mod, name, args); }
 /** 算数タイムアタックの画面からの呼び出し（算数TA の google.script.run の差し替えがこの名前で呼ぶ） */
-function apiCall(unit, name, args) { lbNeed_(); return LbPlatform.appApi('tamath', unit, name, args); }
+function apiCall(unit, name, args) { lbNeed_('tamath'); return LbPlatform.appApi('tamath', unit, name, args); }
 function lbNightly() { lbNeed_(); return LbPlatform.nightly(); }
 function lbDaily() { lbNeed_(); return LbPlatform.daily(); }
 function lbRollover() { lbNeed_(); return LbPlatform.rollover(); }
@@ -92,22 +92,55 @@ function lbStatus() {
 
 /* ---------- 読み込み ---------- */
 
-function lbNeed_() {
+/**
+ * 共通部品（と、分かっていればその呼び出しで使う教科）を読み込む。
+ * 一時保存への往復を減らす（2026-11-18）：目録（manifest）は版と一緒に覚えておき（lbVersion_）、分けた個数は目録の字数から計算し、
+ * 共通部品と教科の中身を1回の getAll でまとめて読む。ふだん（一時保存にある時）は、版の1回＋中身の1回の2往復
+ */
+function lbNeed_(hint) {
   if (LB_.ready) return;
-  var v = lbVersion_(), m = lbManifest_(v);
-  LB_.ver = v.ver; LB_.sha = v.sha; LB_.m = m;
-  if (m.files && m.files['core.js']) (0, eval)(lbText_('core.js', v.ver, m.files['core.js']));   // 共通部品と振り分け（LbPlatform）。教科は要る時に LB_LOADER.app
-  else (0, eval)(lbText_('server.js', v.ver, m.server || v.sha));                                 // 前の形の版：全部入り
+  var v = lbVersion_(), m = v.m;
+  LB_.ver = v.ver; LB_.sha = v.sha; LB_.m = m; LB_.mver = v.ver;
+  if (!m || !m.files || !m.files['core.js']) {                     // 前の形の版：全部入り
+    if (!m) m = LB_.m = lbManifest_(v);
+    if (!m.files || !m.files['core.js']) { (0, eval)(lbText_('server.js', v.ver, m.server || v.sha)); LB_.ready = true; return; }
+  }
+  var names = ['core.js'], app = hint && m.files['app-' + hint + '.js'] ? 'app-' + hint + '.js' : '';
+  if (app) names.push(app);
+  var got = {}, appErr = null;
+  try { got = lbTexts_(names, v.ver, m); }
+  catch (e) { if (!app) throw e; appErr = e; got = lbTexts_(['core.js'], v.ver, m); }   // 教科のファイルだけが読めない時は、共通部品は動かす
+  (0, eval)(got['core.js']);                                       // 共通部品と振り分け（LbPlatform）
+  // その呼び出しで使う教科（ほかの教科は要る時に LB_LOADER.app）。読めない・指紋が合わない時は、その教科だけ止める
+  if (app && !appErr) { try { (0, eval)(got[app]); } catch (e2) { appErr = e2; } }
+  if (appErr) { LB_MODULES[hint] = { broken: String(appErr && appErr.message || appErr) }; console.error('教科 ' + hint + ' を読み込めません: ' + LB_MODULES[hint].broken); }
   LB_.ready = true;
 }
 /**
- * dist/manifest.json（各ファイルの指紋）。版ごとに一時保存。release.json か platform シートの「指紋」が manifest の指紋ならそれと照らし合わせる。
- * 前の形の版（manifest に files が無い）でも server の指紋は入っている
+ * いくつかのファイルを読む。一時保存にあるものは1回の getAll でまとめて読み（キーは目録の字数から計算）、無いものだけ1つずつ取ってくる。
+ * どれも目録の指紋と照らし合わせる（一時保存に入れる時に照らし合わせ済み。取ってくるものは lbText_ が照らし合わせる）
  */
+function lbTexts_(names, ver, m) {
+  var keys = [], plan = {}, out = {};
+  names.forEach(function (n) {
+    var len = m.chars && m.chars[n], k = Math.ceil((len || 0) / LB_CHUNK) || 1, base = 'lb:' + n + ':' + ver;
+    plan[n] = [];
+    for (var i = 0; i < k; i++) { plan[n].push(base + ':' + i); keys.push(base + ':' + i); }
+    keys.push(base + ':n');
+  });
+  var c = CacheService.getScriptCache(), hit = {};
+  try { hit = c.getAll(keys); } catch (e) { hit = {}; }
+  names.forEach(function (n) {
+    var parts = plan[n], ok = hit['lb:' + n + ':' + ver + ':n'] === String(parts.length) && parts.every(function (k) { return hit[k] != null; });
+    out[n] = ok ? parts.map(function (k) { return hit[k]; }).join('') : lbText_(n, ver, m.files[n]);
+  });
+  return out;
+}
+/** 目録（dist/manifest.json）。ふだんは lbVersion_ が版と一緒に覚えている */
 function lbManifest_(v, refresh) {
+  if (!refresh && v.m) return v.m;
   if (!refresh && LB_.m && LB_.mver === v.ver) return LB_.m;
-  var text = lbText_('manifest.json', v.ver, v.msha || '', refresh);
-  var m = JSON.parse(text);
+  var m = JSON.parse(lbText_('manifest.json', v.ver, v.msha || '', refresh));
   LB_.m = m; LB_.mver = v.ver;
   return m;
 }
@@ -118,7 +151,7 @@ function lbApp_(id) {
   var m = LB_.m || lbManifest_(lbVersion_()), name = 'app-' + id + '.js';
   if (!m.files) return null;
   if (!m.files[name]) throw new Error('この版に教科 ' + id + ' はありません');
-  (0, eval)(lbText_(name, LB_.ver, m.files[name]));
+  (0, eval)(lbTexts_([name], LB_.ver, m)[name]);
   return LB_MODULES[id];
 }
 
@@ -129,7 +162,7 @@ function lbApp_(id) {
  */
 function lbVersion_(fresh) {
   var c = CacheService.getScriptCache(), hit = fresh ? null : c.get('lb:ver');
-  if (hit) { var p = hit.split('|'); return { ver: p[0], sha: p[1] || '', mode: p[2] || '', msha: p[3] || '' }; }
+  if (hit && hit.charAt(0) === '{') { try { return JSON.parse(hit); } catch (e) {} }   // 版と目録（前の形の 'ver|sha|…' は読み直す）
   var id = String(PropertiesService.getScriptProperties().getProperty('HUB_ID') || '').trim();
   if (!id) throw new Error('スクリプト プロパティ HUB_ID（ハブのスプレッドシートの ID）が設定されていません');
   var sh = SpreadsheetApp.openById(id).getSheetByName('platform');
@@ -145,8 +178,10 @@ function lbVersion_(fresh) {
     ver = rel.ver; sha = rel.sha; msha = rel.msha || ''; mode = '自動';
   }
   if (!/^[0-9a-f]{7,40}$|^v[\w.\-]+$/.test(ver)) throw new Error('platform シートの 版 がコミット番号でもタグでもありません: ' + ver + '（自動に戻すなら「自動」と書くか空にする）');
-  c.put('lb:ver', ver + '|' + sha + '|' + mode + '|' + msha, LB_VER_TTL);
-  return { ver: ver, sha: sha, mode: mode, msha: msha };
+  var out = { ver: ver, sha: sha, mode: mode, msha: msha, m: null };
+  try { out.m = lbManifest_(out, !!fresh); } catch (e) { console.error('目録を読めません: ' + e.message); }   // 目録も一緒に覚える（呼び出しのたびに読まない）
+  if (out.m) c.put('lb:ver', JSON.stringify(out), LB_VER_TTL);
+  return out;
 }
 /** GitHub の release.json（{ ver, sha }）。取れたら覚えておき、取れない時は覚えた版を返す */
 function lbRelease_() {
@@ -244,7 +279,7 @@ function lbFiles_(id) {
   var m = LB_.m || lbManifest_(lbVersion_()), name = m.files && id ? 'html-' + id + '.json' : 'html.json';
   if (LB_.files[name]) return LB_FILES;
   if (m.files && !m.files[name]) return LB_FILES;                  // 画面のファイルを持たない教科
-  var got = JSON.parse(lbText_(name, LB_.ver, m.files ? m.files[name] : ''));
+  var got = JSON.parse(m.files ? lbTexts_([name], LB_.ver, m)[name] : lbText_(name, LB_.ver, ''));
   for (var k in got) LB_FILES[k] = got[k];
   LB_.files[name] = true;
   return LB_FILES;
