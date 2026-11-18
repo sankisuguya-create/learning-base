@@ -1,8 +1,8 @@
 // dist/app-kanzi.js — 教科 kanzi のサーバーのコード（tools/bundle.cjs が作る。直接直さない）
-// ===== アプリ kanzi（sankisuguya-create/kanzi@216a11b） =====
+// ===== アプリ kanzi（sankisuguya-create/kanzi@35ba039） =====
 LB_MODULES["kanzi"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/kanzi";
-var LB_APP_COMMIT = "216a11b4a945324370beaa179ab408802f248315";
+var LB_APP_COMMIT = "35ba0391f5caacb042570031b9d88366bb98b69e";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- gas/Scheduler.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/scheduler.js
@@ -486,7 +486,7 @@ var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval(
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // GAS 版ずれ検知の版（tools/build-gas.mjs が埋め込む）
-Sched.VER = "fc0d3b9";
+Sched.VER = "fd477be";
 
 // --- gas/Genko.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/genko.js（作文の形をそろえる normWork をサーバーでも使う）
