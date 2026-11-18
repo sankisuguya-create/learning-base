@@ -1,17 +1,17 @@
 {
- "ver": "3f34c8860b9d00dc6ba30c44abbdb7c038a95b57",
- "sha": "48e72b66e73350a68122ccb9b0322ccbda407e029959310d612c587ce17a9fc4",
- "manifest": "e2550790f63c68a344c5c02ee835a892525bf2e5fbcc0168fe2a1d78e9acd543",
+ "ver": "34d9fbaa58bc31fc0b8ed63bbabac329e7f61798",
+ "sha": "6ca6ed713cbd0091d58649c2d1a91367786b0908891ca121520ae290b0a2fbdb",
+ "manifest": "483833714bb245eaa39bd40f8589ed712f24b2cd883fc0dddfaf435402a533e0",
  "apps": {
   "tamath": {
    "repo": "sankisuguya-create/arithmetic-timeattack",
-   "commit": "ec852625997baadbd633d4f8a3e3ba9dbe0fb3fa"
+   "commit": "1a16a6feb588814c2898c5d384ec717764fb91d0"
   },
   "kanzi": {
    "repo": "sankisuguya-create/kanzi",
-   "commit": "216a11b4a945324370beaa179ab408802f248315"
+   "commit": "35ba0391f5caacb042570031b9d88366bb98b69e"
   }
  },
- "at": "2026-11-17T12:08:06.475Z",
+ "at": "2026-11-18T22:52:21.051Z",
  "note": "学習BASE の読み込み係が使う版。GitHub の自動処理が書く（直接直さない）"
 }
