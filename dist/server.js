@@ -2653,10 +2653,10 @@ var LbHome = (function () {
   return { API: API, boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@ec85262） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@1a16a6f） =====
 LB_MODULES["tamath"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/arithmetic-timeattack";
-var LB_APP_COMMIT = "ec852625997baadbd633d4f8a3e3ba9dbe0fb3fa";
+var LB_APP_COMMIT = "1a16a6feb588814c2898c5d384ec717764fb91d0";
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- dist/multi/Core.gs ---
@@ -8732,12 +8732,18 @@ UNIT_DEFS['kakehissan'] = {
     { id: 4, name: '3けた', desc: '212×3 ／ 387×4 ／ 406×7（第8・9時）',
       needs: { mode: 3, tries: 3 }, help: 'いちの くらいから うとう', enterKey: true },
     { id: 5, name: 'ぜんぶ いり', desc: '1〜4 を同じ割合で',
-      needs: { mode: 4, tries: 3 }, help: 'いちの くらいから うとう', enterKey: true }
+      needs: { mode: 4, tries: 3 }, help: 'いちの くらいから うとう', enterKey: true },
+    // 暗算（教科書の「暗算」の小単元）。2けた×1けたを ふつうの式で出し、答えは200まで。
+    // 200 にする理由：百の位が0か1に収まり、「何十×□」と「ばら×□」の和をとる最後のたし算が軽い。
+    // 100 だと ×6〜×9 が各2〜6通りしか残らず九九の段が偏る。300 では百の位が2になり頭の中で持つ数が増える。
+    { id: 6, name: 'あんざん', desc: '12×4 ／ 24×8（2けた×1けた、こたえは200まで。ふつうの式）',
+      needs: { mode: 3, tries: 3 }, help: 'うったら こたえあわせ', enterKey: true }
   ],
   types: {
     N: '何十×1けた', M: '何百×1けた',
     A: '2けた くりあがりなし', B: '一の位から くりあがり', C: '百の位へ くりあがり', D: 'くりあがり2回',
-    E: '3けた くりあがりなし', F: '3けた くりあがり', G: '3けた 空位（十の位が0）'
+    E: '3けた くりあがりなし', F: '3けた くりあがり', G: '3けた 空位（十の位が0）',
+    H: 'あんざん くりあがりなし', I: 'あんざん 一の位から くりあがり', J: 'あんざん 百の位へ くりあがり'
   },
 
   // 欄は各1けた。欄の数は型で決まり、答えの大きさでは変わらない
@@ -8747,7 +8753,8 @@ UNIT_DEFS['kakehissan'] = {
     C: { '一': 1, '十': 1, '百': 1 }, D: { '一': 1, '十': 1, '百': 1 },
     M: { '': 4 },                     // 何百×1けた。最大 900×9=8100 の4けた
     E: { '一': 1, '十': 1, '百': 1, '千': 1 }, F: { '一': 1, '十': 1, '百': 1, '千': 1 },
-    G: { '一': 1, '十': 1, '百': 1, '千': 1 }
+    G: { '一': 1, '十': 1, '百': 1, '千': 1 },
+    H: { '': 3 }, I: { '': 3 }, J: { '': 3 }   // あんざん。答えは200までの3けた
   },
 
   tips: '型B〜D・F・Gの誤答を見てください。24×3 なら、「くりあがりを たし忘れる」は 62、' +
@@ -8758,13 +8765,14 @@ UNIT_DEFS['kakehissan'] = {
 
   // 誤答明細は欄の順（一/十/百/千）で届く。教師には普通の数で見せる
   fmtAnswer: function (type, vals) {
-    if (type === 'N' || type === 'M') return vals.join('');
+    if (type === 'N' || type === 'M' || type === 'H' || type === 'I' || type === 'J') return vals.join('');
     var s = 0;
     for (var i = vals.length - 1; i >= 0; i--) s = s * 10 + Number(vals[i] || 0);
     return String(s);
   },
 
   gen: function (rand, mode) {
+    if (mode === 6) return kakeAnzan_(rand);
     var pools = { 1: ['N', 'M'], 2: ['A'], 3: ['B', 'C', 'D'], 4: ['E', 'F', 'G'] };
     var t;
     if (mode === 5) {
@@ -8837,6 +8845,21 @@ function kakeKind_(d, b) {
   }
   if (d[1] === 0) return any ? 'G' : 'E0';   // 空位でくりあがり無しは出さない
   return any ? 'F' : 'E';
+}
+
+/**
+ * あんざん（モード6）。かける数を2〜9から等確率で選び、その段で答えが200以下になる
+ * かけられる数（11〜99、何十は除く。何十はモード1）から等確率で選ぶ。
+ * 先に積≦200の組全体から選ぶと ×2 が3分の1を占めるため、段を先に決める。
+ */
+var KAKE_ANZAN_MAX = 200;
+function kakeAnzan_(rand) {
+  var b = ri_(rand, 2, 9), cand = [];
+  for (var a = 11; a * b <= KAKE_ANZAN_MAX && a <= 99; a++) if (a % 10) cand.push(a);
+  var a1 = pick_(rand, cand), p = a1 * b;
+  var k = kakeKind_([a1 % 10, Math.floor(a1 / 10)], b);   // A/B/C/D
+  var t = k === 'A' ? 'H' : (k === 'C' ? 'J' : 'I');      // D（2回）も一の位からのくりあがりとして I に入れる
+  return { t: t, q: [String(a1), '×', String(b)], f: [''], ans: { '': p }, tag: t + a1 + 'x' + b };
 }
 
 // 単元が1つだけのプロジェクト・テスト・プレビューでは、この単元が UNIT になる。
@@ -10195,10 +10218,10 @@ return {
 };
 })(); } catch (e) { console.error("アプリ tamath を読み込めません: " + (e && e.message || e)); return { broken: String(e && e.message || e) }; } })();
 
-// ===== アプリ kanzi（sankisuguya-create/kanzi@216a11b） =====
+// ===== アプリ kanzi（sankisuguya-create/kanzi@35ba039） =====
 LB_MODULES["kanzi"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/kanzi";
-var LB_APP_COMMIT = "216a11b4a945324370beaa179ab408802f248315";
+var LB_APP_COMMIT = "35ba0391f5caacb042570031b9d88366bb98b69e";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- gas/Scheduler.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/scheduler.js
@@ -10682,7 +10705,7 @@ var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval(
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // GAS 版ずれ検知の版（tools/build-gas.mjs が埋め込む）
-Sched.VER = "fc0d3b9";
+Sched.VER = "fd477be";
 
 // --- gas/Genko.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/genko.js（作文の形をそろえる normWork をサーバーでも使う）
