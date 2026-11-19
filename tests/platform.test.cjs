@@ -23,8 +23,8 @@ function run(S, user = 'owner@edu.nishi.or.jp', loader = LOADER) {
   const ctx = {
     console: { log() {}, error() {} },
     Session: { getActiveUser: () => ({ getEmail: () => user }), getEffectiveUser: () => ({ getEmail: () => 'owner@edu.nishi.or.jp' }), getScriptTimeZone: () => 'Asia/Tokyo' },
-    CacheService: { getScriptCache: () => ({ get: k => (k in store ? store[k] : null), put: (k, v) => { store[k] = String(v); }, remove: k => { delete store[k]; },
-      getAll: ks => { const o = {}; ks.forEach(k => { if (k in store) o[k] = store[k]; }); return o; }, putAll: m => { for (const k in m) store[k] = String(m[k]); },
+    CacheService: { getScriptCache: () => ({ get: k => (S.trips = (S.trips || 0) + 1, k in store ? store[k] : null), put: (k, v) => { store[k] = String(v); }, remove: k => { delete store[k]; },
+      getAll: ks => { S.trips = (S.trips || 0) + 1; const o = {}; ks.forEach(k => { if (k in store) o[k] = store[k]; }); return o; }, putAll: m => { for (const k in m) store[k] = String(m[k]); },
       removeAll: ks => ks.forEach(k => delete store[k]) }) },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = String(v); }, deleteProperty: k => { delete S.props[k]; }, getProperties: () => Object.assign({}, S.props) }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
@@ -488,6 +488,14 @@ t('貼り直す前の読み込み係（前の形）でも、新しい dist/ で�
   assert.strictEqual(run(S, kid, OLD).lbCall('home', 'boot', [{}]).apps.kanzi, false);
   assert.strictEqual(JSON.stringify(run(S, 'owner@edu.nishi.or.jp', OLD).lbNightly()), '[]');
   assert.ok(!jsd(S).some(u => /app-|core\.js|html-/.test(u)), '前の形は全部入りだけを読む');
+});
+t('速さ：一時保存への往復はふだん（温まった状態）算数の呼び出しで2回・算数のページで4回まで（前の形の読み込み係より少ない）', () => {
+  const S = school(), kid = '11111111@kyoiku.edu.nishi.or.jp';
+  const call = () => run(S, kid).apiCall('kuku', 'unitIdsForTest', []), page = () => run(S, kid).doGet({ parameter: { app: 'tamath', unit: 'kuku' } });
+  call(); call(); page(); page();
+  S.trips = 0; call(); const a = S.trips;
+  S.trips = 0; page(); const b = S.trips;
+  assert.ok(a <= 2, '算数の呼び出し：' + a + '回'); assert.ok(b <= 4, '算数のページ：' + b + '回');
 });
 (async () => {
   const S = school();
