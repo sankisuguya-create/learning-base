@@ -1,7 +1,7 @@
 {
- "ver": "8cddc3f38ed990cbf5da0ff0830e5da986df635f",
- "sha": "6ca6ed713cbd0091d58649c2d1a91367786b0908891ca121520ae290b0a2fbdb",
- "manifest": "483833714bb245eaa39bd40f8589ed712f24b2cd883fc0dddfaf435402a533e0",
+ "ver": "cbf8b64872608d6a92929d61344ff9527c22d745",
+ "sha": "301183734f4b00e71213742a615a5c8ff6b3d64989106e09f5db1e20e0c63533",
+ "manifest": "125df84c41b5b1204c185a2e952340c2031a3120739143ed561b615e5a8a6d56",
  "apps": {
   "tamath": {
    "repo": "sankisuguya-create/arithmetic-timeattack",
@@ -10,8 +10,12 @@
   "kanzi": {
    "repo": "sankisuguya-create/kanzi",
    "commit": "35ba0391f5caacb042570031b9d88366bb98b69e"
+  },
+  "taiiku": {
+   "repo": "sankisuguya-create/taiiku",
+   "commit": "9f9e8276f0eaa980551b81c5645b02c3eb01f23f"
   }
  },
- "at": "2026-11-19T07:31:07.612Z",
+ "at": "2026-11-23T09:12:28.234Z",
  "note": "学習BASE の読み込み係が使う版。GitHub の自動処理が書く（直接直さない）"
 }
