@@ -45,8 +45,8 @@ var Base = (function () {
   /* ---------- ハブ ---------- */
 
   /**
-   * ハブのスプレッドシート。スクリプトのプロパティ HUB_ID があればそれを開き、
-   * 無ければ自分（このGASが付いているスプレッドシート）がハブだとみなす。
+   * BASEシート（学習BASE の本体のスプレッドシート）。BASEシートに付けた GAS では、付いているスプレッドシートがそれ（設定は要らない）。
+   * スクリプトのプロパティ HUB_ID があればそれを開く（前の形：算数TA のハブを使っていた GAS。移転するまで）。
    * 同じ実行の中で開き直しても 2ms 程度（実測 2026-11-05）なので、使い回しはしない。
    */
   function hub() {
@@ -351,9 +351,11 @@ var Base = (function () {
     return false;
   }
 
+  var ownerMemo = null;
+  /** BASEシートの所有者か（1回の実行で1回だけ調べる） */
   function isOwner(mail) {
-    try { return SpreadsheetApp.getActiveSpreadsheet().getOwner().getEmail().toLowerCase() === mail; }
-    catch (e) { return false; }
+    if (ownerMemo === null) { try { ownerMemo = String(hub().getOwner().getEmail() || '').toLowerCase(); } catch (e) { ownerMemo = ''; } }
+    return !!ownerMemo && ownerMemo === mail;
   }
 
   /* ---------- 下請け ---------- */
@@ -400,7 +402,7 @@ var Base = (function () {
 
   return {
     VER: VER, TEACHER_DOMAIN: TEACHER_DOMAIN, CHILD_DOMAIN: CHILD_DOMAIN,
-    hub: hub, hubId: hubId, setHub: setHub,
+    hub: hub, hubId: hubId, setHub: setHub, sheet: hub,   // sheet＝BASEシート（hub は前の名前。読み込み係・アプリが使うので残す）
     fy: fy, fyOf: fyOf,
     email: email, domainOf: domainOf, isTeacherDomain: isTeacherDomain, isChildDomain: isChildDomain, me: me,
     roster: roster, child: child, learner: learner, members: members, actAs: actAs, classKey: classKey, normCls: normCls,

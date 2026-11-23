@@ -26,9 +26,12 @@ function run(S, user = 'owner@edu.nishi.or.jp', loader = LOADER) {
     CacheService: { getScriptCache: () => ({ get: k => (S.trips = (S.trips || 0) + 1, k in store ? store[k] : null), put: (k, v) => { store[k] = String(v); }, remove: k => { delete store[k]; },
       getAll: ks => { S.trips = (S.trips || 0) + 1; const o = {}; ks.forEach(k => { if (k in store) o[k] = store[k]; }); return o; }, putAll: m => { for (const k in m) store[k] = String(m[k]); },
       removeAll: ks => ks.forEach(k => delete store[k]) }) },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = String(v); }, deleteProperty: k => { delete S.props[k]; }, getProperties: () => Object.assign({}, S.props) }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: k => (k in S.props ? S.props[k] : null), setProperty: (k, v) => { S.props[k] = String(v); }, deleteProperty: k => { delete S.props[k]; }, getProperties: () => Object.assign({}, S.props),
+      setProperties: (o) => { for (const k in o) S.props[k] = String(o[k]); } }) },
+    DriveApp: { getRootFolder: () => ({}), getFileById: id => ({ getParents: () => ({ hasNext: () => true, next: () => 'folder' }), moveTo: f => { (S.moved = S.moved || {})[id] = f; } }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) },
-    SpreadsheetApp: { openById: id => { if (id === S.props.HUB_ID) return S.hub; if (S.units && S.units[id]) return S.units[id]; throw new Error('開けません ' + id); }, getActiveSpreadsheet: () => { throw new Error('付属のスプレッドシートは無い'); } },
+    SpreadsheetApp: { openById: id => { if (id === S.props.HUB_ID) return S.hub; if (S.bound && id === S.bound.getId()) return S.bound; if (S.units && S.units[id]) return S.units[id]; throw new Error('開けません ' + id); }, getActiveSpreadsheet: () => (S.bound || null),
+      create: name => { const id = 'NEW' + String(Object.keys(S.units = S.units || {}).length).padStart(22, '0'); return (S.units[id] = Object.assign(makeSS(id), { title: name })); } },
     UrlFetchApp: { fetch: url => {
       S.fetches.push(url);
       if (url === 'https://raw.githubusercontent.com/sankisuguya-create/learning-base/main/release.json') {
@@ -298,11 +301,14 @@ t('段階D：過去の log を1回だけ集計へ（新しい形の記録より�
   assert.ok(!(S.mails || []).some(m => /急に崩れた/.test(m.body)), '判断した項目はメールにも出ない');
 });
 
-t('版の欄が不正・ハブが未設定なら、理由を出して止まる', () => {
+t('版の欄が不正・BASEシートが分からないなら、理由を出して止まる', () => {
   const S = school(); S.hub.sheets.platform.v[0][1] = 'main';
   assert.match(run(S).doGet({ parameter: {} }).html, /コミット番号でもタグでもありません/);
   const S2 = school(); delete S2.props.HUB_ID;
-  assert.match(run(S2).doGet({ parameter: {} }).html, /HUB_ID/);
+  assert.match(run(S2).doGet({ parameter: {} }).html, /BASEシートが分かりません/);
+  const S3 = school(); S3.bound = S3.hub; delete S3.props.HUB_ID;   // BASEシートに付けた GAS：HUB_ID は要らない
+  assert.match(run(S3).doGet({ parameter: {} }).html, /LB_BOOT/);
+  assert.doesNotMatch(run(S3).doGet({ parameter: {} }).html, /先生へ/);
 });
 t('lbSetup：所有者だけ。自動実行（夜・朝・4/1・毎時）を1回だけ置き、各アプリの準備を呼ぶ', () => {
   const S = school();
@@ -503,6 +509,66 @@ t('速さ：一時保存への往復はふだん（温まった状態）算数�
   S.trips = 0; page(); const b = S.trips;
   assert.ok(a <= 2, '算数の呼び出し：' + a + '回'); assert.ok(b <= 4, '算数のページ：' + b + '回');
 });
+const ID_A = 'AAAAAAAAAAAAAAAAAAAAAAAA', ID_K = 'KKKKKKKKKKKKKKKKKKKKKKKK';
+t('台帳 app_sheets：前の形のプロパティは台帳に写して使う。無ければ作って BASEシートのフォルダへ。「止める」の行は使わない', () => {
+  const S = school(); S.props['unit_sheet:kuku'] = ID_A;
+  const c = run(S); c.lbStatus();
+  assert.strictEqual(c.LbStores.id('tamath', 'kuku', { legacyProp: 'unit_sheet:kuku' }), ID_A);
+  assert.strictEqual(JSON.stringify(S.hub.sheets.app_sheets.v.slice(1).map(r => r.slice(0, 3))), JSON.stringify([['tamath', 'kuku', 'https://docs.google.com/spreadsheets/d/' + ID_A + '/edit']]));
+  const made = c.LbStores.id('tamath', 'bai', { legacyProp: 'unit_sheet:bai', create: '算数TA かけ算（bai）' });
+  assert.ok(S.units[made] && S.units[made].title === '算数TA かけ算（bai）', '作った');
+  assert.strictEqual(S.moved[made], 'folder', 'BASEシートのフォルダへ');
+  assert.strictEqual(c.LbStores.id('tamath', 'bai', { create: 'x' }), made, '2回目は作らない');
+  assert.strictEqual(c.LbStores.id('kanzi', '', { legacyProp: 'KANZI_SS_ID', peek: true }), '', 'peek は作らない・書かない');
+  S.hub.sheets.app_sheets.v[1][3] = '止める'; c.LbStores.forget();
+  assert.strictEqual(c.LbStores.id('tamath', 'kuku', { legacyProp: 'unit_sheet:kuku', create: 'x' }), '', '止めた行は使わない（プロパティにあっても）');
+  assert.strictEqual(JSON.stringify(c.LbStores.ofApp('tamath').map(r => r.unit)), JSON.stringify(['bai']));
+});
+t('国語の準備：台帳に kanzi の行があれば使える（前の形の KANZI_SS_ID でも）', () => {
+  const S = school(), kid = '11111111@kyoiku.edu.nishi.or.jp';
+  assert.strictEqual(run(S, kid).lbCall('home', 'boot', [{}]).apps.kanzi, false);
+  S.hub.insertSheet('app_sheets').v.push(['アプリ', '単元', 'スプレッドシート', '状態', '作成'], ['kanzi', '', 'https://docs.google.com/spreadsheets/d/' + ID_K + '/edit', '', '']);
+  delete S.cache['lb:stores'];
+  assert.strictEqual(run(S, kid).lbCall('home', 'boot', [{}]).apps.kanzi, true);
+});
+t('移転：旧GAS で lbMoveOut → 新しいBASEシート（GAS が付いている）で lbSetup → 旧URL は新しい URL を案内し、旧GAS は夜の処理をしない', () => {
+  const S = school();
+  S.props['unit_sheet:kuku'] = ID_A; S.props.KANZI_SS_ID = ID_K; S.props['u:kuku:mode'] = '=公開';
+  S.hub.insertSheet('teachers').v.push(['メール', '学年', '組'], ['t@edu.nishi.or.jp', 3, 1]);
+  S.hub.insertSheet('facts_2026').v.push(['h']);
+  S.hub.insertSheet('links').v.push(['id', 'title', 'sub', 'url', 'x', 'color'], ['kuku', '九九', 'ほそく', 'https://script.google.com/macros/s/OLD/exec', '', 'mint'], ['bai', 'かけ', '', '', '', 'sky']);
+  S.hub.insertSheet('pages').v.push(['キー', 'URL', '色', '補足', '更新'], ['bai', 'https://script.google.com/macros/s/B/exec', '', '', '']);
+  S.hub.insertSheet('an_decisions').v.push(['算数TA の名残り']);
+  S.triggers.push('lbNightly', 'lbHourly');
+  const NEW = makeSS('BASExxxxxxxxxxxxxxxxxxxxx'); NEW.insertSheet('シート1');
+  (S.units = S.units || {})[NEW.getId()] = NEW;
+  assert.throws(() => run(S, 'kid@kyoiku.edu.nishi.or.jp').lbMoveOut('https://docs.google.com/spreadsheets/d/' + NEW.getId() + '/edit'), /所有者/);
+  const msg = run(S).lbMoveOut('https://docs.google.com/spreadsheets/d/' + NEW.getId() + '/edit');
+  assert.match(msg, /写さなかった（学習BASE のものでない）：.*links/);
+  assert.ok(NEW.sheets.roster && NEW.sheets.teachers && NEW.sheets.facts_2026 && NEW.sheets.platform && NEW.sheets.app_sheets, Object.keys(NEW.sheets).join());
+  assert.ok(!NEW.sheets.links && !NEW.sheets.an_decisions && !NEW.sheets['シート1'] && !NEW.sheets.platform_code, '算数TA の名残り・空のシートは無い: ' + Object.keys(NEW.sheets).join());
+  assert.strictEqual(JSON.stringify(NEW.sheets.pages.v.slice(1).map(r => r[0]).sort()), JSON.stringify(['bai', 'kuku']), 'links の開く先は pages へ（pages にあるものはそのまま）');
+  assert.strictEqual(NEW.sheets.pages.v.find(r => r[0] === 'bai')[1], 'https://script.google.com/macros/s/B/exec');
+  assert.strictEqual(JSON.stringify(NEW.sheets.app_sheets.v.slice(1).map(r => r[0] + ':' + r[1]).sort()), JSON.stringify(['kanzi:', 'tamath:kuku']));
+  assert.strictEqual(S.triggers.length, 0, '旧GAS の自動実行は止める');
+  // 旧URL：移転を知らせる（新しい URL はまだ無い）。夜の処理はしない
+  assert.match(run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: {} }).html, /ひっこしました[\s\S]*先生に/);
+  assert.strictEqual(JSON.stringify(run(S).lbNightly()), '[]');
+  // 新しいBASEシートに付けた GAS（HUB_ID なし・別のプロパティ・同じ一時保存の置き場ではない）
+  const N = school(); N.props = {}; N.bound = NEW; N.hub = NEW; N.units = S.units; S.units.hub = S.hub;
+  const out = run(N).lbSetup();
+  assert.match(out, /旧GAS のプロパティを取り込んだ：\d+ 件/);
+  assert.strictEqual(N.props['u:kuku:mode'], '=公開', '設定（数式に見える値も）そのまま');
+  assert.strictEqual(N.props.HUB_ID, undefined, 'HUB_ID は持ってこない');
+  assert.strictEqual(N.props.LB_MOVED_FROM, 'hub');
+  assert.ok(!NEW.sheets[' _移転'] && !NEW.sheets['_移転'], '受け渡しのシートは消す');
+  assert.match(out, /旧ハブに新しい URL を書いた/);
+  S.cache = {};   // 5分たった
+  assert.match(run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: {} }).html, /href="https:\/\/script\.google\.com\/a\/macros\/edu\.nishi\.or\.jp\/s\/LB\/exec"/);
+  assert.match(run(N, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: {} }).html, /LB_BOOT/, '新しい GAS はふつうに開く');
+  assert.match(run(N).lbStatus(), /中身: ○/);
+});
+
 (async () => {
   const S = school();
   const html = run(S).doGet({ parameter: {} }).html;

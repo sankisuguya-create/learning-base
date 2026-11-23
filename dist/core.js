@@ -100,8 +100,8 @@ var Base = (function () {
   /* ---------- ハブ ---------- */
 
   /**
-   * ハブのスプレッドシート。スクリプトのプロパティ HUB_ID があればそれを開き、
-   * 無ければ自分（このGASが付いているスプレッドシート）がハブだとみなす。
+   * BASEシート（学習BASE の本体のスプレッドシート）。BASEシートに付けた GAS では、付いているスプレッドシートがそれ（設定は要らない）。
+   * スクリプトのプロパティ HUB_ID があればそれを開く（前の形：算数TA のハブを使っていた GAS。移転するまで）。
    * 同じ実行の中で開き直しても 2ms 程度（実測 2026-11-05）なので、使い回しはしない。
    */
   function hub() {
@@ -406,9 +406,11 @@ var Base = (function () {
     return false;
   }
 
+  var ownerMemo = null;
+  /** BASEシートの所有者か（1回の実行で1回だけ調べる） */
   function isOwner(mail) {
-    try { return SpreadsheetApp.getActiveSpreadsheet().getOwner().getEmail().toLowerCase() === mail; }
-    catch (e) { return false; }
+    if (ownerMemo === null) { try { ownerMemo = String(hub().getOwner().getEmail() || '').toLowerCase(); } catch (e) { ownerMemo = ''; } }
+    return !!ownerMemo && ownerMemo === mail;
   }
 
   /* ---------- 下請け ---------- */
@@ -455,7 +457,7 @@ var Base = (function () {
 
   return {
     VER: VER, TEACHER_DOMAIN: TEACHER_DOMAIN, CHILD_DOMAIN: CHILD_DOMAIN,
-    hub: hub, hubId: hubId, setHub: setHub,
+    hub: hub, hubId: hubId, setHub: setHub, sheet: hub,   // sheet＝BASEシート（hub は前の名前。読み込み係・アプリが使うので残す）
     fy: fy, fyOf: fyOf,
     email: email, domainOf: domainOf, isTeacherDomain: isTeacherDomain, isChildDomain: isChildDomain, me: me,
     roster: roster, child: child, learner: learner, members: members, actAs: actAs, classKey: classKey, normCls: normCls,
@@ -479,6 +481,289 @@ function baseOwnerOnly_() {
 function baseSetHub(urlOrId) { baseOwnerOnly_(); return Base.setHub(urlOrId); }
 /** エディタから実行：名簿・担当の保存分を消す */
 function baseClearCache() { baseOwnerOnly_(); Base.clearCache(); }
+
+// ===== gas/Stores.gs =====
+/**
+ * Stores.gs — 教科の記録のスプレッドシートの台帳（LbStores）
+ *
+ * 正本は learning-base。BASEシートの app_sheets シートが、「どの教科・単元が、どのスプレッドシートに記録を貯めるか」を持つ。
+ * 教科ごとに GAS は作らない。学習BASE の GAS 1つが、台帳の ID でそれぞれのスプレッドシートを開いて読み書きする
+ * （スプレッドシートに GAS が付いている必要はない）。
+ *
+ *   app_sheets：アプリ | 単元 | スプレッドシート（URL） | 状態 | 作成
+ *     - 単元：算数TA は単元の id（kuku など）。単元を持たない教科（国語など）は空
+ *     - 状態：空＝使う。「止める」と書くと、その行は読まない（集計にも入らない）
+ *     - 行が無い教科・単元は、アプリが頼んだ時に学習BASE がスプレッドシートを作り、BASEシートと同じフォルダに置いて行を足す
+ *
+ * 前の形（スクリプトのプロパティに ID を持っていた：算数TA の unit_sheet:<id>・漢字の森の KANZI_SS_ID）は、
+ * 見つけたら台帳に写す（syncLegacy。lbSetup と移転の時）。写した後もプロパティは消さない（前の版に戻した時のため）。
+ *
+ * 速さ：台帳は一時保存に10分置く（練習は1問ごとに呼ぶので、毎回シートを読まない）。手で直した時は lbReload で消える
+ */
+var LbStores = (function () {
+  var SHEET = 'app_sheets', HEAD = ['アプリ', '単元', 'スプレッドシート', '状態', '作成'];
+  var CACHE_KEY = 'lb:stores', TTL = 600;
+  /** 前の形のプロパティ → 台帳の行 */
+  var LEGACY = [
+    { re: /^unit_sheet:([a-z0-9_-]+)$/, app: 'tamath', unit: function (m) { return m[1]; } },
+    { re: /^KANZI_SS_ID$/, app: 'kanzi', unit: function () { return ''; } }
+  ];
+  var memo = null;
+
+  function idOf(v) {
+    var s = String(v == null ? '' : v).trim(), m = /\/d\/([a-zA-Z0-9_-]{20,})/.exec(s);
+    if (m) return m[1];
+    return /^[a-zA-Z0-9_-]{20,}$/.test(s) ? s : '';
+  }
+  function urlOf(id) { return 'https://docs.google.com/spreadsheets/d/' + id + '/edit'; }
+  function key(app, unit) { return String(app || '') + '|' + String(unit || ''); }
+
+  /** 台帳の全行 [{ app, unit, id, on }] */
+  function list() {
+    if (memo) return memo;
+    var c = CacheService.getScriptCache(), hit = null;
+    try { hit = c.get(CACHE_KEY); } catch (e) {}
+    if (hit) { try { return (memo = JSON.parse(hit)); } catch (e) {} }
+    var out = LbSheets.rows(Base.hub(), SHEET, 4).map(function (r) {
+      return { app: String(r[0] || '').trim(), unit: String(r[1] || '').trim(), id: idOf(r[2]), on: String(r[3] || '').trim() !== '止める' };
+    }).filter(function (r) { return r.app; });
+    try { c.put(CACHE_KEY, JSON.stringify(out), TTL); } catch (e) {}
+    return (memo = out);
+  }
+  function forget() { memo = null; try { CacheService.getScriptCache().remove(CACHE_KEY); } catch (e) {} }
+  function find(app, unit) {
+    var k = key(app, unit), rows = list();
+    for (var i = 0; i < rows.length; i++) if (key(rows[i].app, rows[i].unit) === k) return rows[i];
+    return null;
+  }
+
+  /** 台帳に1行足す（同じアプリ・単元が既にあれば足さない）。返す：足したか */
+  function add(app, unit, id, note) {
+    var hub = Base.hub(), sh = LbSheets.sheet(hub, SHEET, HEAD, [1, 2]);
+    forget();
+    if (find(app, unit)) return false;
+    sh.appendRow([app, unit || '', urlOf(id), '', note || LbSheets.day()]);
+    forget();
+    return true;
+  }
+
+  /**
+   * その教科・単元の記録のスプレッドシートの ID。無ければ ''。
+   *   opts.legacyProp：前の形のプロパティの名前（台帳に無くてプロパティにあれば、台帳に写して使う）
+   *   opts.create   ：台帳にもプロパティにも無い時に作るスプレッドシートの名前（省略すると作らない）
+   *   opts.peek     ：台帳に書かない（ホームを開くたびに呼ぶ所で使う）
+   * 「止める」の行があれば ''（プロパティにあっても使わない：先生が止めたものを勝手に戻さない）
+   */
+  function id(app, unit, opts) {
+    opts = opts || {};
+    var r = find(app, unit);
+    if (r) return r.on ? r.id : '';
+    var props = PropertiesService.getScriptProperties();
+    var legacy = opts.legacyProp ? idOf(props.getProperty(opts.legacyProp)) : '';
+    if (legacy) { if (!opts.peek) add(app, unit, legacy, '前の形から写した'); return legacy; }
+    if (!opts.create || opts.peek) return '';
+    var lock = LockService.getScriptLock();
+    lock.waitLock(20000);
+    try {
+      forget();
+      r = find(app, unit);
+      if (r) return r.on ? r.id : '';
+      var ss = SpreadsheetApp.create(String(opts.create));
+      besideBase(ss.getId());
+      add(app, unit, ss.getId(), LbSheets.day());
+      return ss.getId();
+    } finally { lock.releaseLock(); }
+  }
+  function open(app, unit, opts) { var i = id(app, unit, opts); return i ? SpreadsheetApp.openById(i) : null; }
+  /** そのアプリの使う行（止めたものを除く） */
+  function ofApp(app) { return list().filter(function (r) { return r.app === app && r.on && r.id; }); }
+
+  /** 作ったスプレッドシートを BASEシートと同じフォルダへ（動かせなければマイドライブのまま。権限は Loader の lbScopes_） */
+  function besideBase(fileId) {
+    try {
+      var parents = DriveApp.getFileById(Base.hubId() || Base.hub().getId()).getParents();
+      if (parents.hasNext()) DriveApp.getFileById(fileId).moveTo(parents.next());
+    } catch (e) { console.error('記録のスプレッドシートを BASEシートのフォルダへ動かせません（マイドライブにあります）: ' + e.message); }
+  }
+
+  /** 前の形のプロパティ（props：{ 名前: 値 }。省略するとこのプロジェクトのもの）を台帳に写す。返す：写した行の数 */
+  function syncLegacy(props) {
+    props = props || PropertiesService.getScriptProperties().getProperties();
+    var n = 0;
+    Object.keys(props).sort().forEach(function (k) {
+      LEGACY.forEach(function (L) {
+        var m = L.re.exec(k), sid = m && idOf(props[k]);
+        if (sid && add(L.app, L.unit(m), sid, '前の形から写した')) n++;
+      });
+    });
+    return n;
+  }
+
+  return { SHEET: SHEET, HEAD: HEAD, LEGACY: LEGACY, list: list, find: find, id: id, open: open, ofApp: ofApp, add: add,
+    syncLegacy: syncLegacy, forget: forget, idOf: idOf, urlOf: urlOf };
+})();
+
+// ===== gas/Move.gs =====
+/**
+ * Move.gs — 学習BASE を新しい BASEシートへ移す（LbMove。決定 2026-11-23：算数TA のハブを本体にせず、BASEシートを本体にする）
+ *
+ * 正本は learning-base。手順は README「BASEシートへの移転」。
+ *   1. 旧GAS（今の学習BASE）で lbMoveOut(新しいBASEシートのURL) … out()
+ *        - 学習BASE のシートだけを新しいシートへ写す（算数TA の名残り＝links などは写さない。links の開く先は pages に移す）
+ *        - 前の形のプロパティを台帳 app_sheets に写してから写す（教科の記録のスプレッドシートの紐付け）
+ *        - スクリプトのプロパティを、新しいシートの _移転 シートに一時的に置く（新しい GAS が読んだら消す）
+ *        - 旧ハブの platform シートに「移転先シート」を書き、旧GAS の自動実行を消す
+ *   2. 新しいBASEシートに付けた GAS で lbSetup … take()（_移転 を読んでプロパティに入れ、シートを消す）
+ *   3. デプロイ後にもう一度 lbSetup … pointOld()（旧ハブの platform に「移転先URL」を書く。旧URL を開いた人に新しい URL を見せる）
+ * 旧GAS は、platform に「移転先シート」がある間は夜の処理をせず、開いた人に移転を知らせる（moved()）
+ */
+var LbMove = (function () {
+  var KEEP = ['roster', 'teachers', 'pages', 'class_pages', 'now_learning', 'class_order', 'class_colors', 'catalog', 'facts_cursor',
+    'now3', 'now3_log', 'decisions', 'rules', 'directives', 'usage', 'feedback', 'platform', 'app_sheets'];
+  var KEEP_RE = /^(roster|teachers|facts|pseudo)_\d{4}$/;
+  var TAKE = '_移転';
+  var SKIP_PROPS = { HUB_ID: 1, LB_MOVED_FROM: 1 };
+  var MOVED_KEY = 'lb:moved';
+
+  function keepSheet(name) { return KEEP.indexOf(name) >= 0 || KEEP_RE.test(name); }
+
+  /** platform シートの値（A列＝名前、B列＝値）。無ければ '' */
+  function platformGet(ss, k) {
+    var sh = ss.getSheetByName('platform');
+    if (!sh || !sh.getLastRow()) return '';
+    var v = sh.getDataRange().getValues();
+    for (var i = 0; i < v.length; i++) if (String(v[i][0]).trim() === k) return String(v[i][1] == null ? '' : v[i][1]).trim();
+    return '';
+  }
+  function platformSet(ss, k, val) {
+    var sh = ss.getSheetByName('platform') || ss.insertSheet('platform');
+    var n = sh.getLastRow(), v = n ? sh.getRange(1, 1, n, 1).getValues() : [];
+    for (var i = 0; i < v.length; i++) if (String(v[i][0]).trim() === k) { sh.getRange(i + 1, 2).setValue(val); return; }
+    sh.getRange(n + 1, 1, 1, 2).setValues([[k, val]]);
+  }
+
+  /** 1. 旧GAS で実行。返す：報告の文 */
+  function out(urlOrId) {
+    var dstId = LbStores.idOf(urlOrId);
+    if (!dstId) throw new Error('新しいBASEシートの URL か ID を入れてください: ' + urlOrId);
+    var src = Base.hub();
+    if (src.getId() === dstId) throw new Error('今のハブと同じスプレッドシートです。新しく作ったスプレッドシートの URL を入れてください');
+    var dst = SpreadsheetApp.openById(dstId);
+    if (dst.getSheetByName(TAKE)) throw new Error('新しいシートに ' + TAKE + ' が残っています（前の移転の途中）。新しいシートの GAS で lbSetup を実行してから、もう一度');
+    var msg = [];
+
+    // 教科の記録の紐付けを台帳に（前の形のプロパティから）
+    msg.push('台帳 app_sheets に写した紐付け：' + LbStores.syncLegacy() + ' 件');
+
+    // 学習BASE のシートを写す。同じ名前のシートが新しい側にあれば写さない（上書きしない）
+    var copied = [], skipped = [], left = [];
+    src.getSheets().forEach(function (sh) {
+      var name = sh.getName();
+      if (!keepSheet(name)) { left.push(name); return; }
+      if (dst.getSheetByName(name)) { skipped.push(name); return; }
+      sh.copyTo(dst).setName(name);
+      copied.push(name);
+    });
+    msg.push('写したシート：' + (copied.join('・') || 'なし'));
+    if (skipped.length) msg.push('新しい側に既にあるので写さなかった：' + skipped.join('・'));
+    if (left.length) msg.push('写さなかった（学習BASE のものでない）：' + left.join('・'));
+
+    // links（算数TA の開く先）のうち pages に無いものを pages へ
+    msg.push('links から pages に移した開く先：' + linksToPages(src, dst) + ' 件');
+
+    // 新しいスプレッドシートが最初から持つ空のシートを消す
+    dst.getSheets().forEach(function (sh) {
+      if (dst.getSheets().length > 1 && !keepSheet(sh.getName()) && sh.getName() !== TAKE && sh.getLastRow() === 0) dst.deleteSheet(sh);
+    });
+
+    // スクリプトのプロパティ（算数TA の学級の設定・署名の鍵など）を、新しい GAS に渡す。値の頭に # を付ける（数式にしない）
+    var props = PropertiesService.getScriptProperties().getProperties(), rows = [['#from', '#' + src.getId()]];
+    Object.keys(props).sort().forEach(function (k) { if (!SKIP_PROPS[k]) rows.push(['#' + k, '#' + props[k]]); });
+    var t = dst.insertSheet(TAKE);
+    t.getRange(1, 1, rows.length, 2).setNumberFormat('@').setValues(rows);
+    msg.push('新しい GAS に渡すプロパティ：' + (rows.length - 1) + ' 件（新しいシートの GAS で lbSetup を実行すると取り込まれ、' + TAKE + ' シートは消えます）');
+
+    // 旧ハブに移転先を書き、旧GAS の自動実行を止める
+    platformSet(src, '移転先シート', dstId);
+    try { CacheService.getScriptCache().removeAll([MOVED_KEY, 'lb:ver']); } catch (e) {}
+    var n = 0;
+    ScriptApp.getProjectTriggers().forEach(function (tr) { ScriptApp.deleteTrigger(tr); n++; });
+    msg.push('旧GAS の自動実行を止めた：' + n + ' 件');
+    return msg.join('\n');
+  }
+
+  function linksToPages(src, dst) {
+    var lk = src.getSheetByName('links');
+    if (!lk || lk.getLastRow() < 2) return 0;
+    var sh = LbSheets.sheet(dst, 'pages', ['キー', 'URL', '色', '補足', '更新'], [1, 2]);
+    var have = {};
+    LbSheets.rows(dst, 'pages', 1).forEach(function (r) { have[String(r[0] || '').trim()] = 1; });
+    var add = [];
+    lk.getRange(2, 1, lk.getLastRow() - 1, 6).getValues().forEach(function (r) {
+      var id = String(r[0] || '').trim();
+      if (!id || have[id]) return;
+      have[id] = 1;
+      add.push([id, String(r[3] || '').trim(), String(r[5] || '').trim(), String(r[2] || '').trim(), new Date()]);
+    });
+    if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, 5).setValues(add);
+    return add.length;
+  }
+
+  /** 2. 新しい GAS の lbSetup から。_移転 シートがあればプロパティに入れて消す。返す：報告の文（何も無ければ ''） */
+  function take() {
+    var ss = Base.hub(), t = ss.getSheetByName(TAKE);
+    if (!t) return '';
+    var props = PropertiesService.getScriptProperties(), have = props.getProperties(), put = {}, n = 0, kept = 0, from = '';
+    t.getDataRange().getValues().forEach(function (r) {
+      var k = String(r[0]).replace(/^#/, ''), v = String(r[1]).replace(/^#/, '');
+      if (!k) return;
+      if (k === 'from') { from = v; return; }
+      if (SKIP_PROPS[k]) return;
+      if (have[k] != null && have[k] !== '') { kept++; return; }   // 新しい側で既に入れたものは残す
+      put[k] = v; n++;
+    });
+    if (from) put.LB_MOVED_FROM = from;
+    props.setProperties(put, false);
+    ss.deleteSheet(t);
+    return '旧GAS のプロパティを取り込んだ：' + n + ' 件' + (kept ? '（新しい側に既にあったので残した：' + kept + ' 件）' : '');
+  }
+
+  /** 3. 新しい GAS の lbSetup から（デプロイ後）。旧ハブに移転先の URL を書く */
+  function pointOld() {
+    var from = String(PropertiesService.getScriptProperties().getProperty('LB_MOVED_FROM') || '');
+    if (!from) return '';
+    var url = '';
+    try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
+    if (!url) return '旧URL の案内：まだ（デプロイしてから、もう一度 lbSetup を実行すると、旧URL を開いた人に新しい URL が出ます）';
+    try {
+      var old = SpreadsheetApp.openById(from);
+      if (platformGet(old, '移転先URL') === url) return '旧URL の案内：済み';
+      platformSet(old, '移転先URL', url);
+      return '旧URL の案内：旧ハブに新しい URL を書いた（旧URL を開くと新しい URL が出ます）';
+    } catch (e) { return '旧URL の案内：× 旧ハブを開けません（' + e.message + '）'; }
+  }
+
+  /**
+   * 旧GAS か（このハブの platform に「移転先シート」がある）。{ to, url } か null。5分覚える
+   * （夜の処理・ホームを開くたびに呼ぶので、毎回シートを読まない）
+   */
+  function moved() {
+    // 新しい読み込み係は、版と一緒に platform シートを読んでいる（一時保存への往復を増やさない）
+    if (typeof LB_LOADER !== 'undefined' && typeof LB_LOADER.moved === 'function') return LB_LOADER.moved();
+    var c = CacheService.getScriptCache(), hit = null;
+    try { hit = c.get(MOVED_KEY); } catch (e) {}
+    if (hit != null) return hit !== '0' ? JSON.parse(hit) : null;
+    var out = null;
+    try {
+      var ss = Base.hub(), to = platformGet(ss, '移転先シート');
+      if (to && to !== ss.getId()) out = { to: to, url: platformGet(ss, '移転先URL') };
+    } catch (e) { return null; }
+    try { c.put(MOVED_KEY, out ? JSON.stringify(out) : '0', 300); } catch (e) {}
+    return out;
+  }
+
+  return { KEEP: KEEP, keepSheet: keepSheet, out: out, take: take, pointOld: pointOld, moved: moved, TAKE: TAKE };
+})();
 
 // ===== gas/Pseudo.gs =====
 /**
@@ -2691,6 +2976,8 @@ var LbPlatform = (function () {
   function doGet(e) {
     var p = (e && e.parameter) || {};
     var app = p.app || (p.unit ? 'tamath' : '');
+    var mv = LbMove.moved();
+    if (mv) return movedPage(mv);
     if (p.doc && !app) return message('このページは じゅんび中です');
     if (app) {
       var m = appMod(app);
@@ -2841,12 +3128,16 @@ var LbPlatform = (function () {
   }
 
   function setup() {
-    return appIds().map(function (k) {
+    var pre = [];
+    try { var tk = LbMove.take(); if (tk) pre.push(tk); } catch (e) { pre.push('移転の取り込み：× ' + e.message); }
+    try { LbStores.forget(); pre.push('台帳 app_sheets：前の形から写した ' + LbStores.syncLegacy() + ' 件・登録 ' + LbStores.list().length + ' 件'); } catch (e) { pre.push('台帳 app_sheets：× ' + e.message); }
+    try { var po = LbMove.pointOld(); if (po) pre.push(po); } catch (e) { pre.push('旧URL の案内：× ' + e.message); }
+    return pre.concat(appIds().map(function (k) {
       var m = appMod(k) || { broken: '見つかりません' };
       if (m.broken) return k + '：× 読み込めません（' + m.broken + '）';
       if (typeof m.setup !== 'function') return k + '：準備は要らない';
       try { return k + '：' + m.setup(); } catch (e) { return k + '：× ' + e.message; }
-    }).join('\n');
+    })).join('\n');
   }
 
   /** 学習BASE のホーム。画面のプログラムは jsDelivr から（読み込み係と同じ版） */
@@ -2881,6 +3172,15 @@ var LbPlatform = (function () {
       'open:function(u){window.open(u,"_top");}};' +
       'function lbLoadFail(){if(window.lbFailed)return;window.lbFailed=1;try{google.script.run.lbCall("home","report",["loadfail"]);}catch(e){}var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';
   }
+  /** 旧GAS（移転した後）の URL を開いた人へ。新しい URL があればリンクを出す */
+  function movedPage(mv) {
+    var url = /^https:\/\/script\.google\.com\/[\w\/.\-]+\/exec$/.test(String(mv.url || '')) ? mv.url : '';
+    return HtmlService.createHtmlOutput('<meta name="viewport" content="width=device-width, initial-scale=1"><base target="_top"><div lang="ja" style="font-family:\'BIZ UDPGothic\',\'Noto Sans CJK JP\',sans-serif;font-size:20px;padding:24px;line-height:1.8">' +
+      '学習BASE は あたらしい ばしょに ひっこしました。<br>' +
+      (url ? '<a href="' + url + '" style="display:inline-block;margin-top:12px;padding:12px 20px;border-radius:10px;background:#1f6f5c;color:#fff;text-decoration:none">あたらしい 学習BASE を ひらく</a>' +
+        '<br><small style="color:#616870">（先生へ：ブックマーク・Classroom のリンクを、この新しい URL に差し替えてください）</small>'
+        : '先生に あたらしい URL を きいてね。') + '</div>').setTitle('学習BASE');
+  }
   function message(text) {
     return HtmlService.createHtmlOutput('<meta name="viewport" content="width=device-width, initial-scale=1"><div lang="ja" style="font-family:\'BIZ UDPGothic\',\'Noto Sans CJK JP\',sans-serif;font-size:20px;padding:24px">' +
       String(text).replace(/[<>&]/g, '') + '</div>').setTitle('学習BASE');
@@ -2889,17 +3189,21 @@ var LbPlatform = (function () {
   /** アプリが使える状態か（{ id: true/false }）。ready を持たないアプリは使える扱い。読み込めなかったアプリは false */
   function appsReady() {
     // ホームを開くたびに呼ぶので、アプリを読み込まずに決める：準備に要るプロパティ（apps.lock.json の readyProp → LB_APP_READY）が入っていれば使える
-    var out = {}, props = PropertiesService.getScriptProperties(), need = typeof LB_APP_READY !== 'undefined' ? LB_APP_READY : {};
+    var out = {}, need = typeof LB_APP_READY !== 'undefined' ? LB_APP_READY : {};
     appIds().forEach(function (k) {
       var m = LB_MODULES[k];
       if (m && m.broken) { out[k] = false; return; }
-      try { out[k] = need[k] ? !!String(props.getProperty(need[k]) || '').trim() : (m && typeof m.ready === 'function' ? !!m.ready() : true); } catch (e) { out[k] = false; }
+      // 準備ができている＝台帳 app_sheets にそのアプリの行がある（台帳に無ければ前の形のプロパティ）
+      try { out[k] = need[k] ? !!LbStores.id(k, '', { legacyProp: need[k], peek: true }) : (m && typeof m.ready === 'function' ? !!m.ready() : true); } catch (e) { out[k] = false; }
     });
     return out;
   }
 
+  /** 自動実行：移転した後の旧GAS では何もしない（新しい GAS が同じ記録を扱うので、二重に処理しない） */
+  function job(fn) { return function () { if (LbMove.moved()) { console.log('移転ずみの旧GAS なので処理しません'); return []; } return fn(); }; }
+
   return { appsReady: appsReady, doGet: doGet, call: call, appApi: appApi, setup: setup,
-    nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); e = e.concat(directives()); e = e.concat(alerts()); return e.concat(usage()); },
-    weekly: weekly, daily: function () { return each('daily'); },
-    rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };
+    nightly: job(function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); e = e.concat(directives()); e = e.concat(alerts()); return e.concat(usage()); }),
+    weekly: job(weekly), daily: job(function () { return each('daily'); }),
+    rollover: job(function () { return each('rollover'); }), continueAll: job(function () { return each('continueAll'); }) };
 })();
