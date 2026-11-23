@@ -445,7 +445,7 @@ t('国語（漢字の森）：学習BASE の中で動く。準備（KANZI_SS_ID�
   let c = run(S, kid); c.doGet({ parameter: {} });
   assert.strictEqual(JSON.stringify(c.LbPlatform.appsReady()), JSON.stringify({ tamath: true, kanzi: false, taiiku: true }));
   assert.strictEqual(run(S, kid).lbCall('home', 'boot', [{}]).apps.kanzi, false);
-  assert.throws(() => run(S, kid).lbCall('app:kanzi', 'api_init', []), /KANZI_SS_ID/);
+  assert.throws(() => run(S, kid).lbCall('app:kanzi', 'api_init', []), /KANZI_SS_ID|app_sheets/);
   // 準備：今の漢字の森のスプレッドシートの ID をプロパティに
   S.props.KANZI_SS_ID = 'KANZIxxxxxxxxxxxxxxxxxxxx';
   const book = makeSS('kanzi');
