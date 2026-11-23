@@ -1,8 +1,8 @@
 // dist/app-kanzi.js — 教科 kanzi のサーバーのコード（tools/bundle.cjs が作る。直接直さない）
-// ===== アプリ kanzi（sankisuguya-create/kanzi@35ba039） =====
+// ===== アプリ kanzi（sankisuguya-create/kanzi@fc1c1e6） =====
 LB_MODULES["kanzi"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/kanzi";
-var LB_APP_COMMIT = "35ba0391f5caacb042570031b9d88366bb98b69e";
+var LB_APP_COMMIT = "fc1c1e6ada528bf69571fff3904f7c6c840a10c6";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- gas/Scheduler.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/scheduler.js
@@ -295,7 +295,7 @@ var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval(
   // ---- 児童画面のボタンのオン・オフ（学級ごと。先生がおためし画面で切り替える）
   // 持つのはオフにしたボタンのキーだけ。m.＝メニューのボタン、s.＝「どの字で やる？」の選び方（読む・書く・カードで共通）
   // 先生画面・児童画面・GAS サーバーが同じ一覧を使う（ここが唯一の定義）
-  var GATE_KEYS = ['m.browse', 'm.read', 'm.write', 'm.fk', 'm.fy', 'm.test', 'm.seen', 'm.other', 'o.bunkai', 'o.setsumei', 'o.sakubun', 's.test', 's.due', 's.sel', 's.rnd', 's.miss', 't.p50', 't.p10', 't.hint', 't.paper', 't.juku'];
+  var GATE_KEYS = ['m.browse', 'm.read', 'm.write', 'm.fk', 'm.fy', 'm.test', 'm.seen', 'm.other', 'o.bunkai', 'o.setsumei', 'o.sakubun', 'o.report', 's.test', 's.due', 's.sel', 's.rnd', 's.miss', 't.p50', 't.p10', 't.hint', 't.paper', 't.juku'];
   // 配列・「,」区切りの文字列のどちらでも受け、知らないキー・重なりを除いて GATE_KEYS の順に並べる
   function normGates(v) {
     var list = Array.isArray(v) ? v.map(String) : String(v || '').split(',');
@@ -486,7 +486,7 @@ var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval(
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // GAS 版ずれ検知の版（tools/build-gas.mjs が埋め込む）
-Sched.VER = "fd477be";
+Sched.VER = "d475740";
 
 // --- gas/Genko.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/genko.js（作文の形をそろえる normWork をサーバーでも使う）
@@ -550,6 +550,39 @@ Sched.VER = "fd477be";
   }
   function blank(name) { return [Z + Z + Z, nameLine(name), Z].join('\n'); }
 
+  // ---- レポートを書く（設計書 §30。横書き・利用者の指定）。組み方（layout）は縦書きと同じで、画面と印刷で向きだけを変える。
+  //   はじめから見出し「１．調べたきっかけや理由／２．調べ方／３．調べて分かったこと／４．まとめ」と〈使った本〉が入っている。
+  //   見出しの行・〈使った本〉から後の行は、1マスあけの判定をしない
+  var REPORT_HEADS = ['１．調べたきっかけや理由', '２．調べ方', '３．調べて分かったこと', '４．まとめ'];
+  var BOOK = '〈使った本〉';
+  function isReport(w) { return !!w && (w === 'report' || w.mode === 'report'); }
+  function reportTemplate(name) {
+    var ls = [Z + Z + Z + '【　　　　　】のくふう', nameLine(name)];
+    REPORT_HEADS.forEach(function (h) { ls.push('', h, Z); }); // 見出しの直前は1行あける（利用者の指定）
+    ls.push(BOOK, Z);
+    return ls.join('\n');
+  }
+  function isHead(line) { return /^[１-９1-9][．.]/.test(String(line || '')); }
+  // 見出しの行は書きかえられない（利用者の指定）。見出しの行の並びと、直前の空き行を1つの文字列にして、変わったかどうかを比べる
+  // （もとの作品に空き行がなくても、その作品の形のまま守る）
+  function headSig(text) {
+    var ls = String(text || '').split('\n'), out = [];
+    ls.forEach(function (l, i) { if (REPORT_HEADS.indexOf(l) >= 0 || (isHead(l) && i >= 2)) out.push((i > 0 && ls[i - 1] === '' ? '_' : '') + l); });
+    return out.join('|');
+  }
+  // お手本（自作。テスト・教科書の文はうつさない。事実の出典は docs/features/report-writing.md）
+  var REPORT_SAMPLE = [Z + Z + Z + '図書館の本のならべ方のくふう', nameLine('高木　北子'),
+    '', REPORT_HEADS[0],
+    Z + 'わたしは、本を読むのがすきで、よく市の図書館に行きます。たくさんの本があるのに、読みたい本がすぐに見つかるのはなぜだろうと思いました。そこで、本のならべ方のくふうについて、調べることにしました。',
+    '', REPORT_HEADS[1],
+    Z + '図書館についての本を読んでから、市の図書館を見学しました。また、司書の方に話をうかがいました。',
+    '', REPORT_HEADS[2],
+    Z + '本には、せなかに番号のついたラベルがはってあります。本で調べると、本は、なかみによって０から９の番号に分けられていると書いてありました。',
+    Z + '司書の方は、「絵本は、小さい子が自分で取り出せるように、ひくいたなにならべています。」とおっしゃっていました。',
+    '', REPORT_HEADS[3],
+    Z + '図書館の本は、ただならんでいるのではなく、だれでもさがしやすいように、くふうしてならべられていることが分かりました。こんど図書館に行くときは、ラベルの番号を見て本をさがしたいと思います。',
+    BOOK, 'れい　山本花子「図書館のひみつ」〇〇書店、２０２４年、１２ページ'].join('\n');
+
   // お手本（自作。教科書の文はうつさない: 設計書 §27 と同じ方針。事実の出典は docs/features/setsumei-writing.md）
   var SAMPLE = [Z + Z + Z + 'すがたをかえる葉っぱ', nameLine('高木　北子'),
     Z + '茶の葉には、いろいろな飲み方のくふうがあります。',
@@ -563,15 +596,22 @@ Sched.VER = "fd477be";
   function paraNo(text, line) { var ls = String(text || '').split('\n'), n = 0; for (var i = 2; i <= line && i < ls.length; i++) if (bare(ls[i])) n++; return n; }
   // 見なおし（要件2）: [{ line, msg }]（line は 0 から。-1 は文章全体）。空の配列なら だいじょうぶ
   //   題名がない・上をあけていない／名前がない／段落のはじめを1マスあけていない／【】の穴が残っている
-  function check(text) {
-    var lines = String(text || '').split('\n'), out = [];
+  function check(text, mode) {
+    var lines = String(text || '').split('\n'), out = [], rep = mode === 'report', book = false;
     var t = lines[0] || '', n = lines[1] || '';
     if (!bare(t) || /。/.test(t)) out.push({ line: 0, msg: '1行目に 題名を 書こう', tag: '題名' });
     else if (t.indexOf(Z + Z) !== 0) out.push({ line: 0, msg: '題名は 上を 3マス あけて 書こう', tag: '上を あける' });
     if (!bare(n) || /。/.test(n)) out.push({ line: 1, msg: '2行目に 名前を 書こう', tag: '名前' });
     for (var i = 2; i < lines.length; i++) {
+      if (rep && bare(lines[i]) === bare(BOOK)) book = true;
+      if (rep && (book || isHead(lines[i]))) continue;
       if (bare(lines[i]) && lines[i][0] !== Z) out.push({ line: i, msg: paraNo(text, i) + '番目の 段落：はじめを 1マス あけよう', tag: '1マス あける' });
     }
+    if (rep) lines.forEach(function (l, i) { // 見出しの下に まだ何も書いていない
+      if (!isHead(l)) return;
+      for (var j = i + 1; j < lines.length && !isHead(lines[j]) && bare(lines[j]) !== bare(BOOK); j++) if (bare(lines[j])) return;
+      out.push({ line: i, msg: '「' + bare(l).replace(/^[１-９1-9][．.]/, '') + '」を 書こう', tag: '中みを 書く' });
+    });
     if (/【[^】]*】/.test(text)) out.push({ line: -1, msg: '【　】の あなを うめよう', tag: 'あな' });
     return out;
   }
@@ -584,7 +624,7 @@ Sched.VER = "fd477be";
   var MAX_CHARS = 4000; // 原稿用紙10枚。セルの上限（5万字）に十分届かない
   function normWork(w) {
     w = w || {};
-    var o = { id: String(w.id || '').slice(0, 40), text: toZen(String(w.text || '')).slice(0, MAX_CHARS), mode: w.mode === 'free' ? 'free' : 'tpl', show: !!w.show, updated: Number(w.updated) || 0 };
+    var o = { id: String(w.id || '').slice(0, 40), text: toZen(String(w.text || '')).slice(0, MAX_CHARS), mode: w.mode === 'free' || w.mode === 'report' ? w.mode : 'tpl', show: !!w.show, updated: Number(w.updated) || 0 };
     o.comments = {};
     if (w.comments && typeof w.comments === 'object') for (var k in w.comments) {
       var c = w.comments[k], line = Number(k);
@@ -655,7 +695,7 @@ Sched.VER = "fd477be";
   function newId() { return 'w' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36); }
 
   var Genko = { Z: Z, ROWS: ROWS, COLS: COLS, HANG: HANG, OPEN: OPEN, SMALL: SMALL, MAX_CHARS: MAX_CHARS,
-    toZen: toZen, layout: layout, pages: pages, nameLine: nameLine, template: template, blank: blank, SAMPLE: SAMPLE,
+    toZen: toZen, layout: layout, REPORT_HEADS: REPORT_HEADS, BOOK: BOOK, isReport: isReport, reportTemplate: reportTemplate, REPORT_SAMPLE: REPORT_SAMPLE, isHead: isHead, headSig: headSig, pages: pages, nameLine: nameLine, template: template, blank: blank, SAMPLE: SAMPLE,
     check: check, paraNo: paraNo, moveParagraph: moveParagraph, remapComments: remapComments, normFixes: normFixes, fixLocate: fixLocate, applyFix: applyFix, remapFixes: remapFixes, composeMap: composeMap, title: title, count: count, paragraphs: paragraphs, normWork: normWork, newId: newId };
   if (typeof module !== 'undefined' && module.exports) module.exports = Genko; else root.Genko = Genko;
 })(typeof globalThis !== "undefined" ? globalThis : this);
@@ -683,16 +723,21 @@ function doGet() {
 // ---- 学習BASE の中で動く時（learning-base の tools/bundle.cjs が、このファイルを関数に包んで LB_APP_COMMIT などを渡す）。
 // 単体の GAS（このスプレッドシートに付けたもの）では今まで通り。約束は learning-base の docs/add-app.md
 function inBase_() { return typeof LB_APP_COMMIT !== 'undefined'; }
-// データのスプレッドシート：単体では付いているもの。学習BASE の中では、スクリプトのプロパティ KANZI_SS_ID（今の漢字の森のスプレッドシートの ID）
+// データのスプレッドシート：単体では付いているもの。学習BASE の中では、BASEシートの台帳 app_sheets の kanzi の行（learning-base gas/Stores.gs）。
+// 台帳に無ければ前の形のスクリプトのプロパティ KANZI_SS_ID を読み、台帳に写す
 var SS_ = null;
+function kanziSheetId_(peek) {
+  if (typeof LbStores !== 'undefined') return LbStores.id('kanzi', '', { legacyProp: 'KANZI_SS_ID', peek: !!peek });
+  return String(PropertiesService.getScriptProperties().getProperty('KANZI_SS_ID') || '').trim();
+}
 function ss_() {
   if (SS_) return SS_;
   if (!inBase_()) return (SS_ = SpreadsheetApp.getActiveSpreadsheet());
-  var id = String(PropertiesService.getScriptProperties().getProperty('KANZI_SS_ID') || '').trim();
-  if (!id) throw new Error('漢字の森のデータの場所が決まっていません（スクリプトのプロパティ KANZI_SS_ID に、漢字の森のスプレッドシートの ID を入れてください）');
+  var id = kanziSheetId_(false);
+  if (!id) throw new Error('漢字の森のデータの場所が決まっていません（BASEシートの app_sheets に、アプリ「kanzi」・単元は空・スプレッドシートに漢字の森の URL の行を足してください）');
   return (SS_ = SpreadsheetApp.openById(id));
 }
-function lbReady_() { try { return !!String(PropertiesService.getScriptProperties().getProperty('KANZI_SS_ID') || '').trim(); } catch (e) { return false; } }
+function lbReady_() { try { return !!kanziSheetId_(true); } catch (e) { return false; } }
 // 一時保存：学習BASE の中では全アプリで1つの置き場を使うので、名前の頭に kanzi: を付ける
 function cache_() {
   var c = CacheService.getScriptCache();
@@ -1473,7 +1518,7 @@ function api_sakuSave(json) {
       cur.fixes = Genko.remapFixes(cur.fixes, remap).filter(function (f) { return done.indexOf(f.id) < 0; });
       sh.getRange(cur.row, SAKU_COL_.fixes).setValue(JSON.stringify(cur.fixes));
     }
-    if (w.show) mine.forEach(function (x) { if (x.id !== w.id && x.show) sh.getRange(x.row, SAKU_COL_.show).setValue(false); });
+    if (w.show) mine.forEach(function (x) { if (x.id !== w.id && x.show && Genko.isReport(x) === Genko.isReport(w)) sh.getRange(x.row, SAKU_COL_.show).setValue(false); });
     w.updated = now.getTime(); w.fixes = cur ? cur.fixes : []; if (cur) w.comments = cur.comments;
     return JSON.stringify(sakuOut_(w));
   } finally { lock.releaseLock(); }
@@ -1509,7 +1554,7 @@ function api_sakuFriends() {
   var no = {}; roster_().forEach(function (x) { no[x.email] = Number(x.no) || 999; });
   var list = sakuRows_().filter(function (w) { return w.klass === me.klass && w.show && w.email !== me.email && w.email in no && classOf_(w.email) === me.klass; })
     .sort(function (a, b) { return no[a.email] - no[b.email]; })
-    .map(function (w) { return { id: w.id, text: w.text }; });
+    .map(function (w) { return { id: w.id, text: w.text, mode: Genko.isReport(w) ? 'report' : '' }; });
   return JSON.stringify({ share: true, works: list });
 }
 // 先生: 担当学級の作品の一覧（児童ごと。名簿の番号順）と、読み合いが開いているか

@@ -2974,10 +2974,10 @@ var LbHome = (function () {
   return { API: API, boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@1a16a6f） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@a0484f3） =====
 LB_MODULES["tamath"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/arithmetic-timeattack";
-var LB_APP_COMMIT = "1a16a6feb588814c2898c5d384ec717764fb91d0";
+var LB_APP_COMMIT = "a0484f3448881c9a4fc37c5cf8265fd645b401f1";
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- dist/multi/Core.gs ---
@@ -3126,6 +3126,17 @@ function unitIdsForTest() { return unitIds_(); }
 
 /** 単元のスプレッドシートの ID を置く場所（単元で分けない、プロジェクト共通のプロパティ） */
 function unitSheetKey_(id) { return 'unit_sheet:' + id; }
+/**
+ * 記録の台帳（学習BASE の中で動く時だけ）。学習BASE の BASEシートの app_sheets が「単元 → 記録のスプレッドシート」を持つ（learning-base gas/Stores.gs）。
+ * 単体の GAS（学習BASE の外）では今まで通りスクリプトのプロパティ unit_sheet:<id>
+ */
+function lbStores_() { return typeof LB_APP_COMMIT !== 'undefined' && typeof LbStores !== 'undefined' ? LbStores : null; }
+/** 単元の記録のスプレッドシートの ID（まだ無ければ ''。作らない）。前の形のプロパティにあれば台帳に写す */
+function unitSheetId_(id) {
+  var S = lbStores_();
+  if (S) return S.id('tamath', id, { legacyProp: unitSheetKey_(id) });
+  return String(PropertiesService.getScriptProperties().getProperty(unitSheetKey_(id)) || '');
+}
 
 var UNIT_SS_MEMO_ = {};
 /**
@@ -3135,6 +3146,10 @@ var UNIT_SS_MEMO_ = {};
 function unitSpreadsheet_() {
   var id = UNIT.id;
   if (UNIT_SS_MEMO_[id]) return UNIT_SS_MEMO_[id];
+  var S = lbStores_();
+  if (S) {   // 学習BASE の中：台帳から。無ければ学習BASE が作って BASEシートのフォルダに置き、台帳に足す
+    return (UNIT_SS_MEMO_[id] = SpreadsheetApp.openById(S.id('tamath', id, { legacyProp: unitSheetKey_(id), create: '算数TA ' + (UNIT.teacherTitle || UNIT.title || id) + '（' + id + '）' })));
+  }
   var gp = PropertiesService.getScriptProperties(), sid = gp.getProperty(unitSheetKey_(id));
   var ss;
   if (sid) {
@@ -3167,7 +3182,11 @@ function registerUnitSheet(id, urlOrId) {
   var s = String(urlOrId || '').trim(), m = s.match(/\/d\/([a-zA-Z0-9_-]{20,})/), sid = m ? m[1] : s;
   if (!/^[a-zA-Z0-9_-]{20,}$/.test(sid)) throw new Error('スプレッドシートのURLかIDを入れてください: ' + s);
   var ss = SpreadsheetApp.openById(sid);   // 開けなければここで止まる
-  PropertiesService.getScriptProperties().setProperty(unitSheetKey_(id), sid);
+  var S = lbStores_();
+  if (S) {
+    if (S.find('tamath', id)) throw new Error('台帳（BASEシートの app_sheets）に ' + id + ' の行があります。付け替える時は、その行のスプレッドシートの URL を書き換えてから lbReload');
+    S.add('tamath', id, sid, '登録');
+  } else PropertiesService.getScriptProperties().setProperty(unitSheetKey_(id), sid);
   delete UNIT_SS_MEMO_[id];
   clearUnitReady_(id);
   return id + ' → ' + ss.getName();
@@ -3247,6 +3266,7 @@ function hubLinks_() {
  */
 function forgetCreatedUnitSheets() {
   ownerOnly_();
+  if (lbStores_()) throw new Error('学習BASE の中では、台帳（BASEシートの app_sheets）で、その単元の状態に「止める」と書いてください（行を消すと、次に開いた時に新しいスプレッドシートを作ります）');
   var v = hubLinks_(), want = {}, gp = PropertiesService.getScriptProperties(), out = [];
   for (var i = 1; i < v.length; i++) {
     var m = String(v[i][8] || '').match(/\/d\/([a-zA-Z0-9_-]{20,})/), raw = String(v[i][8] || '').trim();
@@ -3266,7 +3286,7 @@ function listUnitSheets() {
   ownerOnly_();
   var gp = PropertiesService.getScriptProperties();
   var msg = unitIds_().map(function (id) {
-    var sid = gp.getProperty(unitSheetKey_(id));
+    var sid = unitSheetId_(id);
     if (!sid) return id + '\t（未登録：最初に開いた時に新しく作る）';
     var name = '';
     try { name = SpreadsheetApp.openById(sid).getName(); } catch (e) { name = '× 開けません'; }
@@ -3391,8 +3411,7 @@ function lbLegacySessions_(unit, before) {
 }
 /** 過去の記録を取り込める単元（登録済み）。{ key, unit } */
 function lbLegacySources_() {
-  var gp = PropertiesService.getScriptProperties();
-  return unitIds_().filter(function (id) { return !!gp.getProperty(unitSheetKey_(id)); }).map(function (id) { return { key: 'tamath:' + id, unit: id }; });
+  return unitIds_().filter(function (id) { return !!unitSheetId_(id); }).map(function (id) { return { key: 'tamath:' + id, unit: id }; });
 }
 
 /** 算数TA の技能の目録（全単元の型）。到達の基準の初期値は正答率90%・20問以上（単元ごとに Unit.gs の mastery で直せる） */
@@ -3412,7 +3431,7 @@ function tamathCatalog_() {
 function lbSessionSources_() {
   var gp = PropertiesService.getScriptProperties(), out = [];
   unitIds_().forEach(function (id) {
-    var sid = gp.getProperty(unitSheetKey_(id));
+    var sid = unitSheetId_(id);
     if (!sid) return;
     try { out.push({ app: 'tamath', key: 'tamath:' + id, ss: SpreadsheetApp.openById(sid) }); } catch (e) { console.error(id + ' を開けません: ' + e.message); }
   });
@@ -3529,7 +3548,7 @@ function runAll_(job, ids) {
     }
     var id = ids.shift();
     // スプレッドシートが未登録の単元（まだ誰も開いていない）は飛ばす。夜の処理で空のスプレッドシートを作らない
-    if (!gp.getProperty(unitSheetKey_(id))) continue;
+    if (!unitSheetId_(id)) continue;
     try { useUnit_(id); ALL_JOBS_[job](); }
     catch (e) { errs.push(id + ': ' + (e && e.message || e)); console.error(job + ' ' + id + ' 失敗: ' + (e && e.message || e)); }
   }
@@ -7399,7 +7418,7 @@ function setup() {
       catch (eC) { cat = '技能の目録：× ' + eC.message + '\n\n'; }
     }
     var msg = cat + unitIds_().map(function (id) {
-      if (!gp.getProperty(unitSheetKey_(id))) return '【' + id + '】未登録のため飛ばした';
+      if (!unitSheetId_(id)) return '【' + id + '】未登録のため飛ばした';
       useUnit_(id);
       try { return '【' + id + '】' + setupOne_(); } catch (e) { return '【' + id + '】× ' + e.message; }
     }).join('\n\n');
@@ -7419,7 +7438,7 @@ function setupOne_() {
 
 // --- dist/multi/AllUnits.gs ---
 // AllUnits.gs — 全単元の Unit.gs をつないだもの（tools/bundle/build.cjs が作る。直接直さない）
-// 単元: bai, bignum, circle, decimal, divmod, factor, hiku, kakehissan, kuku, length, operation-choice, tasu, volume, weight
+// 単元: bai, bignum, bunsu, circle, decimal, divmod, factor, hiku, kakehissan, kuku, length, operation-choice, tasu, volume, weight
 
 // ===== apps/grade3/bai/Unit.gs =====
 /**
@@ -7837,6 +7856,223 @@ UNIT_DEFS['bignum'] = {
 // 単元が1つだけのプロジェクト・テスト・プレビューでは、この単元が UNIT になる。
 // 全単元をまとめたプロジェクトでは、呼び出しごとに Core が UNIT を差し替える。
 var UNIT = UNIT || UNIT_DEFS['bignum'];
+
+// ===== apps/grade3/bunsu/Unit.gs =====
+/**
+ * Unit.gs — 分数（3年：単位分数のいくつ分、1と分数、数直線、大小、同分母の加減）
+ *
+ *   ① いくつ分        1/5 が 3こで □/□ ／ 4/7 は 1/7 が □こ
+ *   ② 1は いくつ分    1/9 が □こで 1 ／ 7/7 = □ ／ 1 = □/6
+ *   ③ 数直線          0〜1 の数直線で、やじるしの分数（図）
+ *   ④ どっちが大きい  7/9 □ 3/9 に >・=・< をタップ（同分母／単位分数／分数と1）
+ *   ⑤ たし算          同分母、和は1未満
+ *   ⑥ ひき算          同分母、1−□/□ をふくむ
+ *
+ * 【分数の答えは分母→分子の順に打つ】分母も打たせるのは、分母どうしも足す誤り
+ * （2/5+1/5=3/10。M1）を誤答の記録に残すため。分子だけを打たせるとこの誤りは測れない。
+ * 分母は2〜9で、答えはどの欄も1桁にそろう（digitCap はすべて1）。
+ * M1 の 2/5+1/5 では分母に「10」を打とうとして最初の「1」で確定する。
+ * したがって**正しい分母が5以上なのに分母の欄が1**なら、M1 の可能性が高い。
+ *
+ * 【④は単位分数の比較を半分の重さで混ぜる】分母が大きいほど大きいとみる誤り（1/8>1/3。M2）
+ * は同分母の比較だけでは出ない。
+ *
+ * 【⑤の和は1未満】和が1の答え（6/8+2/8）は「1」と「8/8」の両方が正しいが、
+ * 採点は欄ごとの一致なので片方しか受けられない。1と分数の関係は②で測る。
+ */
+
+var BU_INK = '#FFFFFF';
+var BU_SUB = '#C9D1E8';
+var BU_LINE = '#8C93AC';
+
+var UNIT_DEFS = UNIT_DEFS || {};
+UNIT_DEFS['bunsu'] = {
+  id: 'bunsu',
+  grade: 3,
+  title: '分数 タイムアタック！',
+  teacherTitle: '分数 設定・分析',
+
+  units: { 'こ': '' },
+
+  modes: [
+    { id: 1, name: 'いくつ分', desc: '1/5 が 3こで □/□ ／ 4/7 は 1/7 が □こ' },
+    { id: 2, name: '1は いくつ分', desc: '1/9 が □こで 1 ／ 7/7 = □ ／ 1 = □/6' },
+    { id: 3, name: '数直線', desc: '0〜1 の数直線の やじるしの 分数' },
+    { id: 4, name: 'どっちが 大きい', desc: '7/9 □ 3/9 に >・=・< をタップ' },
+    { id: 5, name: 'たし算', desc: '2/5 + 1/5（和は1より小さい）' },
+    { id: 6, name: 'ひき算', desc: '5/7 − 2/7 ／ 1 − 1/6' }
+  ],
+
+  types: {
+    A: 'いくつ分→分数', B: '分数→いくつ分',
+    C: '1は単位分数が何こ', D: '○/○ は いくつ', E: '1 = □/○',
+    F: '数直線',
+    G: '大小 同分母', H: '大小 単位分数', I: '大小 分数と1',
+    J: 'たし算',
+    K: 'ひき算', L: '1 − 分数'
+  },
+
+  digitCap: {
+    A: { '分母': 1, '分子': 1 }, B: { 'こ': 1 },
+    C: { 'こ': 1 }, D: { '': 1 }, E: { '分子': 1 },
+    F: { '分母': 1, '分子': 1 },
+    G: { '': 1 }, H: { '': 1 }, I: { '': 1 },
+    J: { '分母': 1, '分子': 1 },
+    K: { '分母': 1, '分子': 1 }, L: { '分母': 1, '分子': 1 }
+  },
+
+  /** 誤答の表示。分母→分子の順に打つので、読める形「分子/分母」に直す */
+  fmtAnswer: function (type, vals) {
+    if (vals.length === 2) return vals[1] + '/' + vals[0];
+    if (type === 'G' || type === 'H' || type === 'I') return ['', '>', '=', '<'][+vals[0]] || String(vals[0]);
+    return String(vals[0]);
+  },
+
+  tips: '分数の答えは分母→分子の順に打つ。たし算・ひき算（J・K）で、正しい分母が5以上なのに' +
+        '分母を「1」と打った誤答は、分母どうしも足して10以上にした（2/5+1/5=3/10）可能性が高い。<br>' +
+        '単位分数の大小（H）だけで誤る児童は、分母が大きいほど大きいとみている可能性がある。<br>' +
+        '1と分数（C・D・E・L）で誤る児童は、分数を「1をつくる数」として見られていない可能性がある。',
+
+  gen: function (rand, mode) {
+    var d, a, b, k, r;
+    if (mode === 1) {
+      d = ri_(rand, 3, 9);
+      if (rand() < 0.5) {
+        a = ri_(rand, 2, d - 1);
+        return { t: 'A', q: ['1/' + d, 'が', String(a), 'こで'],
+          rows: [['1/' + d, 'が', String(a), 'こで', '_1/_0']],
+          f: ['分母', '分子'], ans: { '分母': d, '分子': a }, tag: 'A' + a + '/' + d };
+      }
+      a = ri_(rand, 2, d - 1);
+      return { t: 'B', q: [a + '/' + d, 'は', '1/' + d, 'が'],
+        rows: [[a + '/' + d, 'は', '1/' + d, 'が', '_', 'こ']],
+        f: ['こ'], ans: { 'こ': a }, tag: 'B' + a + '/' + d };
+    }
+    if (mode === 2) {
+      d = ri_(rand, 2, 9);
+      r = ri_(rand, 0, 2);
+      if (r === 0) return { t: 'C', q: ['1/' + d, 'が', '□こで', '1'],
+        rows: [['1/' + d, 'が', '_', 'こで', '1']],
+        f: ['こ'], ans: { 'こ': d }, tag: 'C' + d };
+      if (r === 1) return { t: 'D', q: [d + '/' + d],
+        f: [''], ans: { '': 1 }, tag: 'D' + d };
+      return { t: 'E', q: ['1', '=', '□/' + d],
+        rows: [['1', '=', '_0/' + d]],
+        f: ['分子'], ans: { '分子': d }, tag: 'E' + d };
+    }
+    if (mode === 3) {
+      d = ri_(rand, 2, 9);
+      k = ri_(rand, 1, d - 1);
+      return { t: 'F', q: ['やじるしの 分数は'],
+        rows: [['やじるしの 分数は', '_1/_0']],
+        f: ['分母', '分子'], ans: { '分母': d, '分子': k }, tag: 'F' + k + '/' + d,
+        fig: buLine_(d, k) };
+    }
+    if (mode === 4) {
+      r = rand();
+      var L, R, t;
+      if (r < 0.5) {
+        d = ri_(rand, 3, 9); a = ri_(rand, 1, d);
+        do { b = ri_(rand, 1, d); } while (b === a && rand() < 0.7);   // 等しい組も時々出す（4/4 と 4/4 は出ない程度に）
+        L = [a, d]; R = [b, d]; t = 'G';
+      } else if (r < 0.8) {
+        a = ri_(rand, 2, 9);
+        do { b = ri_(rand, 2, 9); } while (b === a);
+        L = [1, a]; R = [1, b]; t = 'H';
+      } else {
+        d = ri_(rand, 2, 9); a = ri_(rand, d - 1, d);
+        L = [a, d]; R = null; t = 'I';
+      }
+      if (rand() < 0.5) { var tmp = L; L = R; R = tmp; }   // 1 や大きい方が左右どちらにも来るように
+      var lv = L ? L[0] / L[1] : 1, rv = R ? R[0] / R[1] : 1;
+      var ans = lv > rv + 1e-9 ? 1 : (Math.abs(lv - rv) < 1e-9 ? 2 : 3);
+      var side = function (s) { return s ? s[0] + '/' + s[1] : '1'; };
+      return { t: t, q: ['あてはまる きごうは'], f: [''], ans: { '': ans },
+        tag: t + side(L) + 'v' + side(R), fig: buCmp_(L, R) };
+    }
+    if (mode === 5) {
+      d = ri_(rand, 3, 9);
+      a = ri_(rand, 1, d - 2);
+      b = ri_(rand, 1, d - 1 - a);
+      return { t: 'J', q: [a + '/' + d, '+', b + '/' + d, '='],
+        rows: [[a + '/' + d, '+', b + '/' + d, '=', '_1/_0']],
+        f: ['分母', '分子'], ans: { '分母': d, '分子': a + b }, tag: 'J' + a + '+' + b + '/' + d };
+    }
+    if (mode === 6) {
+      d = ri_(rand, 3, 9);
+      if (rand() < 0.3) {
+        b = ri_(rand, 1, d - 1);
+        return { t: 'L', q: ['1', '-', b + '/' + d, '='],
+          rows: [['1', '-', b + '/' + d, '=', '_1/_0']],
+          f: ['分母', '分子'], ans: { '分母': d, '分子': d - b }, tag: 'L' + b + '/' + d };
+      }
+      a = ri_(rand, 2, d - 1);
+      b = ri_(rand, 1, a - 1);
+      return { t: 'K', q: [a + '/' + d, '-', b + '/' + d, '='],
+        rows: [[a + '/' + d, '-', b + '/' + d, '=', '_1/_0']],
+        f: ['分母', '分子'], ans: { '分母': d, '分子': a - b }, tag: 'K' + a + '-' + b + '/' + d };
+    }
+    throw new Error('分数: モードが不正です');
+  }
+};
+
+/* ---- 図 ---- */
+function buR_(v) { return Math.round(v * 10) / 10; }
+function buText_(x, y, s, size, color, anchor, cls) {
+  return '<text x="' + buR_(x) + '" y="' + buR_(y) + '" font-size="' + size + '" fill="' + (color || BU_INK) +
+    '" text-anchor="' + (anchor || 'middle') + '" dominant-baseline="central" font-weight="700"' +
+    (cls ? ' class="' + cls + '"' : '') + '>' + s + '</text>';
+}
+/** SVG の分数（中心 x、横線の y） */
+function buFrac_(x, y, n, d, size, color) {
+  var w = size * 0.75;
+  return buText_(x, y - size * 0.58, String(n), size, color) +
+    '<line x1="' + buR_(x - w / 2) + '" y1="' + buR_(y) + '" x2="' + buR_(x + w / 2) + '" y2="' + buR_(y) +
+    '" stroke="' + (color || BU_INK) + '" stroke-width="' + buR_(size / 14) + '"/>' +
+    buText_(x, y + size * 0.6, String(d), size, color);
+}
+
+/**
+ * 0〜1 の数直線を d 等分し、k 番目の目もりを矢印で指す。
+ * 目もりに分数は書かない（書くと読むだけになる）。0 と 1 だけ書く。
+ */
+function buLine_(d, k) {
+  var W = 960, x0 = 90, x1 = 870, y = 150, body = '';
+  body += '<line x1="' + x0 + '" y1="' + y + '" x2="' + x1 + '" y2="' + y + '" stroke="' + BU_INK + '" stroke-width="5"/>';
+  for (var i = 0; i <= d; i++) {
+    var x = x0 + (x1 - x0) * i / d, big = (i === 0 || i === d);
+    body += '<line x1="' + buR_(x) + '" y1="' + (y - (big ? 34 : 22)) + '" x2="' + buR_(x) + '" y2="' + (y + (big ? 34 : 22)) +
+      '" stroke="' + BU_INK + '" stroke-width="' + (big ? 5 : 4) + '"/>';
+  }
+  body += buText_(x0, y + 72, '0', 48) + buText_(x1, y + 72, '1', 48);
+  var ax = x0 + (x1 - x0) * k / d, qc = questionColor_();
+  body += '<line x1="' + buR_(ax) + '" y1="40" x2="' + buR_(ax) + '" y2="' + (y - 40) + '" stroke="' + qc + '" stroke-width="6"/>' +
+    '<path d="M' + buR_(ax - 16) + ' ' + (y - 58) + ' L' + buR_(ax + 16) + ' ' + (y - 58) + ' L' + buR_(ax) + ' ' + (y - 32) +
+    ' Z" fill="' + qc + '"/>';
+  return '<svg viewBox="0 0 ' + W + ' 260" xmlns="http://www.w3.org/2000/svg">' + body + '</svg>';
+}
+
+/** 大小の図。上に「左 □ 右」、下に ① > ② = ③ < の選択肢 */
+function buCmp_(L, R) {
+  var W = 960, body = '', y = 110, qc = questionColor_();
+  var side = function (s, x) { return s ? buFrac_(x, y, s[0], s[1], 64) : buText_(x, y, '1', 72); };
+  body += side(L, 330) + side(R, 630);
+  body += '<rect x="440" y="' + (y - 50) + '" width="80" height="100" rx="6" fill="none" stroke="' + qc + '" stroke-width="5"/>';
+  var marks = ['①', '②', '③'], syms = ['&gt;', '=', '&lt;'];
+  var boxW = 220, boxH = 110, gap = 60, x = (W - (3 * boxW + 2 * gap)) / 2, by = 230;
+  for (var i = 0; i < 3; i++) {
+    body += '<g data-pick="' + (i + 1) + '">' +
+      '<rect class="pkb" x="' + x + '" y="' + by + '" width="' + boxW + '" height="' + boxH +
+      '" rx="6" fill="#000" fill-opacity="0" stroke="' + BU_LINE + '" stroke-width="3"/>' +
+      buText_(x + 30, by + boxH / 2, marks[i], 40, BU_SUB) +
+      buText_(x + boxW / 2 + 20, by + boxH / 2, syms[i], 72, BU_SUB, 'middle', 'pkv') +
+      '</g>';
+    x += boxW + gap;
+  }
+  return '<svg viewBox="0 0 ' + W + ' 360" xmlns="http://www.w3.org/2000/svg">' + body + '</svg>';
+}
+
+var UNIT = UNIT || UNIT_DEFS['bunsu'];
 
 // ===== apps/grade3/circle/Unit.gs =====
 /**
@@ -10539,10 +10775,10 @@ return {
 };
 })(); } catch (e) { console.error("アプリ tamath を読み込めません: " + (e && e.message || e)); return { broken: String(e && e.message || e) }; } })();
 
-// ===== アプリ kanzi（sankisuguya-create/kanzi@35ba039） =====
+// ===== アプリ kanzi（sankisuguya-create/kanzi@fc1c1e6） =====
 LB_MODULES["kanzi"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/kanzi";
-var LB_APP_COMMIT = "35ba0391f5caacb042570031b9d88366bb98b69e";
+var LB_APP_COMMIT = "fc1c1e6ada528bf69571fff3904f7c6c840a10c6";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- gas/Scheduler.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/scheduler.js
@@ -10835,7 +11071,7 @@ var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval(
   // ---- 児童画面のボタンのオン・オフ（学級ごと。先生がおためし画面で切り替える）
   // 持つのはオフにしたボタンのキーだけ。m.＝メニューのボタン、s.＝「どの字で やる？」の選び方（読む・書く・カードで共通）
   // 先生画面・児童画面・GAS サーバーが同じ一覧を使う（ここが唯一の定義）
-  var GATE_KEYS = ['m.browse', 'm.read', 'm.write', 'm.fk', 'm.fy', 'm.test', 'm.seen', 'm.other', 'o.bunkai', 'o.setsumei', 'o.sakubun', 's.test', 's.due', 's.sel', 's.rnd', 's.miss', 't.p50', 't.p10', 't.hint', 't.paper', 't.juku'];
+  var GATE_KEYS = ['m.browse', 'm.read', 'm.write', 'm.fk', 'm.fy', 'm.test', 'm.seen', 'm.other', 'o.bunkai', 'o.setsumei', 'o.sakubun', 'o.report', 's.test', 's.due', 's.sel', 's.rnd', 's.miss', 't.p50', 't.p10', 't.hint', 't.paper', 't.juku'];
   // 配列・「,」区切りの文字列のどちらでも受け、知らないキー・重なりを除いて GATE_KEYS の順に並べる
   function normGates(v) {
     var list = Array.isArray(v) ? v.map(String) : String(v || '').split(',');
@@ -11026,7 +11262,7 @@ var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval(
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // GAS 版ずれ検知の版（tools/build-gas.mjs が埋め込む）
-Sched.VER = "fd477be";
+Sched.VER = "d475740";
 
 // --- gas/Genko.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/genko.js（作文の形をそろえる normWork をサーバーでも使う）
@@ -11090,6 +11326,39 @@ Sched.VER = "fd477be";
   }
   function blank(name) { return [Z + Z + Z, nameLine(name), Z].join('\n'); }
 
+  // ---- レポートを書く（設計書 §30。横書き・利用者の指定）。組み方（layout）は縦書きと同じで、画面と印刷で向きだけを変える。
+  //   はじめから見出し「１．調べたきっかけや理由／２．調べ方／３．調べて分かったこと／４．まとめ」と〈使った本〉が入っている。
+  //   見出しの行・〈使った本〉から後の行は、1マスあけの判定をしない
+  var REPORT_HEADS = ['１．調べたきっかけや理由', '２．調べ方', '３．調べて分かったこと', '４．まとめ'];
+  var BOOK = '〈使った本〉';
+  function isReport(w) { return !!w && (w === 'report' || w.mode === 'report'); }
+  function reportTemplate(name) {
+    var ls = [Z + Z + Z + '【　　　　　】のくふう', nameLine(name)];
+    REPORT_HEADS.forEach(function (h) { ls.push('', h, Z); }); // 見出しの直前は1行あける（利用者の指定）
+    ls.push(BOOK, Z);
+    return ls.join('\n');
+  }
+  function isHead(line) { return /^[１-９1-9][．.]/.test(String(line || '')); }
+  // 見出しの行は書きかえられない（利用者の指定）。見出しの行の並びと、直前の空き行を1つの文字列にして、変わったかどうかを比べる
+  // （もとの作品に空き行がなくても、その作品の形のまま守る）
+  function headSig(text) {
+    var ls = String(text || '').split('\n'), out = [];
+    ls.forEach(function (l, i) { if (REPORT_HEADS.indexOf(l) >= 0 || (isHead(l) && i >= 2)) out.push((i > 0 && ls[i - 1] === '' ? '_' : '') + l); });
+    return out.join('|');
+  }
+  // お手本（自作。テスト・教科書の文はうつさない。事実の出典は docs/features/report-writing.md）
+  var REPORT_SAMPLE = [Z + Z + Z + '図書館の本のならべ方のくふう', nameLine('高木　北子'),
+    '', REPORT_HEADS[0],
+    Z + 'わたしは、本を読むのがすきで、よく市の図書館に行きます。たくさんの本があるのに、読みたい本がすぐに見つかるのはなぜだろうと思いました。そこで、本のならべ方のくふうについて、調べることにしました。',
+    '', REPORT_HEADS[1],
+    Z + '図書館についての本を読んでから、市の図書館を見学しました。また、司書の方に話をうかがいました。',
+    '', REPORT_HEADS[2],
+    Z + '本には、せなかに番号のついたラベルがはってあります。本で調べると、本は、なかみによって０から９の番号に分けられていると書いてありました。',
+    Z + '司書の方は、「絵本は、小さい子が自分で取り出せるように、ひくいたなにならべています。」とおっしゃっていました。',
+    '', REPORT_HEADS[3],
+    Z + '図書館の本は、ただならんでいるのではなく、だれでもさがしやすいように、くふうしてならべられていることが分かりました。こんど図書館に行くときは、ラベルの番号を見て本をさがしたいと思います。',
+    BOOK, 'れい　山本花子「図書館のひみつ」〇〇書店、２０２４年、１２ページ'].join('\n');
+
   // お手本（自作。教科書の文はうつさない: 設計書 §27 と同じ方針。事実の出典は docs/features/setsumei-writing.md）
   var SAMPLE = [Z + Z + Z + 'すがたをかえる葉っぱ', nameLine('高木　北子'),
     Z + '茶の葉には、いろいろな飲み方のくふうがあります。',
@@ -11103,15 +11372,22 @@ Sched.VER = "fd477be";
   function paraNo(text, line) { var ls = String(text || '').split('\n'), n = 0; for (var i = 2; i <= line && i < ls.length; i++) if (bare(ls[i])) n++; return n; }
   // 見なおし（要件2）: [{ line, msg }]（line は 0 から。-1 は文章全体）。空の配列なら だいじょうぶ
   //   題名がない・上をあけていない／名前がない／段落のはじめを1マスあけていない／【】の穴が残っている
-  function check(text) {
-    var lines = String(text || '').split('\n'), out = [];
+  function check(text, mode) {
+    var lines = String(text || '').split('\n'), out = [], rep = mode === 'report', book = false;
     var t = lines[0] || '', n = lines[1] || '';
     if (!bare(t) || /。/.test(t)) out.push({ line: 0, msg: '1行目に 題名を 書こう', tag: '題名' });
     else if (t.indexOf(Z + Z) !== 0) out.push({ line: 0, msg: '題名は 上を 3マス あけて 書こう', tag: '上を あける' });
     if (!bare(n) || /。/.test(n)) out.push({ line: 1, msg: '2行目に 名前を 書こう', tag: '名前' });
     for (var i = 2; i < lines.length; i++) {
+      if (rep && bare(lines[i]) === bare(BOOK)) book = true;
+      if (rep && (book || isHead(lines[i]))) continue;
       if (bare(lines[i]) && lines[i][0] !== Z) out.push({ line: i, msg: paraNo(text, i) + '番目の 段落：はじめを 1マス あけよう', tag: '1マス あける' });
     }
+    if (rep) lines.forEach(function (l, i) { // 見出しの下に まだ何も書いていない
+      if (!isHead(l)) return;
+      for (var j = i + 1; j < lines.length && !isHead(lines[j]) && bare(lines[j]) !== bare(BOOK); j++) if (bare(lines[j])) return;
+      out.push({ line: i, msg: '「' + bare(l).replace(/^[１-９1-9][．.]/, '') + '」を 書こう', tag: '中みを 書く' });
+    });
     if (/【[^】]*】/.test(text)) out.push({ line: -1, msg: '【　】の あなを うめよう', tag: 'あな' });
     return out;
   }
@@ -11124,7 +11400,7 @@ Sched.VER = "fd477be";
   var MAX_CHARS = 4000; // 原稿用紙10枚。セルの上限（5万字）に十分届かない
   function normWork(w) {
     w = w || {};
-    var o = { id: String(w.id || '').slice(0, 40), text: toZen(String(w.text || '')).slice(0, MAX_CHARS), mode: w.mode === 'free' ? 'free' : 'tpl', show: !!w.show, updated: Number(w.updated) || 0 };
+    var o = { id: String(w.id || '').slice(0, 40), text: toZen(String(w.text || '')).slice(0, MAX_CHARS), mode: w.mode === 'free' || w.mode === 'report' ? w.mode : 'tpl', show: !!w.show, updated: Number(w.updated) || 0 };
     o.comments = {};
     if (w.comments && typeof w.comments === 'object') for (var k in w.comments) {
       var c = w.comments[k], line = Number(k);
@@ -11195,7 +11471,7 @@ Sched.VER = "fd477be";
   function newId() { return 'w' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36); }
 
   var Genko = { Z: Z, ROWS: ROWS, COLS: COLS, HANG: HANG, OPEN: OPEN, SMALL: SMALL, MAX_CHARS: MAX_CHARS,
-    toZen: toZen, layout: layout, pages: pages, nameLine: nameLine, template: template, blank: blank, SAMPLE: SAMPLE,
+    toZen: toZen, layout: layout, REPORT_HEADS: REPORT_HEADS, BOOK: BOOK, isReport: isReport, reportTemplate: reportTemplate, REPORT_SAMPLE: REPORT_SAMPLE, isHead: isHead, headSig: headSig, pages: pages, nameLine: nameLine, template: template, blank: blank, SAMPLE: SAMPLE,
     check: check, paraNo: paraNo, moveParagraph: moveParagraph, remapComments: remapComments, normFixes: normFixes, fixLocate: fixLocate, applyFix: applyFix, remapFixes: remapFixes, composeMap: composeMap, title: title, count: count, paragraphs: paragraphs, normWork: normWork, newId: newId };
   if (typeof module !== 'undefined' && module.exports) module.exports = Genko; else root.Genko = Genko;
 })(typeof globalThis !== "undefined" ? globalThis : this);
@@ -11223,16 +11499,21 @@ function doGet() {
 // ---- 学習BASE の中で動く時（learning-base の tools/bundle.cjs が、このファイルを関数に包んで LB_APP_COMMIT などを渡す）。
 // 単体の GAS（このスプレッドシートに付けたもの）では今まで通り。約束は learning-base の docs/add-app.md
 function inBase_() { return typeof LB_APP_COMMIT !== 'undefined'; }
-// データのスプレッドシート：単体では付いているもの。学習BASE の中では、スクリプトのプロパティ KANZI_SS_ID（今の漢字の森のスプレッドシートの ID）
+// データのスプレッドシート：単体では付いているもの。学習BASE の中では、BASEシートの台帳 app_sheets の kanzi の行（learning-base gas/Stores.gs）。
+// 台帳に無ければ前の形のスクリプトのプロパティ KANZI_SS_ID を読み、台帳に写す
 var SS_ = null;
+function kanziSheetId_(peek) {
+  if (typeof LbStores !== 'undefined') return LbStores.id('kanzi', '', { legacyProp: 'KANZI_SS_ID', peek: !!peek });
+  return String(PropertiesService.getScriptProperties().getProperty('KANZI_SS_ID') || '').trim();
+}
 function ss_() {
   if (SS_) return SS_;
   if (!inBase_()) return (SS_ = SpreadsheetApp.getActiveSpreadsheet());
-  var id = String(PropertiesService.getScriptProperties().getProperty('KANZI_SS_ID') || '').trim();
-  if (!id) throw new Error('漢字の森のデータの場所が決まっていません（スクリプトのプロパティ KANZI_SS_ID に、漢字の森のスプレッドシートの ID を入れてください）');
+  var id = kanziSheetId_(false);
+  if (!id) throw new Error('漢字の森のデータの場所が決まっていません（BASEシートの app_sheets に、アプリ「kanzi」・単元は空・スプレッドシートに漢字の森の URL の行を足してください）');
   return (SS_ = SpreadsheetApp.openById(id));
 }
-function lbReady_() { try { return !!String(PropertiesService.getScriptProperties().getProperty('KANZI_SS_ID') || '').trim(); } catch (e) { return false; } }
+function lbReady_() { try { return !!kanziSheetId_(true); } catch (e) { return false; } }
 // 一時保存：学習BASE の中では全アプリで1つの置き場を使うので、名前の頭に kanzi: を付ける
 function cache_() {
   var c = CacheService.getScriptCache();
@@ -12013,7 +12294,7 @@ function api_sakuSave(json) {
       cur.fixes = Genko.remapFixes(cur.fixes, remap).filter(function (f) { return done.indexOf(f.id) < 0; });
       sh.getRange(cur.row, SAKU_COL_.fixes).setValue(JSON.stringify(cur.fixes));
     }
-    if (w.show) mine.forEach(function (x) { if (x.id !== w.id && x.show) sh.getRange(x.row, SAKU_COL_.show).setValue(false); });
+    if (w.show) mine.forEach(function (x) { if (x.id !== w.id && x.show && Genko.isReport(x) === Genko.isReport(w)) sh.getRange(x.row, SAKU_COL_.show).setValue(false); });
     w.updated = now.getTime(); w.fixes = cur ? cur.fixes : []; if (cur) w.comments = cur.comments;
     return JSON.stringify(sakuOut_(w));
   } finally { lock.releaseLock(); }
@@ -12049,7 +12330,7 @@ function api_sakuFriends() {
   var no = {}; roster_().forEach(function (x) { no[x.email] = Number(x.no) || 999; });
   var list = sakuRows_().filter(function (w) { return w.klass === me.klass && w.show && w.email !== me.email && w.email in no && classOf_(w.email) === me.klass; })
     .sort(function (a, b) { return no[a.email] - no[b.email]; })
-    .map(function (w) { return { id: w.id, text: w.text }; });
+    .map(function (w) { return { id: w.id, text: w.text, mode: Genko.isReport(w) ? 'report' : '' }; });
   return JSON.stringify({ share: true, works: list });
 }
 // 先生: 担当学級の作品の一覧（児童ごと。名簿の番号順）と、読み合いが開いているか
@@ -12133,10 +12414,10 @@ return {
 };
 })(); } catch (e) { console.error("アプリ kanzi を読み込めません: " + (e && e.message || e)); return { broken: String(e && e.message || e) }; } })();
 
-// ===== アプリ taiiku（sankisuguya-create/taiiku@9f9e827） =====
+// ===== アプリ taiiku（sankisuguya-create/taiiku@27c694a） =====
 LB_MODULES["taiiku"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/taiiku";
-var LB_APP_COMMIT = "9f9e8276f0eaa980551b81c5645b02c3eb01f23f";
+var LB_APP_COMMIT = "27c694aa076035c81179a35bdee86dcf6bf37e31";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- gas/Taiiku.js ---
 // 体育のページ（学習BASE の中で動く）。learning-base の tools/bundle.cjs がこのファイルを関数に包み、
