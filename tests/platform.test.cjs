@@ -428,10 +428,16 @@ t('隔離：読み込みで失敗したアプリはそのアプリだけ止ま�
   const sum = Object.keys(S.props).filter(k => k.startsWith('LB_U|')).map(k => JSON.parse(S.props[k])).reduce((a, o) => Object.assign(a, o), {});
   assert.ok(Object.keys(sum).some(k => /err:tamath\.load:壊れた版/.test(k)), '失敗として数える');
 });
+t('体育：作戦ボードのページを返す（?app=taiiku、page を省いても作戦ボード）。準備は要らない', () => {
+  const S = school(), kid = '11111111@kyoiku.edu.nishi.or.jp';
+  const a = run(S, kid).doGet({ parameter: { app: 'taiiku' } }).html, b = run(S, kid).doGet({ parameter: { app: 'taiiku', page: 'board' } }).html;
+  assert.match(a, /作戦ボード/); assert.match(a, /three@0\.160\.0/); assert.strictEqual(a, b);
+  assert.doesNotMatch(a, /\.\.\/\.\.\/\.\.\//, '元のリポジトリへの参照が残っていない');
+});
 t('国語（漢字の森）：学習BASE の中で動く。準備（KANZI_SS_ID）の前は使えない扱い。枠は版つきの jsDelivr。画面からは app:kanzi の表の関数だけ。名前は大域に出ない', () => {
   const S = school(), kid = '11111111@kyoiku.edu.nishi.or.jp';
   let c = run(S, kid); c.doGet({ parameter: {} });
-  assert.strictEqual(JSON.stringify(c.LbPlatform.appsReady()), JSON.stringify({ tamath: true, kanzi: false }));
+  assert.strictEqual(JSON.stringify(c.LbPlatform.appsReady()), JSON.stringify({ tamath: true, kanzi: false, taiiku: true }));
   assert.strictEqual(run(S, kid).lbCall('home', 'boot', [{}]).apps.kanzi, false);
   assert.throws(() => run(S, kid).lbCall('app:kanzi', 'api_init', []), /KANZI_SS_ID/);
   // 準備：今の漢字の森のスプレッドシートの ID をプロパティに

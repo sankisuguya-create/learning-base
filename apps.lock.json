@@ -51,5 +51,19 @@
       "Genko"
     ],
     "readyProp": "KANZI_SS_ID"
+  },
+  "taiiku": {
+    "repo": "sankisuguya-create/taiiku",
+    "commit": "9f9e8276f0eaa980551b81c5645b02c3eb01f23f",
+    "server": [
+      "gas/Taiiku.js"
+    ],
+    "files": {
+      "board": "linepb/board/index.html"
+    },
+    "exports": {
+      "doGet": "doGet"
+    },
+    "globals": []
   }
 }
