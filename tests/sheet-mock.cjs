@@ -26,7 +26,7 @@ function makeSheet(name, rows) {
       setNumberFormat: f => { if (f === '@') for (let j = 0; j < nc; j++) text[c + j] = true; return rg; }
     }); return rg; },
     getMaxRows: () => 1000,
-    getDataRange: () => ({ getValues: () => v.map(r => r.slice()) }),
+    getDataRange: () => ({ getValues: () => v.map(r => r.slice()), getFormulas: () => sh.formulas || v.map(r => r.map(() => '')) }),   // 数式は sh.formulas に置く（検査用）
     appendRow: row => { v.push(row.map((x, j) => convert(x, text[j + 1]))); },
     clearContents: () => { v.length = 0; },
     setFrozenRows: () => {}
@@ -40,7 +40,8 @@ function makeSS(name) {
     getSheetByName: n => sheets[n] || null,
     insertSheet: n => own(n, makeSheet(n)),
     getSheets: () => Object.values(sheets),
-    deleteSheet: sh => { delete sheets[sh.getName()]; }
+    deleteSheet: sh => { delete sheets[sh.getName()]; },
+    editors: [], getEditors: () => ss.editors.map(m => ({ getEmail: () => m }))
   };
   // 写す（copyTo）・名前を変える（setName）：本物と同じく、写したシートの名前は「… のコピー」
   function own(n, sh) {

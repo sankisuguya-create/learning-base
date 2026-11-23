@@ -496,13 +496,14 @@ function baseClearCache() { baseOwnerOnly_(); Base.clearCache(); }
  *     - 行が無い教科・単元は、アプリが頼んだ時に学習BASE がスプレッドシートを作り、BASEシートと同じフォルダに置いて行を足す
  *
  * 前の形（スクリプトのプロパティに ID を持っていた：算数TA の unit_sheet:<id>・漢字の森の KANZI_SS_ID）は、
- * 見つけたら台帳に写す（syncLegacy。lbSetup と移転の時）。写した後もプロパティは消さない（前の版に戻した時のため）。
+ * 台帳に写す（syncLegacy。lbSetup と移転の時に1回だけ）。写した後もプロパティは消さない（前の版に戻した時のため）が、もう読まない。
+ *   → 台帳の行を消す＝次にその教科・単元が使われた時に新しいスプレッドシートを作る／「止める」＝使わない
  *
  * 速さ：台帳は一時保存に10分置く（練習は1問ごとに呼ぶので、毎回シートを読まない）。手で直した時は lbReload で消える
  */
 var LbStores = (function () {
   var SHEET = 'app_sheets', HEAD = ['アプリ', '単元', 'スプレッドシート', '状態', '作成'];
-  var CACHE_KEY = 'lb:stores', TTL = 600;
+  var CACHE_KEY = 'lb:stores', TTL = 600, DONE_KEY = 'LB_STORES_LEGACY_DONE';
   /** 前の形のプロパティ → 台帳の行 */
   var LEGACY = [
     { re: /^unit_sheet:([a-z0-9_-]+)$/, app: 'tamath', unit: function (m) { return m[1]; } },
@@ -559,7 +560,8 @@ var LbStores = (function () {
     var r = find(app, unit);
     if (r) return r.on ? r.id : '';
     var props = PropertiesService.getScriptProperties();
-    var legacy = opts.legacyProp ? idOf(props.getProperty(opts.legacyProp)) : '';
+    // 前の形のプロパティは、台帳へ写し終えるまでだけ読む（写した後に先生が消した行を、プロパティから勝手に戻さない）
+    var legacy = opts.legacyProp && !props.getProperty(DONE_KEY) ? idOf(props.getProperty(opts.legacyProp)) : '';
     if (legacy) { if (!opts.peek) add(app, unit, legacy, '前の形から写した'); return legacy; }
     if (!opts.create || opts.peek) return '';
     var lock = LockService.getScriptLock();
@@ -586,16 +588,21 @@ var LbStores = (function () {
     } catch (e) { console.error('記録のスプレッドシートを BASEシートのフォルダへ動かせません（マイドライブにあります）: ' + e.message); }
   }
 
-  /** 前の形のプロパティ（props：{ 名前: 値 }。省略するとこのプロジェクトのもの）を台帳に写す。返す：写した行の数 */
-  function syncLegacy(props) {
-    props = props || PropertiesService.getScriptProperties().getProperties();
-    var n = 0;
+  /**
+   * 前の形のプロパティを台帳に写す（1回だけ。写し終えたら印 LB_STORES_LEGACY_DONE を置き、以後はプロパティを読まない）。
+   * 返す：写した行の数
+   */
+  function syncLegacy() {
+    var P = PropertiesService.getScriptProperties();
+    if (P.getProperty(DONE_KEY)) return 0;
+    var props = P.getProperties(), n = 0;
     Object.keys(props).sort().forEach(function (k) {
       LEGACY.forEach(function (L) {
         var m = L.re.exec(k), sid = m && idOf(props[k]);
         if (sid && add(L.app, L.unit(m), sid, '前の形から写した')) n++;
       });
     });
+    P.setProperty(DONE_KEY, LbSheets.day());
     return n;
   }
 
@@ -667,6 +674,7 @@ var LbMove = (function () {
     msg.push('写したシート：' + (copied.join('・') || 'なし'));
     if (skipped.length) msg.push('新しい側に既にあるので写さなかった：' + skipped.join('・'));
     if (left.length) msg.push('写さなかった（学習BASE のものでない）：' + left.join('・'));
+    formulaWarnings(src, copied, left).forEach(function (w) { msg.push('【要確認】' + w); });
 
     // links（算数TA の開く先）のうち pages に無いものを pages へ
     msg.push('links から pages に移した開く先：' + linksToPages(src, dst) + ' 件');
@@ -689,7 +697,32 @@ var LbMove = (function () {
     var n = 0;
     ScriptApp.getProjectTriggers().forEach(function (tr) { ScriptApp.deleteTrigger(tr); n++; });
     msg.push('旧GAS の自動実行を止めた：' + n + ' 件');
+
+    // 共有は写らない（新しいシートは所有者だけ）。旧ハブを編集できた人を知らせる（共有するかは所有者が決める）
+    try {
+      var me = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+      var eds = src.getEditors().map(function (u) { return String(u.getEmail() || '').toLowerCase(); }).filter(function (m) { return m && m !== me; });
+      msg.push(eds.length ? '【要確認】旧ハブを編集できた人（新しいシートには共有していません。名簿を直してもらうなら共有する）：' + eds.join('・') : '旧ハブを編集できた人：所有者だけ');
+    } catch (e) { msg.push('旧ハブの共有を調べられません: ' + e.message); }
     return msg.join('\n');
+  }
+
+  /**
+   * 写したシートの数式のうち、新しいシートでそのままでは動かないもの。
+   * - 他のファイルを読む数式（IMPORTRANGE など）：新しいシートでは「アクセスを許可」を押すまで #REF!（名簿なら全員が「名簿にない人」になる）
+   * - 写さなかったシートを指す数式：#REF! になる
+   */
+  function formulaWarnings(src, copied, left) {
+    var out = [];
+    copied.forEach(function (name) {
+      var sh = src.getSheetByName(name), f = [];
+      try { f = [].concat.apply([], sh.getDataRange().getFormulas()).filter(function (x) { return x; }); } catch (e) { return; }
+      if (!f.length) return;
+      if (f.some(function (x) { return /\bIMPORT(RANGE|DATA|XML|HTML|FEED)\s*\(/i.test(x); })) out.push(name + ' に他のファイルを読む数式があります。新しいシートでそのシートを開き、セルの「アクセスを許可」を押してください');
+      var bad = left.filter(function (l) { return f.some(function (x) { return x.indexOf(l + '!') >= 0 || x.indexOf("'" + l + "'!") >= 0; }); });
+      if (bad.length) out.push(name + ' に、写さなかったシート（' + bad.join('・') + '）を指す数式があります。新しいシートでは #REF! になるので、値に直してください');
+    });
+    return out;
   }
 
   function linksToPages(src, dst) {

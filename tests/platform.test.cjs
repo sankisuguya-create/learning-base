@@ -524,6 +524,20 @@ t('台帳 app_sheets：前の形のプロパティは台帳に写して使う。
   assert.strictEqual(c.LbStores.id('tamath', 'kuku', { legacyProp: 'unit_sheet:kuku', create: 'x' }), '', '止めた行は使わない（プロパティにあっても）');
   assert.strictEqual(JSON.stringify(c.LbStores.ofApp('tamath').map(r => r.unit)), JSON.stringify(['bai']));
 });
+t('台帳 app_sheets：写し終えた後（lbSetup の後）は前の形のプロパティを読まない。行を消すと、次に使われた時に新しく作る', () => {
+  const S = school(); S.props['unit_sheet:kuku'] = ID_A;
+  run(S).lbSetup();
+  assert.ok(S.props.LB_STORES_LEGACY_DONE, '写し終えた印');
+  assert.ok(S.hub.sheets.app_sheets.v.some(r => r[0] === 'tamath' && r[1] === 'kuku'));
+  S.hub.sheets.app_sheets.v.splice(S.hub.sheets.app_sheets.v.findIndex(r => r[1] === 'kuku'), 1);   // 先生が行を消した
+  delete S.cache['lb:stores'];
+  const c = run(S); c.lbStatus();
+  assert.strictEqual(c.LbStores.id('tamath', 'kuku', { legacyProp: 'unit_sheet:kuku' }), '', 'プロパティから戻さない');
+  const made = c.LbStores.id('tamath', 'kuku', { legacyProp: 'unit_sheet:kuku', create: '算数TA 九九（kuku）' });
+  assert.ok(made && made !== ID_A, '新しく作る');
+  run(S).lbSetup();
+  assert.strictEqual(S.hub.sheets.app_sheets.v.filter(r => r[1] === 'kuku').length, 1, 'lbSetup をもう一度実行しても、消した行は戻らない');
+});
 t('国語の準備：台帳に kanzi の行があれば使える（前の形の KANZI_SS_ID でも）', () => {
   const S = school(), kid = '11111111@kyoiku.edu.nishi.or.jp';
   assert.strictEqual(run(S, kid).lbCall('home', 'boot', [{}]).apps.kanzi, false);
@@ -539,12 +553,19 @@ t('移転：旧GAS で lbMoveOut → 新しいBASEシート（GAS が付いて�
   S.hub.insertSheet('links').v.push(['id', 'title', 'sub', 'url', 'x', 'color'], ['kuku', '九九', 'ほそく', 'https://script.google.com/macros/s/OLD/exec', '', 'mint'], ['bai', 'かけ', '', '', '', 'sky']);
   S.hub.insertSheet('pages').v.push(['キー', 'URL', '色', '補足', '更新'], ['bai', 'https://script.google.com/macros/s/B/exec', '', '', '']);
   S.hub.insertSheet('an_decisions').v.push(['算数TA の名残り']);
+  S.hub.sheets.roster.formulas = [['=IMPORTRANGE("x","roster!A:E")'], ['']];
+  S.hub.sheets.pages.formulas = [[''], ['=links!D2']];
+  S.hub.editors = ['owner@edu.nishi.or.jp', 'sato@edu.nishi.or.jp'];
   S.triggers.push('lbNightly', 'lbHourly');
   const NEW = makeSS('BASExxxxxxxxxxxxxxxxxxxxx'); NEW.insertSheet('シート1');
   (S.units = S.units || {})[NEW.getId()] = NEW;
   assert.throws(() => run(S, 'kid@kyoiku.edu.nishi.or.jp').lbMoveOut('https://docs.google.com/spreadsheets/d/' + NEW.getId() + '/edit'), /所有者/);
   const msg = run(S).lbMoveOut('https://docs.google.com/spreadsheets/d/' + NEW.getId() + '/edit');
   assert.match(msg, /写さなかった（学習BASE のものでない）：.*links/);
+  assert.match(msg, /【要確認】roster に他のファイルを読む数式/);
+  assert.match(msg, /【要確認】pages に、写さなかったシート（links）を指す数式/);
+  assert.match(msg, /【要確認】旧ハブを編集できた人.*：sato@edu\.nishi\.or\.jp$/m);
+  assert.doesNotMatch(msg, /owner@edu\.nishi\.or\.jp/, '所有者は出さない');
   assert.ok(NEW.sheets.roster && NEW.sheets.teachers && NEW.sheets.facts_2026 && NEW.sheets.platform && NEW.sheets.app_sheets, Object.keys(NEW.sheets).join());
   assert.ok(!NEW.sheets.links && !NEW.sheets.an_decisions && !NEW.sheets['シート1'] && !NEW.sheets.platform_code, '算数TA の名残り・空のシートは無い: ' + Object.keys(NEW.sheets).join());
   assert.strictEqual(JSON.stringify(NEW.sheets.pages.v.slice(1).map(r => r[0]).sort()), JSON.stringify(['bai', 'kuku']), 'links の開く先は pages へ（pages にあるものはそのまま）');

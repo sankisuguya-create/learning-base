@@ -11,13 +11,14 @@
  *     - 行が無い教科・単元は、アプリが頼んだ時に学習BASE がスプレッドシートを作り、BASEシートと同じフォルダに置いて行を足す
  *
  * 前の形（スクリプトのプロパティに ID を持っていた：算数TA の unit_sheet:<id>・漢字の森の KANZI_SS_ID）は、
- * 見つけたら台帳に写す（syncLegacy。lbSetup と移転の時）。写した後もプロパティは消さない（前の版に戻した時のため）。
+ * 台帳に写す（syncLegacy。lbSetup と移転の時に1回だけ）。写した後もプロパティは消さない（前の版に戻した時のため）が、もう読まない。
+ *   → 台帳の行を消す＝次にその教科・単元が使われた時に新しいスプレッドシートを作る／「止める」＝使わない
  *
  * 速さ：台帳は一時保存に10分置く（練習は1問ごとに呼ぶので、毎回シートを読まない）。手で直した時は lbReload で消える
  */
 var LbStores = (function () {
   var SHEET = 'app_sheets', HEAD = ['アプリ', '単元', 'スプレッドシート', '状態', '作成'];
-  var CACHE_KEY = 'lb:stores', TTL = 600;
+  var CACHE_KEY = 'lb:stores', TTL = 600, DONE_KEY = 'LB_STORES_LEGACY_DONE';
   /** 前の形のプロパティ → 台帳の行 */
   var LEGACY = [
     { re: /^unit_sheet:([a-z0-9_-]+)$/, app: 'tamath', unit: function (m) { return m[1]; } },
@@ -74,7 +75,8 @@ var LbStores = (function () {
     var r = find(app, unit);
     if (r) return r.on ? r.id : '';
     var props = PropertiesService.getScriptProperties();
-    var legacy = opts.legacyProp ? idOf(props.getProperty(opts.legacyProp)) : '';
+    // 前の形のプロパティは、台帳へ写し終えるまでだけ読む（写した後に先生が消した行を、プロパティから勝手に戻さない）
+    var legacy = opts.legacyProp && !props.getProperty(DONE_KEY) ? idOf(props.getProperty(opts.legacyProp)) : '';
     if (legacy) { if (!opts.peek) add(app, unit, legacy, '前の形から写した'); return legacy; }
     if (!opts.create || opts.peek) return '';
     var lock = LockService.getScriptLock();
@@ -101,16 +103,21 @@ var LbStores = (function () {
     } catch (e) { console.error('記録のスプレッドシートを BASEシートのフォルダへ動かせません（マイドライブにあります）: ' + e.message); }
   }
 
-  /** 前の形のプロパティ（props：{ 名前: 値 }。省略するとこのプロジェクトのもの）を台帳に写す。返す：写した行の数 */
-  function syncLegacy(props) {
-    props = props || PropertiesService.getScriptProperties().getProperties();
-    var n = 0;
+  /**
+   * 前の形のプロパティを台帳に写す（1回だけ。写し終えたら印 LB_STORES_LEGACY_DONE を置き、以後はプロパティを読まない）。
+   * 返す：写した行の数
+   */
+  function syncLegacy() {
+    var P = PropertiesService.getScriptProperties();
+    if (P.getProperty(DONE_KEY)) return 0;
+    var props = P.getProperties(), n = 0;
     Object.keys(props).sort().forEach(function (k) {
       LEGACY.forEach(function (L) {
         var m = L.re.exec(k), sid = m && idOf(props[k]);
         if (sid && add(L.app, L.unit(m), sid, '前の形から写した')) n++;
       });
     });
+    P.setProperty(DONE_KEY, LbSheets.day());
     return n;
   }
 

@@ -61,6 +61,7 @@ var LbMove = (function () {
     msg.push('写したシート：' + (copied.join('・') || 'なし'));
     if (skipped.length) msg.push('新しい側に既にあるので写さなかった：' + skipped.join('・'));
     if (left.length) msg.push('写さなかった（学習BASE のものでない）：' + left.join('・'));
+    formulaWarnings(src, copied, left).forEach(function (w) { msg.push('【要確認】' + w); });
 
     // links（算数TA の開く先）のうち pages に無いものを pages へ
     msg.push('links から pages に移した開く先：' + linksToPages(src, dst) + ' 件');
@@ -83,7 +84,32 @@ var LbMove = (function () {
     var n = 0;
     ScriptApp.getProjectTriggers().forEach(function (tr) { ScriptApp.deleteTrigger(tr); n++; });
     msg.push('旧GAS の自動実行を止めた：' + n + ' 件');
+
+    // 共有は写らない（新しいシートは所有者だけ）。旧ハブを編集できた人を知らせる（共有するかは所有者が決める）
+    try {
+      var me = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+      var eds = src.getEditors().map(function (u) { return String(u.getEmail() || '').toLowerCase(); }).filter(function (m) { return m && m !== me; });
+      msg.push(eds.length ? '【要確認】旧ハブを編集できた人（新しいシートには共有していません。名簿を直してもらうなら共有する）：' + eds.join('・') : '旧ハブを編集できた人：所有者だけ');
+    } catch (e) { msg.push('旧ハブの共有を調べられません: ' + e.message); }
     return msg.join('\n');
+  }
+
+  /**
+   * 写したシートの数式のうち、新しいシートでそのままでは動かないもの。
+   * - 他のファイルを読む数式（IMPORTRANGE など）：新しいシートでは「アクセスを許可」を押すまで #REF!（名簿なら全員が「名簿にない人」になる）
+   * - 写さなかったシートを指す数式：#REF! になる
+   */
+  function formulaWarnings(src, copied, left) {
+    var out = [];
+    copied.forEach(function (name) {
+      var sh = src.getSheetByName(name), f = [];
+      try { f = [].concat.apply([], sh.getDataRange().getFormulas()).filter(function (x) { return x; }); } catch (e) { return; }
+      if (!f.length) return;
+      if (f.some(function (x) { return /\bIMPORT(RANGE|DATA|XML|HTML|FEED)\s*\(/i.test(x); })) out.push(name + ' に他のファイルを読む数式があります。新しいシートでそのシートを開き、セルの「アクセスを許可」を押してください');
+      var bad = left.filter(function (l) { return f.some(function (x) { return x.indexOf(l + '!') >= 0 || x.indexOf("'" + l + "'!") >= 0; }); });
+      if (bad.length) out.push(name + ' に、写さなかったシート（' + bad.join('・') + '）を指す数式があります。新しいシートでは #REF! になるので、値に直してください');
+    });
+    return out;
   }
 
   function linksToPages(src, dst) {
