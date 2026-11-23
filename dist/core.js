@@ -540,7 +540,7 @@ var LbStores = (function () {
 
   /** 台帳に1行足す（同じアプリ・単元が既にあれば足さない）。返す：足したか */
   function add(app, unit, id, note) {
-    var hub = Base.hub(), sh = LbSheets.sheet(hub, SHEET, HEAD, [1, 2]);
+    var hub = Base.hub(), sh = LbSheets.sheet(hub, SHEET, HEAD, [1, 2, 5]);   // アプリ・単元・作成日は文字（単元名・日付が日付や数式に化けないように）
     forget();
     if (find(app, unit)) return false;
     sh.appendRow([app, unit || '', urlOf(id), '', note || LbSheets.day()]);
