@@ -35,6 +35,8 @@ var LbPlatform = (function () {
   function doGet(e) {
     var p = (e && e.parameter) || {};
     var app = p.app || (p.unit ? 'tamath' : '');
+    var mv = LbMove.moved();
+    if (mv) return movedPage(mv);
     if (p.doc && !app) return message('このページは じゅんび中です');
     if (app) {
       var m = appMod(app);
@@ -185,12 +187,16 @@ var LbPlatform = (function () {
   }
 
   function setup() {
-    return appIds().map(function (k) {
+    var pre = [];
+    try { var tk = LbMove.take(); if (tk) pre.push(tk); } catch (e) { pre.push('移転の取り込み：× ' + e.message); }
+    try { LbStores.forget(); pre.push('台帳 app_sheets：前の形から写した ' + LbStores.syncLegacy() + ' 件・登録 ' + LbStores.list().length + ' 件'); } catch (e) { pre.push('台帳 app_sheets：× ' + e.message); }
+    try { var po = LbMove.pointOld(); if (po) pre.push(po); } catch (e) { pre.push('旧URL の案内：× ' + e.message); }
+    return pre.concat(appIds().map(function (k) {
       var m = appMod(k) || { broken: '見つかりません' };
       if (m.broken) return k + '：× 読み込めません（' + m.broken + '）';
       if (typeof m.setup !== 'function') return k + '：準備は要らない';
       try { return k + '：' + m.setup(); } catch (e) { return k + '：× ' + e.message; }
-    }).join('\n');
+    })).join('\n');
   }
 
   /** 学習BASE のホーム。画面のプログラムは jsDelivr から（読み込み係と同じ版） */
@@ -225,6 +231,15 @@ var LbPlatform = (function () {
       'open:function(u){window.open(u,"_top");}};' +
       'function lbLoadFail(){if(window.lbFailed)return;window.lbFailed=1;try{google.script.run.lbCall("home","report",["loadfail"]);}catch(e){}var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';
   }
+  /** 旧GAS（移転した後）の URL を開いた人へ。新しい URL があればリンクを出す */
+  function movedPage(mv) {
+    var url = /^https:\/\/script\.google\.com\/[\w\/.\-]+\/exec$/.test(String(mv.url || '')) ? mv.url : '';
+    return HtmlService.createHtmlOutput('<meta name="viewport" content="width=device-width, initial-scale=1"><base target="_top"><div lang="ja" style="font-family:\'BIZ UDPGothic\',\'Noto Sans CJK JP\',sans-serif;font-size:20px;padding:24px;line-height:1.8">' +
+      '学習BASE は あたらしい ばしょに ひっこしました。<br>' +
+      (url ? '<a href="' + url + '" style="display:inline-block;margin-top:12px;padding:12px 20px;border-radius:10px;background:#1f6f5c;color:#fff;text-decoration:none">あたらしい 学習BASE を ひらく</a>' +
+        '<br><small style="color:#616870">（先生へ：ブックマーク・Classroom のリンクを、この新しい URL に差し替えてください）</small>'
+        : '先生に あたらしい URL を きいてね。') + '</div>').setTitle('学習BASE');
+  }
   function message(text) {
     return HtmlService.createHtmlOutput('<meta name="viewport" content="width=device-width, initial-scale=1"><div lang="ja" style="font-family:\'BIZ UDPGothic\',\'Noto Sans CJK JP\',sans-serif;font-size:20px;padding:24px">' +
       String(text).replace(/[<>&]/g, '') + '</div>').setTitle('学習BASE');
@@ -233,17 +248,21 @@ var LbPlatform = (function () {
   /** アプリが使える状態か（{ id: true/false }）。ready を持たないアプリは使える扱い。読み込めなかったアプリは false */
   function appsReady() {
     // ホームを開くたびに呼ぶので、アプリを読み込まずに決める：準備に要るプロパティ（apps.lock.json の readyProp → LB_APP_READY）が入っていれば使える
-    var out = {}, props = PropertiesService.getScriptProperties(), need = typeof LB_APP_READY !== 'undefined' ? LB_APP_READY : {};
+    var out = {}, need = typeof LB_APP_READY !== 'undefined' ? LB_APP_READY : {};
     appIds().forEach(function (k) {
       var m = LB_MODULES[k];
       if (m && m.broken) { out[k] = false; return; }
-      try { out[k] = need[k] ? !!String(props.getProperty(need[k]) || '').trim() : (m && typeof m.ready === 'function' ? !!m.ready() : true); } catch (e) { out[k] = false; }
+      // 準備ができている＝台帳 app_sheets にそのアプリの行がある（台帳に無ければ前の形のプロパティ）
+      try { out[k] = need[k] ? !!LbStores.id(k, '', { legacyProp: need[k], peek: true }) : (m && typeof m.ready === 'function' ? !!m.ready() : true); } catch (e) { out[k] = false; }
     });
     return out;
   }
 
+  /** 自動実行：移転した後の旧GAS では何もしない（新しい GAS が同じ記録を扱うので、二重に処理しない） */
+  function job(fn) { return function () { if (LbMove.moved()) { console.log('移転ずみの旧GAS なので処理しません'); return []; } return fn(); }; }
+
   return { appsReady: appsReady, doGet: doGet, call: call, appApi: appApi, setup: setup,
-    nightly: function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); e = e.concat(directives()); e = e.concat(alerts()); return e.concat(usage()); },
-    weekly: weekly, daily: function () { return each('daily'); },
-    rollover: function () { return each('rollover'); }, continueAll: function () { return each('continueAll'); } };
+    nightly: job(function () { var e = each('nightly'); e = e.concat(legacy()); e = e.concat(facts()); e = e.concat(directives()); e = e.concat(alerts()); return e.concat(usage()); }),
+    weekly: job(weekly), daily: job(function () { return each('daily'); }),
+    rollover: job(function () { return each('rollover'); }), continueAll: job(function () { return each('continueAll'); }) };
 })();
