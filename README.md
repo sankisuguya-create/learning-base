@@ -1,6 +1,6 @@
 # learning-base
 
-学習BASE の正本。学習BASE が大元で、各教科のアプリ（いまは 算数＝算数タイムアタック・国語＝漢字の森）がその上に載る。
+学習BASE の正本。学習BASE が大元で、各教科のアプリ（いまは 算数＝算数タイムアタック・国語＝漢字の森・体育＝作戦ボード）がその上に載る。
 教科を足す時の約束は [docs/add-app.md](docs/add-app.md)。
 設計は `-` リポジトリの `principles/learning-app-foundation.md`、配り方は同 `principles/jsdelivr-delivery.md`。
 
@@ -67,6 +67,7 @@
 |---|---|
 | `…/exec` | 学習BASE のホーム |
 | `…/exec?app=tamath&unit=kuku` | 算数タイムアタック（`?unit=kuku` だけでも開く） |
+| `…/exec?app=taiiku` | 体育：ラインポートボールの作戦ボード（taiiku の `linepb/board/index.html`。flow-line-guide から自動で取りこむ） |
 | `…/exec?doc=<id>` | 教材・授業ページ（準備中）。`page=` はアプリが使う（算数TA の教師画面 `page=teacher`） |
 
 ### アプリを載せる・更新する（Claude の作業）

@@ -129,13 +129,13 @@ t('閾値（rules シート）：所有者が保存した値が効く。範囲�
   assert.strictEqual(A.active(hub).klass.minKids, 5, '人数は整数に丸める');
 });
 t('閾値：押した項目を出さない日数と、学級ごとの数は保存した値で', () => {
-  const { A, F } = env();
+  const { A, F, clock } = env();
   const hub = makeSS('hub'), acc = {};
   for (let k = 0; k < 8; k++) ROSTER.slice(0, 5).forEach(r => f(acc, W(F, k), r.lid, 'm', 6, 4, 2500));   // 止まった×5
   const by = A.compute(acc, ROSTER, CAT, '2026-11-18', {}, A.withValues({ max: 5 }).rules);
   assert.strictEqual(by['3-1'].length, 5);
   A.decide(hub, '3-1', { key: 'k1', kind: 'stall' }, 'seen', '', 't');
-  hub.sheets.decisions.v[1][0] = new Date(Date.now() - 5 * 86400000);
+  hub.sheets.decisions.v[1][0] = new Date(clock.now.getTime() - 5 * 86400000);   // 本物の今日ではなく、検査の中の時計（11/18）から5日前
   assert.ok(A.decidedKeys(hub).k1, '14日以内');
   A.saveValues(hub, { dismissDays: 3 });
   assert.ok(!A.decidedKeys(hub).k1, '3日にすれば5日前の項目はもう出る');

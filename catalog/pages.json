@@ -238,6 +238,22 @@
    "order": 10,
    "defaultOn": true,
    "linkId": "toi-board"
+  },
+  {
+   "id": "taiiku-linepb-board",
+   "subject": "taiiku",
+   "grades": [
+    3
+   ],
+   "unit": "ゴール型ゲーム",
+   "title": "ラインポートボール 作戦ボード",
+   "ruby": "ラインポートボール さくせんボード",
+   "kind": "app",
+   "app": "taiiku",
+   "params": {
+    "page": "board"
+   },
+   "order": 10
   }
  ]
 }

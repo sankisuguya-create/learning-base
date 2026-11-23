@@ -1,7 +1,7 @@
 // dist/core.js — 学習BASE の共通部品と振り分け（tools/bundle.cjs が作る。直接直さない）
 var LB_MODULES = (typeof LB_MODULES !== "undefined" && LB_MODULES) || {};
 var LB_PLATFORM_TRIGGERS = true;   // 自動実行は読み込み係が置く（アプリは置かない）
-var LB_APP_IDS = ["tamath","kanzi"];   // 載っている教科（アプリ）
+var LB_APP_IDS = ["tamath","kanzi","taiiku"];   // 載っている教科（アプリ）
 var LB_APP_READY = {"kanzi":"KANZI_SS_ID"};   // 準備に要るスクリプトのプロパティ
 
 // ===== gas/Sheets.gs =====

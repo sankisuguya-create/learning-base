@@ -28,7 +28,7 @@ t('目録：誤りを具体的に返す', () => {
 
 t('ホーム：その学年の・公開のページだけ。教科は中身のある教科だけ、単元ごとにまとまる', () => {
   const h = LbPages.home(CAT, 3, { publish: {}, now: [] }, '2026-11-10');
-  assert.strictEqual(J(h.subjects.map(s => s.id)), J(['kokugo', 'sansu', 'sogo']), '総合（といボード）も出る');
+  assert.strictEqual(J(h.subjects.map(s => s.id)), J(['kokugo', 'sansu', 'taiiku', 'sogo']), '体育（作戦ボード）・総合（といボード）も出る');
   const sansu = h.bySubject.sansu;
   assert.strictEqual(sansu[0].unit, 'かけ算');
   assert.ok(sansu.every(u => u.pages.every(p => p.grades.includes(3))));
