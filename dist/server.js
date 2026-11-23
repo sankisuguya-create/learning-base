@@ -540,7 +540,7 @@ var LbStores = (function () {
 
   /** 台帳に1行足す（同じアプリ・単元が既にあれば足さない）。返す：足したか */
   function add(app, unit, id, note) {
-    var hub = Base.hub(), sh = LbSheets.sheet(hub, SHEET, HEAD, [1, 2]);
+    var hub = Base.hub(), sh = LbSheets.sheet(hub, SHEET, HEAD, [1, 2, 5]);   // アプリ・単元・作成日は文字（単元名・日付が日付や数式に化けないように）
     forget();
     if (find(app, unit)) return false;
     sh.appendRow([app, unit || '', urlOf(id), '', note || LbSheets.day()]);
@@ -592,6 +592,8 @@ var LbStores = (function () {
    * 前の形のプロパティを台帳に写す（1回だけ。写し終えたら印 LB_STORES_LEGACY_DONE を置き、以後はプロパティを読まない）。
    * 返す：写した行の数
    */
+  /** 台帳のシートを用意する（行が1つも無くても、見出しだけのシートを置く。先生が「どこに書くか」を探さずに済むように） */
+  function ensure() { return LbSheets.sheet(Base.hub(), SHEET, HEAD, [1, 2, 5]); }
   function syncLegacy() {
     var P = PropertiesService.getScriptProperties();
     if (P.getProperty(DONE_KEY)) return 0;
@@ -607,7 +609,7 @@ var LbStores = (function () {
   }
 
   return { SHEET: SHEET, HEAD: HEAD, LEGACY: LEGACY, list: list, find: find, id: id, open: open, ofApp: ofApp, add: add,
-    syncLegacy: syncLegacy, forget: forget, idOf: idOf, urlOf: urlOf };
+    syncLegacy: syncLegacy, ensure: ensure, forget: forget, idOf: idOf, urlOf: urlOf };
 })();
 
 // ===== gas/Move.gs =====
@@ -660,6 +662,7 @@ var LbMove = (function () {
     var msg = [];
 
     // 教科の記録の紐付けを台帳に（前の形のプロパティから）
+    LbStores.ensure();   // 紐付けが0件でも台帳のシートを写す
     msg.push('台帳 app_sheets に写した紐付け：' + LbStores.syncLegacy() + ' 件');
 
     // 学習BASE のシートを写す。同じ名前のシートが新しい側にあれば写さない（上書きしない）
@@ -12352,7 +12355,7 @@ var LbPlatform = (function () {
   function setup() {
     var pre = [];
     try { var tk = LbMove.take(); if (tk) pre.push(tk); } catch (e) { pre.push('移転の取り込み：× ' + e.message); }
-    try { LbStores.forget(); pre.push('台帳 app_sheets：前の形から写した ' + LbStores.syncLegacy() + ' 件・登録 ' + LbStores.list().length + ' 件'); } catch (e) { pre.push('台帳 app_sheets：× ' + e.message); }
+    try { LbStores.forget(); LbStores.ensure(); pre.push('台帳 app_sheets：前の形から写した ' + LbStores.syncLegacy() + ' 件・登録 ' + LbStores.list().length + ' 件'); } catch (e) { pre.push('台帳 app_sheets：× ' + e.message); }
     try { var po = LbMove.pointOld(); if (po) pre.push(po); } catch (e) { pre.push('旧URL の案内：× ' + e.message); }
     return pre.concat(appIds().map(function (k) {
       var m = appMod(k) || { broken: '見つかりません' };

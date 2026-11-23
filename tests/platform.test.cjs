@@ -523,6 +523,10 @@ t('台帳 app_sheets：前の形のプロパティは台帳に写して使う。
   S.hub.sheets.app_sheets.v[1][3] = '止める'; c.LbStores.forget();
   assert.strictEqual(c.LbStores.id('tamath', 'kuku', { legacyProp: 'unit_sheet:kuku', create: 'x' }), '', '止めた行は使わない（プロパティにあっても）');
   assert.strictEqual(JSON.stringify(c.LbStores.ofApp('tamath').map(r => r.unit)), JSON.stringify(['bai']));
+  assert.ok(S.hub.sheets.app_sheets.v.slice(1).every(r => typeof r[4] === 'string'), '作成日は文字のまま（日付に化けない）');
+  c.LbStores.add('tamath', '3-1', ID_K, '3-1');
+  const r31 = S.hub.sheets.app_sheets.v.find(r => r[2].includes(ID_K));
+  assert.ok(r31[1] === '3-1' && r31[4] === '3-1', '「3-1」のような単元名・メモもカレンダーの日付にならない');
 });
 t('台帳 app_sheets：写し終えた後（lbSetup の後）は前の形のプロパティを読まない。行を消すと、次に使われた時に新しく作る', () => {
   const S = school(); S.props['unit_sheet:kuku'] = ID_A;
@@ -537,6 +541,14 @@ t('台帳 app_sheets：写し終えた後（lbSetup の後）は前の形のプ�
   assert.ok(made && made !== ID_A, '新しく作る');
   run(S).lbSetup();
   assert.strictEqual(S.hub.sheets.app_sheets.v.filter(r => r[1] === 'kuku').length, 1, 'lbSetup をもう一度実行しても、消した行は戻らない');
+});
+t('台帳 app_sheets：紐付けが0件でも、lbSetup・移転で見出しだけのシートを置く', () => {
+  const S = school();
+  run(S).lbSetup();
+  assert.strictEqual(JSON.stringify(S.hub.sheets.app_sheets.v), JSON.stringify([['アプリ', '単元', 'スプレッドシート', '状態', '作成']]));
+  const T = school(), NEW = makeSS('BASEyyyyyyyyyyyyyyyyyyyyy'); (T.units = {})[NEW.getId()] = NEW;
+  assert.match(run(T).lbMoveOut(NEW.getId()), /写した紐付け：0 件/);
+  assert.ok(NEW.sheets.app_sheets, '新しいシートにも台帳');
 });
 t('国語の準備：台帳に kanzi の行があれば使える（前の形の KANZI_SS_ID でも）', () => {
   const S = school(), kid = '11111111@kyoiku.edu.nishi.or.jp';
