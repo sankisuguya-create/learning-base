@@ -107,6 +107,8 @@ var LbStores = (function () {
    * 前の形のプロパティを台帳に写す（1回だけ。写し終えたら印 LB_STORES_LEGACY_DONE を置き、以後はプロパティを読まない）。
    * 返す：写した行の数
    */
+  /** 台帳のシートを用意する（行が1つも無くても、見出しだけのシートを置く。先生が「どこに書くか」を探さずに済むように） */
+  function ensure() { return LbSheets.sheet(Base.hub(), SHEET, HEAD, [1, 2, 5]); }
   function syncLegacy() {
     var P = PropertiesService.getScriptProperties();
     if (P.getProperty(DONE_KEY)) return 0;
@@ -122,5 +124,5 @@ var LbStores = (function () {
   }
 
   return { SHEET: SHEET, HEAD: HEAD, LEGACY: LEGACY, list: list, find: find, id: id, open: open, ofApp: ofApp, add: add,
-    syncLegacy: syncLegacy, forget: forget, idOf: idOf, urlOf: urlOf };
+    syncLegacy: syncLegacy, ensure: ensure, forget: forget, idOf: idOf, urlOf: urlOf };
 })();

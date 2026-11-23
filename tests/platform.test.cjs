@@ -542,6 +542,14 @@ t('台帳 app_sheets：写し終えた後（lbSetup の後）は前の形のプ�
   run(S).lbSetup();
   assert.strictEqual(S.hub.sheets.app_sheets.v.filter(r => r[1] === 'kuku').length, 1, 'lbSetup をもう一度実行しても、消した行は戻らない');
 });
+t('台帳 app_sheets：紐付けが0件でも、lbSetup・移転で見出しだけのシートを置く', () => {
+  const S = school();
+  run(S).lbSetup();
+  assert.strictEqual(JSON.stringify(S.hub.sheets.app_sheets.v), JSON.stringify([['アプリ', '単元', 'スプレッドシート', '状態', '作成']]));
+  const T = school(), NEW = makeSS('BASEyyyyyyyyyyyyyyyyyyyyy'); (T.units = {})[NEW.getId()] = NEW;
+  assert.match(run(T).lbMoveOut(NEW.getId()), /写した紐付け：0 件/);
+  assert.ok(NEW.sheets.app_sheets, '新しいシートにも台帳');
+});
 t('国語の準備：台帳に kanzi の行があれば使える（前の形の KANZI_SS_ID でも）', () => {
   const S = school(), kid = '11111111@kyoiku.edu.nishi.or.jp';
   assert.strictEqual(run(S, kid).lbCall('home', 'boot', [{}]).apps.kanzi, false);

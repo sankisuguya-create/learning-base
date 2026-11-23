@@ -47,6 +47,7 @@ var LbMove = (function () {
     var msg = [];
 
     // 教科の記録の紐付けを台帳に（前の形のプロパティから）
+    LbStores.ensure();   // 紐付けが0件でも台帳のシートを写す
     msg.push('台帳 app_sheets に写した紐付け：' + LbStores.syncLegacy() + ' 件');
 
     // 学習BASE のシートを写す。同じ名前のシートが新しい側にあれば写さない（上書きしない）
