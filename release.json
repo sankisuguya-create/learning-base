@@ -1,7 +1,7 @@
 {
- "ver": "d7ec6d58390c6700ae6f58aeae335b75c9c3be6b",
- "sha": "dd80c961aab6ca4baf6ca940e2d7167ce0c9b26a5ee0b2a95f22dee1078eeb21",
- "manifest": "9ee1fc60652209f2dd06a65a493dc2fb53e0805cbf53feb57612ebbf9fdc747b",
+ "ver": "d13efd1924c3d047aa33669bbeb1119961192a2d",
+ "sha": "c0a956f569cd93a285c759e386238661c3fa0a9bb5aedde78031231a188984f0",
+ "manifest": "f92b10fe67c924c2c374344ec3dd2d7bb21dbefc554f950eb81ba0eaf6622aa6",
  "apps": {
   "tamath": {
    "repo": "sankisuguya-create/arithmetic-timeattack",
@@ -9,13 +9,13 @@
   },
   "kanzi": {
    "repo": "sankisuguya-create/kanzi",
-   "commit": "fc1c1e6ada528bf69571fff3904f7c6c840a10c6"
+   "commit": "2efbfdb6f7b7cca72cbdf1b345d8b8d68ea8c726"
   },
   "taiiku": {
    "repo": "sankisuguya-create/taiiku",
    "commit": "27c694aa076035c81179a35bdee86dcf6bf37e31"
   }
  },
- "at": "2026-11-24T00:15:03.632Z",
+ "at": "2026-11-24T00:22:36.376Z",
  "note": "学習BASE の読み込み係が使う版。GitHub の自動処理が書く（直接直さない）"
 }
