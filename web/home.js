@@ -102,9 +102,9 @@
   // LbPagesView は下で window.LbPages を指す（関数の中でだけ使うので、宣言の位置は問題にならない）
 
   function render() {
-    if (!S.boot) { root.innerHTML = '<div class="lb-msg">よみこみ中…</div>'; return; }
+    if (!S.boot) { root.innerHTML = '<div class="lb-msg">よみこみ中<span class="ldots" aria-hidden="true"></span></div>'; return; }
     if (S.boot.message && S.boot.role !== 'teacher') { root.innerHTML = top() + '<div class="lb-msg">' + esc(S.boot.message) + '</div>'; return; }
-    if (!S.cat) { root.innerHTML = top() + '<div class="lb-msg">よみこみ中…</div>'; return; }
+    if (!S.cat) { root.innerHTML = top() + '<div class="lb-msg">よみこみ中<span class="ldots" aria-hidden="true"></span></div>'; return; }
     root.classList.toggle('lb-edit', !!S.edit);
     root.classList.toggle('lb-docked', S.boot.role === 'teacher' && (S.edit || S.shot));   // 下の帯の分だけ、ページの下に余白（上の部分は動かない）
     root.innerHTML = top() + teacherBar() + (S.view === 'subject' ? subjectView() : S.view === 'tuning' ? tuningView() : homeView()) + dock();

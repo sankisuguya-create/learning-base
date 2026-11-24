@@ -231,3 +231,8 @@
 /* ページを開く間 */
 .lb-opening{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.75)}
 .lb-opening-box{padding:16px 28px;border-radius:var(--radius);background:var(--ink);color:#fff;font-size:20px;font-weight:700}
+/* 待ちの表示：点を0〜3個で回す（正本は - の skills/ui-layout/SKILL.md「待ちの表示」） */
+.ldots{display:inline-block;width:1.6em;text-align:left}
+.ldots::after{content:'';animation:ldots 1.2s steps(1,end) infinite}
+@keyframes ldots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
+@media (prefers-reduced-motion:reduce){.ldots::after{animation:none;content:'...'}}
