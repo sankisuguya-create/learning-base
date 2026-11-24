@@ -1,5 +1,5 @@
 {
- "ver": "d13efd1924c3d047aa33669bbeb1119961192a2d",
+ "ver": "dffbec4e3688d8414cea75ff20e15eeacc1e4a4c",
  "sha": "c0a956f569cd93a285c759e386238661c3fa0a9bb5aedde78031231a188984f0",
  "manifest": "f92b10fe67c924c2c374344ec3dd2d7bb21dbefc554f950eb81ba0eaf6622aa6",
  "apps": {
@@ -16,6 +16,6 @@
    "commit": "27c694aa076035c81179a35bdee86dcf6bf37e31"
   }
  },
- "at": "2026-11-24T00:22:36.376Z",
+ "at": "2026-11-24T00:24:49.994Z",
  "note": "学習BASE の読み込み係が使う版。GitHub の自動処理が書く（直接直さない）"
 }
