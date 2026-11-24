@@ -76,6 +76,9 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if (kept && kept.length !== 2) fails.push('teacher: 撮影用で判断が記録された');
       await p.click('.lb-tbar [data-act=shot]'); await p.waitForTimeout(100);
       if (!/いとう|あおき/.test(await p.locator('.lb-alert:not([data-kind=result]) .lb-alert-who').first().textContent())) fails.push('teacher: 撮影用を戻せない');
+      if (await p.locator('.lb-fb').count()) fails.push('teacher: 先生モードでないのに気づきの欄が出る');
+      await p.click('.lb-tbar [data-act=edit]'); await p.waitForTimeout(100);
+      if (!(await p.locator('.lb-fb').count())) fails.push('teacher: 先生モードで気づきの欄が出ない');
       await p.fill('#lb-fbtext', '九九のタイルが小さい');
       await p.click('.lb-tbar [data-act=shot]'); await p.click('.lb-tbar [data-act=shot]');     // 描き直しても書きかけが残る
       if ((await p.inputValue('#lb-fbtext')) !== '九九のタイルが小さい') fails.push('teacher: 描き直しで気づきの書きかけが消える');
@@ -97,6 +100,8 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if (saved2['drop.accDrop'] !== 0.1) fails.push('teacher: 閾値が元の値（0.1）で保存されない: ' + JSON.stringify(saved2));
       if (!/変えている/.test(await p.locator('.lb-rule').first().textContent())) fails.push('teacher: 変えている印が出ない');
       await p.click('[data-act=back]');
+      await p.click('.lb-tbar [data-act=edit]'); await p.waitForTimeout(100);   // 先生モードを戻す
+      if (await p.locator('.lb-fb').count()) fails.push('teacher: 先生モードを切っても気づきの欄が残る');
       await p.evaluate(() => { const s = JSON.parse(localStorage.getItem('lb-demo') || '{}'); delete s.fb; delete s.rules; localStorage.setItem('lb-demo', JSON.stringify(s)); });
     }
     if (role === 'child3') {   // 記録：行き止まり・始めるまで（経路）を覚え、次に開いた時に送って消す。画面の JavaScript の失敗を送る
@@ -160,6 +165,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
     }
     if (role === 'teacher') {   // 漢字の森の名簿（所有者）：照らし合わせ → 切り替え → 戻す
       await p.evaluate(() => localStorage.setItem('lb-demo', JSON.stringify({ kanziReady: true }))); await p.reload(); await p.waitForTimeout(700);
+      await p.click('.lb-tbar [data-act=edit]'); await p.waitForTimeout(100);
       await p.click('[data-act=kroster]'); await p.waitForTimeout(300);
       if (!/漢字の森のシート/.test(await p.locator('.lb-export').textContent())) fails.push('teacher: 漢字の森の名簿の照らし合わせが出ない');
       await p.click('[data-act=kroster-use]'); await p.waitForTimeout(300);
@@ -190,7 +196,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
     if (role === 'teacher') {   // 先生モードのオン／オフで、上の部分（帯・見出し・カード・タイル）が1px も動かない
       await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
       const pos = async sel => JSON.stringify(await p.$$eval(sel, es => es.map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round); })));
-      const A = '.lb-tbar, .lb-h, .lb-nowcard, .lb-tile, .lb-alert';
+      const A = '.lb-tbar, .lb-h:not(.lb-fb .lb-h), .lb-nowcard, .lb-tile, .lb-alert';   // 気づきの欄は先生モードの時だけ一番下に足される（上の部分は動かない）
       const h0 = await pos(A); await p.click('[data-act=edit]'); const h1 = await pos(A);
       if (h0 !== h1) fails.push('teacher: 先生モードでホームが動く');
       await p.click('[data-act=subject][data-id=sansu]'); await p.waitForTimeout(200);
