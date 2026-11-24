@@ -2776,7 +2776,9 @@ var LbHome = (function () {
       out.classes = cls;
       out.owner = isOwnerView();
       out.kinds = { names: LbAlerts.KIND_NAME, labels: LbAlerts.LABEL };   // 今週の3件の種類の名前（Alerts.gs の1か所から）
-      var pick = cls.filter(function (x) { return x.key === opt.classKey; })[0] || cls[0];
+      // 開く学級：画面で選んだ学級 → teachers シートのその先生の学級（最初の行）→ 先頭の学級
+      var want = opt.classKey || homeClassKey(m.email, cls);
+      var pick = cls.filter(function (x) { return x.key === want; })[0] || cls[0];
       if (pick) {
         out.classKey = pick.key;
         out.settings = LbPages.readSettings(Base.hub(), pick.key);
@@ -2791,6 +2793,23 @@ var LbHome = (function () {
     }
     out.message = m.role === 'none' ? '学校のアカウントで ひらいてください' : 'なまえが まだ とうろく されていません。せんせいに つたえてね';
     return out;
+  }
+
+  /**
+   * その先生が開いた時の学級。teachers シートの、その先生の行を上から見て、最初に名簿にある学級。
+   * 学年だけの行（組が空）はその学年の最初の学級。全校の行（学年も空）は飛ばす。無ければ ''（先頭の学級を開く）
+   */
+  function homeClassKey(mail, cls) {
+    var t = null;
+    try { t = Base.teacher(mail); } catch (e) { return ''; }
+    if (!t) return '';
+    for (var i = 0; i < t.scopes.length; i++) {
+      var s = t.scopes[i];
+      if (!s.grade) continue;
+      var hit = cls.filter(function (x) { return x.grade === s.grade && (!s.cls || Base.normCls(x.cls) === s.cls); })[0];
+      if (hit) return hit.key;
+    }
+    return '';
   }
 
   /** 今週の3件（名前・技能の名前・根拠の一文を付ける）。名前は教師にだけ渡す */
@@ -12736,6 +12755,11 @@ var LbPlatform = (function () {
   function setup() {
     var pre = [];
     try { var tk = LbMove.take(); if (tk) pre.push(tk); } catch (e) { pre.push('移転の取り込み：× ' + e.message); }
+    try {   // 先生の担当（開いた時の学級・支援員の見られる学級）。無ければ見出しだけ置く。直した分は保存（6時間）を消してすぐ反映
+      var tsh = LbSheets.sheet(Base.hub(), 'teachers', ['メール', '姓', '名', 'せい', 'めい', '学年', '組'], []);
+      Base.clearCache();
+      pre.push('先生の担当 teachers：' + Math.max(tsh.getLastRow() - 1, 0) + ' 行');
+    } catch (e) { pre.push('先生の担当 teachers：× ' + e.message); }
     try { LbStores.forget(); LbStores.ensure(); pre.push('台帳 app_sheets：前の形から写した ' + LbStores.syncLegacy() + ' 件・登録 ' + LbStores.list().length + ' 件'); } catch (e) { pre.push('台帳 app_sheets：× ' + e.message); }
     try { var po = LbMove.pointOld(); if (po) pre.push(po); } catch (e) { pre.push('旧URL の案内：× ' + e.message); }
     return pre.concat(appIds().map(function (k) {

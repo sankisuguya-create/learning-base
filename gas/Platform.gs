@@ -189,6 +189,11 @@ var LbPlatform = (function () {
   function setup() {
     var pre = [];
     try { var tk = LbMove.take(); if (tk) pre.push(tk); } catch (e) { pre.push('移転の取り込み：× ' + e.message); }
+    try {   // 先生の担当（開いた時の学級・支援員の見られる学級）。無ければ見出しだけ置く。直した分は保存（6時間）を消してすぐ反映
+      var tsh = LbSheets.sheet(Base.hub(), 'teachers', ['メール', '姓', '名', 'せい', 'めい', '学年', '組'], []);
+      Base.clearCache();
+      pre.push('先生の担当 teachers：' + Math.max(tsh.getLastRow() - 1, 0) + ' 行');
+    } catch (e) { pre.push('先生の担当 teachers：× ' + e.message); }
     try { LbStores.forget(); LbStores.ensure(); pre.push('台帳 app_sheets：前の形から写した ' + LbStores.syncLegacy() + ' 件・登録 ' + LbStores.list().length + ' 件'); } catch (e) { pre.push('台帳 app_sheets：× ' + e.message); }
     try { var po = LbMove.pointOld(); if (po) pre.push(po); } catch (e) { pre.push('旧URL の案内：× ' + e.message); }
     return pre.concat(appIds().map(function (k) {
