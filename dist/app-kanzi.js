@@ -1,8 +1,8 @@
 // dist/app-kanzi.js — 教科 kanzi のサーバーのコード（tools/bundle.cjs が作る。直接直さない）
-// ===== アプリ kanzi（sankisuguya-create/kanzi@fc1c1e6） =====
+// ===== アプリ kanzi（sankisuguya-create/kanzi@2efbfdb） =====
 LB_MODULES["kanzi"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/kanzi";
-var LB_APP_COMMIT = "fc1c1e6ada528bf69571fff3904f7c6c840a10c6";
+var LB_APP_COMMIT = "2efbfdb6f7b7cca72cbdf1b345d8b8d68ea8c726";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- gas/Scheduler.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/scheduler.js
@@ -295,7 +295,7 @@ var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval(
   // ---- 児童画面のボタンのオン・オフ（学級ごと。先生がおためし画面で切り替える）
   // 持つのはオフにしたボタンのキーだけ。m.＝メニューのボタン、s.＝「どの字で やる？」の選び方（読む・書く・カードで共通）
   // 先生画面・児童画面・GAS サーバーが同じ一覧を使う（ここが唯一の定義）
-  var GATE_KEYS = ['m.browse', 'm.read', 'm.write', 'm.fk', 'm.fy', 'm.test', 'm.seen', 'm.other', 'o.bunkai', 'o.setsumei', 'o.sakubun', 'o.report', 's.test', 's.due', 's.sel', 's.rnd', 's.miss', 't.p50', 't.p10', 't.hint', 't.paper', 't.juku'];
+  var GATE_KEYS = ['m.browse', 'm.read', 'm.write', 'm.fk', 'm.fy', 'm.test', 'm.seen', 'm.other', 'o.bunkai', 'o.setsumei', 'o.sakubun', 'o.report', 'o.kumi', 's.test', 's.due', 's.sel', 's.rnd', 's.miss', 't.p50', 't.p10', 't.hint', 't.paper', 't.juku'];
   // 配列・「,」区切りの文字列のどちらでも受け、知らないキー・重なりを除いて GATE_KEYS の順に並べる
   function normGates(v) {
     var list = Array.isArray(v) ? v.map(String) : String(v || '').split(',');
@@ -486,7 +486,7 @@ var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval(
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // GAS 版ずれ検知の版（tools/build-gas.mjs が埋め込む）
-Sched.VER = "d475740";
+Sched.VER = "e4f4aab";
 
 // --- gas/Genko.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/genko.js（作文の形をそろえる normWork をサーバーでも使う）
@@ -563,6 +563,106 @@ Sched.VER = "d475740";
     return ls.join('\n');
   }
   function isHead(line) { return /^[１-９1-9][．.]/.test(String(line || '')); }
+  function isSub(line) { return /^[（(][１-９1-9][）)]/.test(String(line || '')); } // （１）などの小見出し（1マスあけを問わない）
+
+  // ---- 作文例。練習（ふでばこ）は「レポートを組み立てる」、本番（社会「西宮の酒づくり」・地域教材の事実だけ）は「レポートを書く」のヒント（§30）
+  //   見出しごとに 2〜3 つ。組み合わせは自由（３に合わない４も えらべる: 違和感に気づかせるため。利用者の指定）。
+  //   【 】＝ヒント3で本文に入れた時に穴になる所（自分のことばに かえる）。（１）で始まる行は小見出し（1マスあけない）
+  // 練習（ふでばこの道具）: 自分の道具を見れば すぐ調べられる題材。事実は一般に知られた製品のくふうだけ（出典は docs/features/report-writing.md）
+  var REPORT_FUDE = { id: 'fude', topic: 'ふでばこの道具（練習）', title: 'ふでばこの道具のくふう', parts: [
+    [{ id: '1a', label: 'えんぴつの形に気づいた', lines: ['毎日使っている【えんぴつ】をよく見ると、六角形になっていました。なぜまるくないのだろうと、ふしぎに思いました。そこで、ふでばこの道具のくふうについて調べることにしました。'] },
+     { id: '1b', label: '友だちとくらべた', lines: ['【友だち】とふでばこの中の道具をくらべていたら、形や色がいろいろあることに気づきました。どれにも、何かわけがあるのかなと思いました。そこで、ふでばこの道具のくふうについて調べることにしました。'] },
+     { id: '1c', label: '新しいふでばこ', lines: ['【三年生になって】、新しいふでばこを買ってもらいました。中の道具を一つずつ見ていると、小さなあなや切りこみがあることに気づきました。そこで、ふでばこの道具のくふうについて調べることにしました。'] }],
+    [{ id: '2a', label: '自分の道具を見た', lines: ['自分のふでばこの道具を、一つずつよく見ました。また、【友だちの道具】ともくらべました。'] },
+     { id: '2b', label: '本で調べた', lines: ['自分の道具をよく見てから、文ぼう具の本で、そのわけを調べました。'] },
+     { id: '2c', label: '人に聞いた', lines: ['自分の道具をよく見てから、【家の人】や先生に、そのわけを聞きました。'] }],
+    [{ id: '3a', label: '書く・消すくふう', lines: ['（１）えんぴつの形',
+        'えんぴつは、六角形になっています。六角形だと、つくえの上でころがりにくく、三本の指で持ちやすいそうです。',
+        '（２）消しゴムのケース',
+        '消しゴムの紙のケースには、【角に切りこみ】があります。本には、ケースのはしで消しゴムがおれにくくなるようにしていると書いてありました。'] },
+     { id: '3b', label: '正しく使うくふう', lines: ['（１）じょうぎの目もり',
+        'じょうぎの０の目もりは、はしから少しはなれた所にあります。はしがすりへっても、正しく長さをはかれるようにしているそうです。',
+        '（２）はさみの持つ所',
+        'はさみの持つ所は、【二つのあなの大きさ】がちがいます。小さいあなに親ゆび、大きいあなにほかのゆびを入れると、力を入れやすいそうです。'] },
+     { id: '3c', label: 'あんぜんのくふう', lines: ['（１）キャップのあな',
+        'ペンのキャップには、小さなあながあいています。先生に聞くと、「まちがえてのみこんでしまっても、いきができるようにするためです。」と教えてくれました。',
+        '（２）はさみの先',
+        '子ども用のはさみは、【刃の先がまるく】なっています。人にささったり、けがをしたりしにくいようにしているそうです。'] }],
+    [{ id: '4a', label: '書きやすさ', lines: ['いつも使っているえんぴつや消しゴムにも、書きやすく、使いやすくするくふうがあることが分かりました。とくに、【えんぴつが六角形なのにわけがあったこと】に、おどろきました。こんど、【ほかの文ぼう具】のくふうも見つけたいと思います。'] },
+     { id: '4b', label: '使う人のことを考えて', lines: ['ふでばこの道具は、使う人がまちがえずに使えるように考えてつくられていることが分かりました。とくに、【じょうぎの０の目もりの場所】に、おどろきました。こんど、【家にある道具】も、よく見てみたいと思います。'] },
+     { id: '4c', label: 'あんぜん', lines: ['ふでばこの道具には、使う人がけがをしないためのくふうがあることが分かりました。とくに、【キャップの小さなあな】に、おどろきました。こんど、【教室にあるほかの物】のあんぜんのくふうも、さがしてみたいと思います。'] }]] };
+  var REPORT_EXAMPLES = { id: 'sake', topic: '西宮の酒づくり（本番）', title: '西宮の酒づくりのくふう', parts: [
+    [{ id: '1a', label: '社会の学習で知った', lines: ['社会の学習で、西宮には日本酒をつくる工場が多いことを知りました。なぜ西宮で【酒づくりがさかんなのか】、ふしぎに思いました。そこで、酒づくりのくふうについて調べることにしました。'] },
+     { id: '1b', label: '酒ミュージアムで見た', lines: ['【家ぞくと】酒ミュージアムに行き、むかしの酒づくりで使った大きなたるを見ました。今はどのように酒をつくっているのか、気になりました。そこで、酒づくりのくふうについて調べることにしました。'] },
+     { id: '1c', label: '近くの酒工場', lines: ['【わたしの家の近く】には、酒工場があります。いつも【大きなタンク】を見ながら、中で何をしているのだろうと思っていました。そこで、酒づくりのくふうについて調べることにしました。'] }],
+    [{ id: '2a', label: '本で調べた', lines: ['地いきの学習の本を読んで、西宮の酒づくりについて調べました。また、本にのっている酒工場の方や杜氏の方の話を読みました。'] },
+     { id: '2b', label: 'ミュージアムを見学した', lines: ['酒ミュージアムを見学して、むかしの酒づくりの道具を見ました。それから、地いきの学習の本で、今の酒工場のようすを調べました。'] },
+     { id: '2c', label: '人に聞いた', lines: ['地いきの学習の本で調べてから、【家の人】に酒づくりについて話を聞きました。'] }],
+    [{ id: '3a', label: '水と米のくふう', lines: ['（１）水のくふう',
+        '本には、「酒づくりにとって、水はいちばん大切なものです。」と書いてありました。西宮では、宮水という水を、海がん近くのいどからくみあげて使っています。【わき出る量や水のせいしつがかわらないように】、いつも気をつけているそうです。',
+        '（２）米のくふう',
+        '西宮の酒工場では、山田錦という、酒づくりにてきした米を使っています。この米は、【近くの六甲山の北側あたり】でたくさんつくられて、西宮にはこばれてくるそうです。'] },
+     { id: '3b', label: '人と工場のくふう', lines: ['（１）人のぎじゅつ',
+        '西宮の酒は、杜氏を中心とした蔵人たちがつくっています。杜氏は、蔵の中で酒づくりのけいけんが一番ある人しかできません。杜氏の方は、「酒づくりで問題が起きたときに、蔵人から相談されたら解決の方法を教えています。」とおっしゃっていました。',
+        '（２）工場のくふう',
+        '今は、ほとんど機械で酒をつくっています。びんにつめる機械は、【１時間に数千本】の酒をびんづめできるそうです。また、工場で働いている人は、【工場の中のそうじ】に一番時間をかけているそうです。'] },
+     { id: '3c', label: 'これからのくふう', lines: ['（１）多くの人にのんでもらうくふう',
+        '酒工場の方は、日本酒をあまりのまなかった人にものんでもらえるように、【入れ物の色や形】をくふうしたり、ユニークな商品の名前を考えたりしているそうです。',
+        '（２）新しいものをつくるくふう',
+        '酒工場では、お酒を原料にした【けしょう品】や、日本酒とほかのざいりょうをまぜた新しいお酒もつくっているそうです。さいきんは、外国への輸出もふえていると書いてありました。'] }],
+    [{ id: '4a', label: '水・米・人のひみつ', lines: ['西宮の酒づくりには、よい水、よい米、すぐれたぎじゅつをもつ人という、いくつものひみつがあることが分かりました。とくに、【水の量やせいしつがかわらないように気をつけていること】に、おどろきました。こんど、【宮水のいど】を見に行きたいと思います。'] },
+     { id: '4b', label: 'のんでもらうくふう', lines: ['酒をつくる人たちは、おいしい酒をつくるだけでなく、多くの人にのんでもらうためのくふうもしていることが分かりました。とくに、【入れ物の色や形まで考えていること】に、おどろきました。こんど、【店で酒のびん】を見るときは、どんなくふうがあるか、さがしてみたいと思います。'] },
+     { id: '4c', label: 'むかしと今', lines: ['むかしは人の手で、今は機械で酒をつくっていますが、どちらも人のぎじゅつや気くばりが大切だと分かりました。とくに、【そうじに一番時間をかけていること】に、おどろきました。こんど、【酒ミュージアム】に行って、むかしの道具を見てみたいと思います。'] }]] };
+  // ---- レポートを組み立てる（§30。練習「ふでばこの道具」の作文例で、見出しごとに えらんで組み合わせ、合うかを判定する）
+  // sel: [1の番号, 2の番号, 3の番号, 4の番号]（0＝ア 1＝イ 2＝ウ）。返す: 合わない所 [{ parts: [見出しの番号…], msg }]（空なら合う）
+  //   ４↔３: まとめは ３の くふうの話でないと合わない（ア↔ア・イ↔イ・ウ↔ウ）
+  //   ２↔３: ３アは「本には」→ ２は本で調べた（イ）。３ウは「先生に聞くと」→ ２は人に聞いた（ウ）
+  //   １↔３: １アは「えんぴつ」がきっかけ → ３にえんぴつ（ア）。１ウは「あなや切りこみ」→ ３ア（切りこみ）か３ウ（あな）
+  var KUMI_3 = ['書く・消すくふう', '正しく使うくふう', 'あんぜんのくふう'];
+  function kumiCheck(sel) {
+    var a = sel[0], b = sel[1], c = sel[2], d = sel[3], out = [];
+    if (d !== c) out.push({ parts: [2, 3], msg: 'まとめは「' + KUMI_3[d] + '」の話なのに、３で書いたのは「' + KUMI_3[c] + '」です' });
+    if (c === 0 && b !== 1) out.push({ parts: [1, 2], msg: '３に「本には…書いてありました」とあるのに、２の調べ方に 本が 出てきません' });
+    if (c === 2 && b !== 2) out.push({ parts: [1, 2], msg: '３に「先生に聞くと」とあるのに、２の調べ方に 人に聞いたことが 出てきません' });
+    if (a === 0 && c !== 0) out.push({ parts: [0, 2], msg: 'えんぴつの形が きっかけなのに、３に えんぴつの話が ありません' });
+    if (a === 2 && c === 1) out.push({ parts: [0, 2], msg: 'あなや切りこみに 気づいたのが きっかけなのに、３に その話が ありません' });
+    return out;
+  }
+  function kumiText(sel, set) {
+    set = set || REPORT_FUDE;
+    var ls = [Z + Z + Z + set.title, nameLine('')];
+    REPORT_HEADS.forEach(function (h, i) { ls.push('', h); ls = ls.concat(sel[i] >= 0 ? exLines(set.parts[i][sel[i]], false) : [Z + '（まだ えらんでいない）']); });
+    return ls.join('\n');
+  }
+  // 問題: 半分くらいは合う組み合わせ（rnd は 0〜1 を返す関数。検査で決まった値を渡せる）
+  function kumiProblem(rnd) {
+    rnd = rnd || Math.random;
+    var all = []; for (var i = 0; i < 81; i++) all.push([Math.floor(i / 27), Math.floor(i / 9) % 3, Math.floor(i / 3) % 3, i % 3]);
+    var ok = all.filter(function (x) { return !kumiCheck(x).length; }), ng = all.filter(function (x) { return kumiCheck(x).length; });
+    var list = rnd() < 0.5 ? ok : ng;
+    return list[Math.floor(rnd() * list.length)].slice();
+  }
+  var REPORT_SETS = [REPORT_FUDE, REPORT_EXAMPLES];
+  function exLines(ex, holes) { // 本文に入れる行（段落は1マスあけ。小見出しはそのまま）
+    return ex.lines.map(function (l) { if (!holes) l = l.replace(/[【】]/g, ''); return isSub(l) ? l : Z + l; });
+  }
+  // 写す段階の見本（各見出しの1つ目。４ａは３ａに合う）
+  function reportCopyModel(name, set) {
+    set = set || REPORT_FUDE;
+    var ls = [Z + Z + Z + set.title, nameLine(name || '')];
+    REPORT_HEADS.forEach(function (h, i) { ls.push('', h); ls = ls.concat(exLines(set.parts[i][0], false)); });
+    ls.push(BOOK, Z);
+    return ls.join('\n');
+  }
+  // 見出し hi（0〜3）の下の本文を lines に入れかえる。見出しの行と直前の空き行はそのまま（headSig は変わらない）。見出しがなければ null
+  function setSection(text, hi, lines) {
+    var ls = String(text || '').split('\n'), h = ls.indexOf(REPORT_HEADS[hi]);
+    if (h < 0) return null;
+    var j = h + 1;
+    while (j < ls.length && !isHead(ls[j]) && ls[j] !== BOOK) j++;
+    var end = j; if (j < ls.length && isHead(ls[j]) && ls[j - 1] === '' && j - 1 > h) end = j - 1; // 次の見出しの前の空き行は残す
+    return ls.slice(0, h + 1).concat(lines, ls.slice(end)).join('\n');
+  }
   // 見出しの行は書きかえられない（利用者の指定）。見出しの行の並びと、直前の空き行を1つの文字列にして、変わったかどうかを比べる
   // （もとの作品に空き行がなくても、その作品の形のまま守る）
   function headSig(text) {
@@ -604,7 +704,7 @@ Sched.VER = "d475740";
     if (!bare(n) || /。/.test(n)) out.push({ line: 1, msg: '2行目に 名前を 書こう', tag: '名前' });
     for (var i = 2; i < lines.length; i++) {
       if (rep && bare(lines[i]) === bare(BOOK)) book = true;
-      if (rep && (book || isHead(lines[i]))) continue;
+      if (rep && (book || isHead(lines[i]) || isSub(lines[i]))) continue;
       if (bare(lines[i]) && lines[i][0] !== Z) out.push({ line: i, msg: paraNo(text, i) + '番目の 段落：はじめを 1マス あけよう', tag: '1マス あける' });
     }
     if (rep) lines.forEach(function (l, i) { // 見出しの下に まだ何も書いていない
@@ -695,7 +795,7 @@ Sched.VER = "d475740";
   function newId() { return 'w' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36); }
 
   var Genko = { Z: Z, ROWS: ROWS, COLS: COLS, HANG: HANG, OPEN: OPEN, SMALL: SMALL, MAX_CHARS: MAX_CHARS,
-    toZen: toZen, layout: layout, REPORT_HEADS: REPORT_HEADS, BOOK: BOOK, isReport: isReport, reportTemplate: reportTemplate, REPORT_SAMPLE: REPORT_SAMPLE, isHead: isHead, headSig: headSig, pages: pages, nameLine: nameLine, template: template, blank: blank, SAMPLE: SAMPLE,
+    toZen: toZen, layout: layout, REPORT_HEADS: REPORT_HEADS, BOOK: BOOK, isReport: isReport, reportTemplate: reportTemplate, REPORT_SAMPLE: REPORT_SAMPLE, isHead: isHead, headSig: headSig, isSub: isSub, REPORT_EXAMPLES: REPORT_EXAMPLES, kumiCheck: kumiCheck, kumiText: kumiText, kumiProblem: kumiProblem, REPORT_SETS: REPORT_SETS, REPORT_FUDE: REPORT_FUDE, exLines: exLines, reportCopyModel: reportCopyModel, setSection: setSection, pages: pages, nameLine: nameLine, template: template, blank: blank, SAMPLE: SAMPLE,
     check: check, paraNo: paraNo, moveParagraph: moveParagraph, remapComments: remapComments, normFixes: normFixes, fixLocate: fixLocate, applyFix: applyFix, remapFixes: remapFixes, composeMap: composeMap, title: title, count: count, paragraphs: paragraphs, normWork: normWork, newId: newId };
   if (typeof module !== 'undefined' && module.exports) module.exports = Genko; else root.Genko = Genko;
 })(typeof globalThis !== "undefined" ? globalThis : this);

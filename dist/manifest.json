@@ -1,29 +1,29 @@
 {
- "server": "dd80c961aab6ca4baf6ca940e2d7167ce0c9b26a5ee0b2a95f22dee1078eeb21",
- "html": "935e8c244e00c516f87ab72a5afdf79e7b6648045276e0e6c29bb442bcd230ee",
- "serverChars": 556895,
- "htmlChars": 660553,
+ "server": "c0a956f569cd93a285c759e386238661c3fa0a9bb5aedde78031231a188984f0",
+ "html": "e68a04b0aecbf95426141c7def32d1939cc4d86f258606dec82c4b14240658f8",
+ "serverChars": 564632,
+ "htmlChars": 662488,
  "files": {
-  "app-kanzi.js": "468a837955ab7608cbee6a8a7349a9620bcb14dc1726cc3e1d27110ed69ac1ad",
+  "app-kanzi.js": "cdadb7a3905d1baddae841c90ef1bdc8b909bdac7cef5d1520b3e66c5844071d",
   "app-taiiku.js": "4b634ff183fabf421a91b4c342e246d85920e0ef60426a48a76360d3ef675a1c",
   "app-tamath.js": "2a8b7ce9fb27daa46fb3d06140063992b68e0d786d3e1b189d7e75d6f123e436",
   "core.js": "77b903757aa701438d74bcb2c2feb078db07112e8663f8fc8b3012b72dc6fa55",
-  "html-kanzi.json": "86f581eda29e905e2b0ea092f444462c86b832a6c737a68d123403524f79bd12",
+  "html-kanzi.json": "92092a8147dd858c52f1998e8ac96b6cd0e24ca7632fad4844fff77df03cfb4a",
   "html-taiiku.json": "cf50f3f5447de59c99b9f6f8fc411e0e3d4af45d32b265d7e6253e35dce85575",
   "html-tamath.json": "cef0f5f2f33c43eb3a95804a123d6d5496404446dc90af473bf0d51aae1c628a",
-  "html.json": "935e8c244e00c516f87ab72a5afdf79e7b6648045276e0e6c29bb442bcd230ee",
-  "server.js": "dd80c961aab6ca4baf6ca940e2d7167ce0c9b26a5ee0b2a95f22dee1078eeb21"
+  "html.json": "e68a04b0aecbf95426141c7def32d1939cc4d86f258606dec82c4b14240658f8",
+  "server.js": "c0a956f569cd93a285c759e386238661c3fa0a9bb5aedde78031231a188984f0"
  },
  "chars": {
-  "app-kanzi.js": 84104,
+  "app-kanzi.js": 91841,
   "app-taiiku.js": 1542,
   "app-tamath.js": 311739,
   "core.js": 159713,
-  "html-kanzi.json": 66214,
+  "html-kanzi.json": 68149,
   "html-taiiku.json": 69637,
   "html-tamath.json": 524704,
-  "html.json": 660553,
-  "server.js": 556895
+  "html.json": 662488,
+  "server.js": 564632
  },
  "apps": {
   "tamath": {
@@ -32,7 +32,7 @@
   },
   "kanzi": {
    "repo": "sankisuguya-create/kanzi",
-   "commit": "fc1c1e6ada528bf69571fff3904f7c6c840a10c6"
+   "commit": "2efbfdb6f7b7cca72cbdf1b345d8b8d68ea8c726"
   },
   "taiiku": {
    "repo": "sankisuguya-create/taiiku",
