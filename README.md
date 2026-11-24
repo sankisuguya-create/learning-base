@@ -51,7 +51,7 @@ BASEシート（GAS が付いている）
 
 教科を足しても、1回の呼び出しで読むのは「共通部品＋その教科」だけなので、読む量は増えない。
 
-**教科のリポジトリを直した時**：教科のリポジトリにマージすると、1時間以内に「教科の版を上げる」PR が自動でできる（`.github/workflows/update-apps.yml`。検査が通った時だけ）。それをマージすると学校に届く。
+**教科のリポジトリを直した時**：教科のリポジトリにマージすると、日本時間 8〜20時の2時間ごとの確認で「教科の版を上げる」PR が自動でできる（夜にマージした分は翌朝8時台。急ぐ時は Actions で Run workflow）（`.github/workflows/update-apps.yml`。検査が通った時だけ）。それをマージすると学校に届く。
 初めに1回だけ、このリポジトリの Settings → Actions → General →「Allow GitHub Actions to create and approve pull requests」をオンにする。
 
 **更新は PR のマージだけ。** main にマージされると GitHub の自動処理（`.github/workflows/release.yml`）が検査を通した上で

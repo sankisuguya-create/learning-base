@@ -1,13 +1,13 @@
 # 教科（アプリ）のリポジトリの main が進んだら、学習BASE の取り込み版を上げる PR を自動で作る。
 # マージは人が押す（マージ＝「学校に出してよい」の承認、という決まりは変えない）。
-# 1時間ごとに見る。すぐ見たい時は Actions の「教科の版を上げる」→ Run workflow。
+# 日本時間 8:17〜20:17 の2時間ごと（8・10・12・14・16・18・20時）に見る。cron は UTC。すぐ見たい時は Actions の「教科の版を上げる」→ Run workflow。
 # 検査が落ちた版では PR を作らない（この仕事が失敗として残り、GitHub からメールが来る）。
 # 初めに1回だけ：リポジトリの Settings → Actions → General → 「Allow GitHub Actions to create and approve pull requests」をオン
 name: 教科の版を上げる
 
 on:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '17 23,1,3,5,7,9,11 * * *'
   workflow_dispatch:
 
 permissions:
