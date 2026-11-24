@@ -3213,7 +3213,8 @@ var LbPlatform = (function () {
       // ページの目録は、画面のプログラムと同時に取り始める（ホームの情報を待たない）
       (boot && /^https:\/\/cdn\.jsdelivr\.net\/[\w@.\/-]+$/.test(String(boot.pagesUrl)) ? '<link rel="preload" href="' + boot.pagesUrl + '" as="fetch" crossorigin="anonymous">' : '') +
       '</head><body style="margin:0;background:#fff">' +
-      '<main id="lb" class="lb"><div class="lb-msg">よみこみ中…</div></main>' +
+      '<style>.ldots{display:inline-block;width:1.6em;text-align:left}.ldots::after{content:\'\';animation:ldots 1.2s steps(1,end) infinite}@keyframes ldots{0%{content:\'\'}25%{content:\'.\'}50%{content:\'..\'}75%{content:\'...\'}}@media (prefers-reduced-motion:reduce){.ldots::after{animation:none;content:\'...\'}}</style>' + // 待ちの点（home.css の版が古くても回るよう枠に直接書く）
+      '<main id="lb" class="lb"><div class="lb-msg">よみこみ中<span class="ldots" aria-hidden="true"></span></div></main>' +
       '<script>' + platformScript(url) + (boot ? 'window.LB_BOOT=' + safeJson(boot) + ';' : '') + '<\/script>' +
       '<script src="' + base + 'pages.js" onerror="lbLoadFail()"><\/script>' +
       '<script src="' + base + 'home.js" onerror="lbLoadFail()"><\/script></body></html>';
