@@ -189,6 +189,23 @@
    "actAs": true
   },
   {
+   "id": "tamath-bunsu",
+   "subject": "sansu",
+   "grades": [
+    3
+   ],
+   "unit": "分数",
+   "title": "分数",
+   "ruby": "ぶんすう",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "bunsu"
+   },
+   "order": 100,
+   "actAs": true
+  },
+  {
    "id": "tamath-volume",
    "subject": "sansu",
    "grades": [
