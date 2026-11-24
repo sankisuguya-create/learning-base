@@ -550,6 +550,22 @@ t('台帳 app_sheets：紐付けが0件でも、lbSetup・移転で見出しだ�
   assert.match(run(T).lbMoveOut(NEW.getId()), /写した紐付け：0 件/);
   assert.ok(NEW.sheets.app_sheets, '新しいシートにも台帳');
 });
+t('先生の学級：teachers シートのその先生の学級で開く（学年だけの行はその学年の最初の学級）。選んだ学級が先。書いていない先生は先頭の学級', () => {
+  const S = school();
+  S.hub.sheets.roster.v.push(['22222222@kyoiku.edu.nishi.or.jp', 4, 1, 1, '鈴木', 'たろう'], ['33333333@kyoiku.edu.nishi.or.jp', 4, 2, 1, '佐藤', 'じろう'], ['44444444@kyoiku.edu.nishi.or.jp', 5, 3, 1, '高橋', 'さぶろう']);
+  run(S).lbSetup();
+  assert.strictEqual(JSON.stringify(S.hub.sheets.teachers.v), JSON.stringify([['メール', '姓', '名', 'せい', 'めい', '学年', '組']]), 'lbSetup で見出しだけの teachers を置く');
+  S.hub.sheets.teachers.v.push(['t42@edu.nishi.or.jp', '山田', '花', '', '', 4, '２組'], ['t42@edu.nishi.or.jp', '山田', '花', '', '', 3, 1],
+    ['t5@edu.nishi.or.jp', '', '', '', '', 5, ''], ['tall@edu.nishi.or.jp', '', '', '', '', '', ''], ['t9@edu.nishi.or.jp', '', '', '', '', 6, 1]);
+  run(S).lbReload();
+  const boot = (mail, o) => run(S, mail).lbCall('home', 'boot', [o || {}]).classKey;
+  assert.strictEqual(boot('t42@edu.nishi.or.jp'), '4-2', '最初の行の学級（「２組」も 2）');
+  assert.strictEqual(boot('t5@edu.nishi.or.jp'), '5-3', '学年だけ：その学年の最初の学級');
+  assert.strictEqual(boot('tall@edu.nishi.or.jp'), '3-1', '全校の行：先頭の学級');
+  assert.strictEqual(boot('t9@edu.nishi.or.jp'), '3-1', '名簿に無い学級：先頭の学級');
+  assert.strictEqual(boot('other@edu.nishi.or.jp'), '3-1', 'teachers に無い先生：先頭の学級');
+  assert.strictEqual(boot('t42@edu.nishi.or.jp', { classKey: '5-3' }), '5-3', '画面で選んだ学級が先');
+});
 t('国語の準備：台帳に kanzi の行があれば使える（前の形の KANZI_SS_ID でも）', () => {
   const S = school(), kid = '11111111@kyoiku.edu.nishi.or.jp';
   assert.strictEqual(run(S, kid).lbCall('home', 'boot', [{}]).apps.kanzi, false);

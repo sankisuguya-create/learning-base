@@ -86,10 +86,11 @@ function lbMoveOut(url) {
   console.log(msg);
   return msg;
 }
-/** 版を書き換えた後・台帳（app_sheets）を手で直した後、待たずに反映する */
+/** 版を書き換えた後・台帳（app_sheets）や名簿・teachers を手で直した後、待たずに反映する */
 function lbReload() {
   lbOwnerOnly_();
   CacheService.getScriptCache().removeAll(['lb:ver', 'lb:stores', 'lb:moved']);
+  try { lbNeed_(); Base.clearCache(); } catch (e) { console.error('名簿・担当の保存を消せません: ' + e.message); }   // 名簿・teachers を直した時も
   console.log('版の一時保存を消しました。次に開いた時に読み直します');
 }
 /** いまの状態（版・一時保存・BASEシートの写し）を実行ログに出す */
