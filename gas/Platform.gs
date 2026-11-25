@@ -216,7 +216,7 @@ var LbPlatform = (function () {
       '<link rel="stylesheet" href="' + base + 'home.css">' +
       // ページの目録は、画面のプログラムと同時に取り始める（ホームの情報を待たない）
       (boot && /^https:\/\/cdn\.jsdelivr\.net\/[\w@.\/-]+$/.test(String(boot.pagesUrl)) ? '<link rel="preload" href="' + boot.pagesUrl + '" as="fetch" crossorigin="anonymous">' : '') +
-      '</head><body style="margin:0;background:#fff">' +
+      '</head><body style="margin:0;background:#E9EDF2">' +
       '<style>.ldots{display:inline-block;width:1.6em;text-align:left}.ldots::after{content:\'\';animation:ldots 1.2s steps(1,end) infinite}@keyframes ldots{0%{content:\'\'}25%{content:\'.\'}50%{content:\'..\'}75%{content:\'...\'}}@media (prefers-reduced-motion:reduce){.ldots::after{animation:none;content:\'...\'}}</style>' + // 待ちの点（home.css の版が古くても回るよう枠に直接書く）
       '<main id="lb" class="lb"><div class="lb-msg">よみこみ中<span class="ldots" aria-hidden="true"></span></div></main>' +
       '<script>' + platformScript(url) + (boot ? 'window.LB_BOOT=' + safeJson(boot) + ';' : '') + '<\/script>' +
@@ -234,7 +234,7 @@ var LbPlatform = (function () {
       'return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall("home",fn,a);});},' +
       'app:function(mod,name,a){return new Promise(function(ok,ng){google.script.run.withSuccessHandler(ok).withFailureHandler(ng).lbCall(mod,name,a);});},' +   // アプリの窓口（lbCall('app:<id>')）
       'fetchJson:function(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("目録 "+r.status);return r.json();});},' +
-      'open:function(u){window.open(u,"_top");}};' +
+      'open:function(u,nt){window.open(u,nt?"_blank":"_top");}};' +
       'function lbLoadFail(){if(window.lbFailed)return;window.lbFailed=1;try{google.script.run.lbCall("home","report",["loadfail"]);}catch(e){}var m=document.getElementById("lb");if(m)m.innerHTML=\'<div class="lb-msg" style="padding:24px;font-size:20px">いま ひらけません。すこし まってから、ページを ひらきなおしてね。</div>\';}';
   }
   /** 旧GAS（移転した後）の URL を開いた人へ。新しい URL があればリンクを出す */

@@ -5,7 +5,7 @@
  * サーバーとのやりとりは window.LB_PLATFORM に任せる（本番は GAS、見本は web/demo.html の模擬）。
  *   LB_PLATFORM.call(home＋名前, 引数…) → Promise … サーバーの LbHome.API の同じ名前（例：homeSetNow → setNow）（呼べるのは Home.gs の API の表にあるものだけ）
  *   LB_PLATFORM.fetchJson(url)       → Promise   … ページの目録（jsDelivr）
- *   LB_PLATFORM.open(url)                       … ページを開く
+ *   LB_PLATFORM.open(url, newTab)               … ページを開く（newTab：別のタブ。学習BASE のタブは残る）
  *   LB_PLATFORM.baseUrl                         … 学習BASE の URL（…/exec）
  *
  * 児童の画面：いまの学習（教師が選んだ最大3件）を最上部に大きく、その下に教科。教科を押すと単元ごとのページ。
@@ -30,7 +30,7 @@
   }
   window.addEventListener('error', function (e) { reportJs((e && e.message) || 'error'); });
   window.addEventListener('unhandledrejection', function (e) { reportJs('promise: ' + ((e && e.reason && e.reason.message) || (e && e.reason) || '')); });
-  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, shot: false, fb: '', exp: null, tune: null, linkEdit: '', sel: '', palette: false, dirKey: '', dirDays: 14, dirShow: false, readyAt: 0, started: false, opened: false };
+  var S = { boot: null, cat: null, view: 'home', subject: null, edit: false, as: null, grade: 0, busy: false, shot: false, fb: '', exp: null, tune: null, linkEdit: '', sel: '', palette: false, typo: false, dirKey: '', dirDays: 14, dirShow: false, readyAt: 0, started: false, opened: false };
   /** この端末だけの覚え（前回の往復の時間）。使えない時（シークレットなど）は覚えないだけ */
   function store(k, v) {
     try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, String(v)); } catch (e) { return null; }
@@ -60,6 +60,19 @@
    * タイルの色（算数TA のハブ apps/hub/Code.gs の COLORS と同じ30色）。どのページを何色にするかは、
    * 先生が選んだもの（学級ごとの色 → 学習BASE のデータの pages → 移る間は算数TA の links）（児童が見慣れた色のまま探せる）。色だけで見分けさせない（題を必ず出す）
    */
+  /** アイコン（web/icons/）の置き場：この home.js と同じ版の jsDelivr（見本ではこのフォルダ） */
+  var ICON_BASE = (function () { var c = document.currentScript; return c && c.src ? c.src.replace(/[^\/]*$/, '') + 'icons/' : 'icons/'; })();
+  /**
+   * 右下に固定するテレビ。どのページでも同じ位置で、画面だけがページに替わる（メニュー＝学習BASE、教科のページ＝その教科）。
+   * root の外に1つだけ置く（render で作り直さない＝画像を読み直さない）。押しても何も起きない飾り
+   */
+  var TV = null;
+  function tv() {
+    var src = ICON_BASE + (S.view === 'subject' && S.subject ? 'subjects/' + S.subject + '.svg' : 'adopted/base-app.svg');
+    if (!TV) { TV = document.createElement('img'); TV.className = 'lb-tv'; TV.alt = ''; TV.setAttribute('aria-hidden', 'true'); document.body.appendChild(TV); }
+    if (TV.getAttribute('src') !== src) TV.setAttribute('src', src);
+    TV.style.display = S.boot && S.boot.role === 'teacher' && (S.edit || S.shot) ? 'none' : '';   // 先生モードの下の帯と重ねない
+  }
   var TILE = window.LbPages.TILE_COLORS;   // 30色（Pages.gs の1か所）
   var COLOR_JA = { mint: 'ミント', blue: 'あお', amber: 'こはく', red: 'あか', purple: 'むらさき', gray: 'はいいろ', lavender: 'ラベンダー', olive: 'オリーブ',
     wine: 'ワイン', cyan: 'シアン', rose: 'ローズ', teal: 'ふかみどり', brown: 'ちゃいろ', peach: 'もも', lime: 'ライム', aqua: 'みずいろ', plum: 'プラム',
@@ -73,6 +86,15 @@
   /** タイルの色：先生が学級で選んだ色 → ハブの links の色 → 目録の色 → ミント */
   function colorKey(p) { var h = hubLink(p), c = (settings().colors || {})[p.id]; return (c && TILE[c]) ? c : (h && TILE[h.color]) ? h.color : (TILE[p.color] ? p.color : 'mint'); }
   function tileColor(p) { return TILE[colorKey(p)]; }
+  /** 単元ボタンの文字（先生が学級で決めたもの）：{ size: ''|'s'|'l'|'xl', br: [何文字目の後ろで改行] } */
+  function textStyle(p) { var s = (settings().styles || {})[p.id]; return s ? { size: s.size || '', br: s.br || [] } : { size: '', br: [] }; }
+  var TEXT_SIZE_JA = { s: '小', m: '自動', l: '大', xl: '特大' };   // 自動＝枠に収まる大きさを選ぶ（今まで通り）
+  /** 題に改行を入れて HTML にする（文字は1つずつ数える：サロゲートペアも1文字） */
+  function brTitle(t, br) {
+    var ch = Array.from(String(t)), out = '';
+    ch.forEach(function (c, i) { out += esc(c); if (br.indexOf(i + 1) >= 0 && i < ch.length - 1) out += '<br>'; });
+    return out;
+  }
   var PLAY = '<svg class="lb-btn-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
 
   /* ---------- 文字（学年で読み方を変える） ---------- */
@@ -108,6 +130,7 @@
     root.classList.toggle('lb-edit', !!S.edit);
     root.classList.toggle('lb-docked', S.boot.role === 'teacher' && (S.edit || S.shot));   // 下の帯の分だけ、ページの下に余白（上の部分は動かない）
     root.innerHTML = top() + teacherBar() + (S.view === 'subject' ? subjectView() : S.view === 'tuning' ? tuningView() : homeView()) + dock();
+    tv();
     if (S.view === 'subject') {
       loadMincho(Array.prototype.map.call(root.querySelectorAll('.lb-mincho'), function (e) { return e.textContent; }).join(''));
       fitTiles();
@@ -152,9 +175,20 @@
             return '<button class="lb-pal" role="radio" aria-checked="' + (colorKey(p) === k) + '" aria-label="' + esc(COLOR_JA[k] || k) + '" title="' + esc(COLOR_JA[k] || k) + '" data-act="color" data-color="' + k + '" style="background:' + TILE[k][0] + '"></button>';
           }).join('') + '</div>';
         }
+        if (S.typo) {
+          var ts = textStyle(p), chars = Array.from(p.title);
+          html += '<div class="lb-typo" role="group" aria-label="文字の大きさと改行"><span class="lb-typo-h">大きさ</span>' + ['m', 's', 'l', 'xl'].map(function (k) {
+            return '<button class="lb-chip" data-tier="std" role="radio" aria-checked="' + ((ts.size || 'm') === k) + '" data-act="tsize" data-size="' + k + '">' + TEXT_SIZE_JA[k] + '</button>';
+          }).join('') + '<span class="lb-typo-h">改行</span><span class="lb-brpick">' + chars.map(function (c, i) {
+            if (i === chars.length - 1) return '<span class="lb-brch">' + esc(c) + '</span>';
+            var on = ts.br.indexOf(i + 1) >= 0;
+            return '<span class="lb-brch">' + esc(c) + '</span><button class="lb-brgap' + (on ? ' on' : '') + '" data-tier="small" aria-pressed="' + on + '" aria-label="' + esc(c) + ' の後ろで改行" data-act="tbr" data-at="' + (i + 1) + '">' + (on ? '↵' : '') + '</button>';
+          }).join('') + '</span>' + (ts.size || ts.br.length ? '<button class="lb-link" data-tier="small" data-act="treset">もとにもどす</button>' : '') + '</div>';
+        }
         html += '<div class="lb-dock-row"><span class="lb-dock-tag">先生モード</span><span class="lb-dock-title"><span class="lb-chipcolor" style="background:' + c[0] + '"></span>' + esc(p.title) + '</span>' +
           sw('sel-pub', 'みせる', on) + sw('sel-now', 'いまの学習', star) +
           '<button class="lb-dock-btn" data-tier="std" data-act="sel-color" aria-expanded="' + !!S.palette + '">色をえらぶ</button>' +
+          '<button class="lb-dock-btn" data-tier="std" data-act="sel-typo" aria-expanded="' + !!S.typo + '">文字</button>' +
           ((settings().colors || {})[p.id] ? '<button class="lb-link" data-tier="small" data-act="color-reset">もとの色</button>' : '') +
           '<button class="lb-link" data-tier="small" data-act="sel-close">閉じる</button></div>';
       } else {
@@ -372,8 +406,9 @@
     if (h.now.length) {
       html += '<div class="lb-now">' + h.now.map(function (p) {
         var s = subjectInfo(p.subject);
-        return '<button class="lb-nowcard" data-act="open" data-id="' + esc(p.id) + '"><span class="lb-badge" data-subject="' + esc(p.subject) + '">' + icon(p.subject) + '</span>' +
-          '<span><span class="lb-sub">' + subjectName(s) + '</span><br>' + pageTitle(p) + '</span><span class="lb-go">▶ はじめる</span></button>';
+        // カード全体が1つのボタン（どこを押しても開く）。地は白→その教科の淡い色
+        return '<button class="lb-nowcard" data-act="open" data-id="' + esc(p.id) + '" data-subject="' + esc(p.subject) + '"><span class="lb-badge">' + icon(p.subject) + '</span>' +
+          '<span><span class="lb-sub">' + subjectName(s) + '</span><br>' + pageTitle(p) + '</span></button>';
       }).join('') + '</div>';
     } else html += '<div class="lb-nownone">' + (S.boot.role === 'teacher' ? '先生モードで ★ を押すと、ここに出ます（3件まで）' : 'きょうは ありません') + '</div>';
     html += '<h2 class="lb-h">' + (S.grade <= 2 ? 'きょうか' : '教科') + '</h2>';
@@ -408,12 +443,13 @@
     pages = LbPagesView.sortByOrder(pages, ord);                    // 先生が並べた順（学級ごと）。無ければ目録の順
     if (!pages.length) return html + '<div class="lb-msg">いまは ありません</div></div>';
     html += linkPanel(pages);
-    html += '<div class="lb-hgrid">' + pages.map(function (p) {
-      var c = tileColor(p), h = hubLink(p), sub = (h && h.subtitle) || '', title = S.grade <= 2 && p.ruby ? p.ruby : p.title;
+    html += '<div class="lb-hgrid" data-subject="' + esc(S.subject) + '">' + pages.map(function (p) {
+      var c = tileColor(p), picked = !!(settings().colors || {})[p.id], h = hubLink(p), sub = (h && h.subtitle) || '', title = S.grade <= 2 && p.ruby ? p.ruby : p.title;
+      var st = textStyle(p), tHtml = brTitle(title, title === p.title ? st.br : []);   // 改行の位置は題（漢字）の文字数で決める。ふりがなで出す学年には使わない
       var sel = S.edit && S.sel === p.id;
       return '<div class="lb-cell' + (sel ? ' is-sel' : '') + '" data-id="' + esc(p.id) + '"><button class="lb-htile' + (isOn(p) ? '' : ' is-off') + '" data-tier="main" data-act="open" data-id="' + esc(p.id) + '"' +
-        (S.edit ? ' aria-pressed="' + sel + '"' : '') + ' style="background:' + c[0] + ';color:' + c[1] + '">' +
-        '<span class="t lb-mincho">' + esc(title) + '</span>' + (sub ? '<span class="s">' + esc(sub) + '</span>' : '') +
+        (S.edit ? ' aria-pressed="' + sel + '"' : '') + (picked ? ' style="--pick:' + c[0] + '"' : '') + '>' +   // 地は教科の淡い色。先生が色を選んだページだけ左端に帯
+        '<span class="t' + (st.size ? ' sz-' + st.size : '') + (tHtml.indexOf('<br>') >= 0 ? ' has-br' : '') + '">' + tHtml + '</span>' + (sub ? '<span class="s">' + esc(sub) + '</span>' : '') +
         '</button>' + (S.edit ? '<button class="lb-drag" data-tier="small" data-drag="' + esc(p.id) + '" aria-label="並べかえ：' + esc(title) + '（つかんで動かす・矢印キーでも動く）">' + GRIP + '</button>' : '') + badges(p) + '</div>';
     }).join('') + '</div></div>';
     return html;
@@ -444,6 +480,7 @@
     var list = root.querySelectorAll('.lb-htile .t');
     for (var i = 0; i < list.length; i++) {
       var el = list[i], tile = el.parentNode, cs = getComputedStyle(tile);
+      if (/\bsz-/.test(el.className)) { el.style.fontSize = ''; el.style.letterSpacing = ''; continue; }   // 先生が大きさを選んだ題は、その大きさのまま
       var avail = tile.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
       for (var k = 0; k < STEPS.length; k++) {
         el.style.fontSize = STEPS[k] + 'rem';
@@ -488,15 +525,26 @@
     var b = ev.target.closest('[data-act]');
     if (!b) return;
     var act = b.getAttribute('data-act'), id = b.getAttribute('data-id');
-    if (act === 'subject') { S.view = 'subject'; S.subject = id; S.opened = false; S.sel = ''; S.palette = false; render(); window.scrollTo(0, 0); return; }
+    if (act === 'subject') { S.view = 'subject'; S.subject = id; S.opened = false; S.sel = ''; S.palette = false; S.typo = false; render(); window.scrollTo(0, 0); return; }
     if (act === 'back') {
-      S.sel = ''; S.palette = false;
+      S.sel = ''; S.palette = false; S.typo = false;
       if (S.view === 'subject' && !S.opened && !S.edit) store('lb-dead', (Number(store('lb-dead')) || 0) + 1);   // 行き止まり：教科に入って何も開かずに戻った
       S.view = 'home'; render(); return;
     }
-    if (act === 'edit') { S.edit = !S.edit; S.sel = ''; S.palette = false; render(); return; }
-    if (act === 'sel-close') { S.sel = ''; S.palette = false; render(); return; }
-    if (act === 'sel-color') { S.palette = !S.palette; render(); return; }
+    if (act === 'edit') { S.edit = !S.edit; S.sel = ''; S.palette = false; S.typo = false; render(); return; }
+    if (act === 'sel-close') { S.sel = ''; S.palette = false; S.typo = false; render(); return; }
+    if (act === 'sel-color') { S.palette = !S.palette; S.typo = false; render(); return; }
+    if (act === 'sel-typo') { S.typo = !S.typo; S.palette = false; render(); return; }
+    if (act === 'tsize' || act === 'tbr' || act === 'treset') {         // 単元ボタンの文字：押すたびに画面に返して保存
+      var pidT = S.sel, stT = settings(), cur = textStyle(pageById(pidT)), size = cur.size, br = cur.br.slice();
+      if (act === 'tsize') size = b.getAttribute('data-size') === 'm' ? '' : b.getAttribute('data-size');
+      if (act === 'tbr') { var at = Number(b.getAttribute('data-at')), k = br.indexOf(at); if (k >= 0) br.splice(k, 1); else if (br.length < 3) br.push(at); else { toast('改行は3か所までです'); return; } br.sort(function (x, y) { return x - y; }); }
+      if (act === 'treset') { size = ''; br = []; }
+      stT.styles = stT.styles || {}; if (size || br.length) stT.styles[pidT] = { size: size, br: br }; else delete stT.styles[pidT];
+      render();
+      save('homeSetStyle', [S.boot.classKey, pidT, size, br], act === 'treset' ? '文字を もとに もどしました' : '文字を 変えました');
+      return;
+    }
     if (act === 'sel-pub') { act = 'pub'; id = S.sel; }
     if (act === 'sel-now') { act = 'now'; id = S.sel; }
     if (act === 'color' || act === 'color-reset') {
@@ -605,7 +653,7 @@
     }
     if (act === 'open') {
       if (S.edit) {                                                 // 先生モードでは開かない。教科の中では、押したタイルを選ぶ（下の帯で変える）
-        if (S.view === 'subject' && b.classList.contains('lb-htile')) { S.sel = S.sel === id ? '' : id; S.palette = false; render(); }
+        if (S.view === 'subject' && b.classList.contains('lb-htile')) { S.sel = S.sel === id ? '' : id; S.palette = false; S.typo = false; render(); }
         return;
       }
       if (S.shot) { toast('撮影用の表示では開きません'); return; }                                           // 先生モードでは開かない（切り替えの押し間違いで遷移しない）
@@ -746,8 +794,8 @@
     d.className = 'lb-opening'; d.setAttribute('role', 'status');
     d.innerHTML = '<div class="lb-opening-box">' + (S.grade && S.grade <= 2 ? 'ひらいているよ…' : 'ひらいています…') + '</div>';
     document.body.appendChild(d);
-    setTimeout(function () { d.remove(); }, 20000);                 // 開けなかった時に画面をふさいだままにしない
-    P.open(url);
+    setTimeout(function () { d.remove(); }, 1500);                  // 別のタブで開くので、学習BASE のタブはすぐ元に戻す
+    P.open(url, true);
   }
   window.addEventListener('pageshow', function (e) {                // 戻るボタンで戻った時（前の画面が残っている）は消す
     Array.prototype.forEach.call(document.querySelectorAll('.lb-opening'), function (el) { el.remove(); });

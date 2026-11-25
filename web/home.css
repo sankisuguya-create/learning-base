@@ -236,3 +236,46 @@
 .ldots::after{content:'';animation:ldots 1.2s steps(1,end) infinite}
 @keyframes ldots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
 @media (prefers-reduced-motion:reduce){.ldots::after{animation:none;content:'...'}}
+
+/* ===== リモコン風（2026-11）：操作部を囲む枠は上と左右だけ。下辺はなく、画面の下へ伸びる ===== */
+.lb{position:relative;margin-top:24px;min-height:calc(100vh - 24px);background:linear-gradient(#FFFFFF,#F7F9FB 40%,#F3F6F9);
+  border:1.5px solid #AEB8C6;border-bottom:none;border-radius:28px 28px 0 0;box-shadow:0 10px 30px rgba(28,36,48,.06);padding-top:20px;padding-bottom:170px}
+.lb::before{content:"";position:absolute;left:50%;top:9px;width:44px;height:4px;margin-left:-22px;border-radius:2px;background:#D3DAE3}
+@media (max-width:1132px){.lb{margin-left:16px;margin-right:16px}}
+/* 右下に固定するテレビ（web/icons/）。どのページでも同じ位置、画面だけがページに替わる */
+.lb-tv{position:fixed;right:28px;bottom:16px;width:140px;height:auto;z-index:20;pointer-events:none;filter:drop-shadow(0 4px 8px rgba(28,36,48,.18))}
+@media (max-width:600px){.lb-tv{width:96px;right:12px;bottom:10px}.lb{padding-bottom:120px}}
+/* ボタンの厚み（控えめ）：上に細い光、下に厚み、押すと沈む */
+.lb .lb-tile,.lb .lb-htile,.lb .lb-nowcard,.lb .lb-back{
+  box-shadow:inset 0 1.5px 0 rgba(255,255,255,.55),inset 0 -2px 0 rgba(0,0,0,.07),0 2px 0 rgba(28,36,48,.10),0 4px 10px rgba(28,36,48,.07);transition:transform .06s,box-shadow .06s}
+.lb .lb-tile:active,.lb .lb-htile:active,.lb .lb-nowcard:active,.lb .lb-back:active{
+  transform:translateY(1.5px);box-shadow:inset 0 1px 0 rgba(255,255,255,.4),inset 0 -1px 0 rgba(0,0,0,.06),0 .5px 0 rgba(28,36,48,.12),0 2px 4px rgba(28,36,48,.06)}
+@media (prefers-reduced-motion:reduce){.lb .lb-tile:active,.lb .lb-htile:active,.lb .lb-nowcard:active,.lb .lb-back:active{transform:none}}
+/* いまの学習：白→教科の淡い色。絵の丸は教科色の単色。幅は教科タイル2つ分 */
+.lb-now{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.lb-nowcard{grid-column:span 2;min-width:0;background:linear-gradient(90deg,#FFFFFF 0%,var(--tint,var(--fill-a)) 75%);border:2px solid rgba(26,26,26,.12)}
+.lb .lb-nowcard,.lb .lb-nowcard .lb-rb rt{color:var(--ink)}
+.lb-nowcard .lb-sub{color:var(--ink-sub-on-tint);opacity:1}
+.lb-nowcard .lb-badge{background:var(--tint,#fff);box-shadow:0 0 0 2px rgba(26,26,26,.10)}
+@media (max-width:420px){.lb-nowcard{grid-column:1/-1}}
+/* 教科のページの単元ボタン：メニューの教科タイルと同じ作り（教科の淡い地・ゴシック・枠） */
+.lb-hgrid{grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.lb-htile{height:110px;padding:12px 16px;justify-content:center;text-align:center;flex-direction:column;gap:2px;
+  background:var(--tint,var(--fill-a));border:2px solid rgba(26,26,26,.12);border-radius:var(--radius);
+  background-image:linear-gradient(90deg,var(--pick,transparent) 0 8px,transparent 8px)}
+.lb .lb-htile{color:var(--ink)}
+.lb-htile .t{flex:0 0 auto;font-weight:700;font-size:22px;letter-spacing:.02em;line-height:1.3;max-height:none}
+.lb-htile .s{margin:0;font-size:13px;color:var(--ink-sub-on-tint);opacity:1}
+/* 単元ボタンの文字の大きさ（先生モードの「文字」で学級ごとに選ぶ。中＝既定）。改行を入れた題は3行まで */
+.lb-htile .t{-webkit-line-clamp:3;max-height:none}
+.lb-htile .t.sz-s{font-size:18px}.lb-htile .t.sz-l{font-size:28px}.lb-htile .t.sz-xl{font-size:34px}
+.lb-typo{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0}
+.lb-typo-h{font-size:13px;font-weight:700;color:var(--ink-sub);margin-left:8px}
+.lb-chip{min-width:52px;height:40px;padding:0 12px;border:2px solid var(--line);border-radius:20px;background:#fff;font-weight:700;cursor:pointer}
+.lb-chip[aria-checked=true]{border-color:var(--ink-link);background:var(--fill-a)}
+.lb-brpick{display:inline-flex;align-items:center;flex-wrap:wrap;font-size:20px;font-weight:700;padding:2px 6px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.lb-brgap{width:18px;height:32px;margin:0 1px;padding:0;border:0;border-radius:4px;background:repeating-linear-gradient(transparent 0 4px,#C9CED4 4px 8px) center/2px 100% no-repeat;cursor:pointer;font-size:14px;color:var(--ink-link)}
+.lb-brgap.on{background:var(--fill-a)}
+.lb-edit .lb-htile{padding-right:60px}   /* 先生モード：右の ⠿（並べかえ）と題を重ねない */
+.lb-htile .t.has-br{white-space:nowrap}   /* 先生が改行を決めた題は、その位置でだけ改行する（はみ出す時は「自動」で縮む・大きさを小さくする） */
+.lb-htile .t.sz-l{font-size:26px}.lb-htile .t.sz-xl{font-size:31px}

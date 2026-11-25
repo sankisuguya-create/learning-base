@@ -26,10 +26,14 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       await p.evaluate(() => { window.LB_PLATFORM.open = u => window.lbOpened(u); });
       await tb.click(); await p.waitForTimeout(200);
       if (opened !== 'https://example.com/toi-board') fails.push('child3: といボードの URL が違う: ' + opened);
-      // 算数の中：ハブと同じ色のタイル（先生が選んだ色）
+      // 算数の中：単元のタイルは教科の淡い色（算数＝水色。メニューの教科タイルと同じ作り）
       await p.click('[data-act=subject][data-id=sansu]'); await p.waitForTimeout(200);
       const bg = await p.$eval('.lb-htile[data-id=tamath-kuku]', e => getComputedStyle(e).backgroundColor);
-      if (bg !== 'rgb(18, 196, 139)') fails.push('child3: 九九のタイルがハブの色（ミント）でない: ' + bg);
+      if (bg !== 'rgb(215, 237, 249)') fails.push('child3: 九九のタイルが算数の淡い色でない: ' + bg);
+      // 右下のテレビ：教科のページでは画面がその教科
+      if (!/subjects\/sansu\.svg$/.test(await p.getAttribute('.lb-tv', 'src'))) fails.push('child3: 算数のページでテレビの画面が算数でない');
+      const tvBox = await p.$eval('.lb-tv', e => { const r = e.getBoundingClientRect(); return getComputedStyle(e).position + ':' + Math.round(innerWidth - r.right) + ',' + Math.round(innerHeight - r.bottom); });
+      if (tvBox !== 'fixed:28,16') fails.push('child3: テレビが右下に固定されていない: ' + tvBox);
     }
     if (role === 'teacher') {   // 今週の3件：先生の画面の一番上。押すと消える
       if ((await p.locator('.lb-alert:not([data-kind=result])').count()) !== 3) fails.push('teacher: 今週の3件が3件でない');
@@ -195,7 +199,7 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
     }
     if (role === 'teacher') {   // 先生モードのオン／オフで、上の部分（帯・見出し・カード・タイル）が1px も動かない
       await p.evaluate(() => localStorage.removeItem('lb-demo')); await p.reload(); await p.waitForTimeout(700);
-      const pos = async sel => JSON.stringify(await p.$$eval(sel, es => es.map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(Math.round); })));
+      const pos = async sel => JSON.stringify(await p.$$eval(sel, es => es.map(e => { const r = e.getBoundingClientRect(); return [r.x, r.y + scrollY, r.width, r.height].map(Math.round); })));   // ページの中の位置（押す時にスクロールしても比べられる）
       const A = '.lb-tbar, .lb-h:not(.lb-fb .lb-h), .lb-nowcard, .lb-tile, .lb-alert';   // 気づきの欄は先生モードの時だけ一番下に足される（上の部分は動かない）
       const h0 = await pos(A); await p.click('[data-act=edit]'); const h1 = await pos(A);
       if (h0 !== h1) fails.push('teacher: 先生モードでホームが動く');
@@ -240,16 +244,25 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if ((await p.locator('.lb-cell.is-sel').getAttribute('data-id')) !== 'tamath-kuku') fails.push('teacher: 先生モードでタイルを押しても選ばれない');
       await p.click('.lb-dock [data-act=sel-pub]'); await p.waitForTimeout(400);
       if (!/かくしている/.test(await p.locator('.lb-cell[data-id=tamath-kuku] .lb-badges').textContent())) fails.push('teacher: かくしたタイルに印が出ない');
+      // 文字：選んで「文字」→ 大きさ「大」・1文字目の後ろで改行（九｜九）→ タイルに出て学級ごとに保存。もとにもどせる
+      await p.click('[data-act=sel-typo]'); await p.click('.lb-chip[data-size=l]'); await p.click('.lb-brgap[data-at="1"]'); await p.waitForTimeout(400);
+      const ty = await p.$eval('.lb-htile[data-id=tamath-kuku] .t', e => e.className + '|' + e.innerHTML);
+      if (!/sz-l/.test(ty) || !/<br>/.test(ty)) fails.push('teacher: 文字の大きさ・改行がタイルに出ない: ' + ty);
+      const tySaved = await p.evaluate(() => JSON.stringify((JSON.parse(localStorage.getItem('lb-demo'))['3-1'].styles || {})['tamath-kuku']));
+      if (tySaved !== '{"size":"l","br":[1]}') fails.push('teacher: 文字が保存されない: ' + tySaved);
+      await p.click('[data-act=treset]'); await p.waitForTimeout(300);
+      if (/<br>|sz-/.test(await p.$eval('.lb-htile[data-id=tamath-kuku] .t', e => e.className + e.innerHTML))) fails.push('teacher: 文字をもとにもどせない');
       // 色：選んで「色をえらぶ」→ 色を押す → タイルの色が変わり、学級ごとに保存。もとの色に戻せる
       await p.click('[data-act=sel-color]'); await p.click('.lb-pal[data-color=wine]'); await p.waitForTimeout(400);
-      const bgw = await p.$eval('.lb-htile[data-id=tamath-kuku]', e => getComputedStyle(e).backgroundColor);
-      if (bgw !== 'rgb(144, 13, 42)') fails.push('teacher: 色が変わらない: ' + bgw);
+      const bgw = await p.$eval('.lb-htile[data-id=tamath-kuku]', e => e.style.getPropertyValue('--pick'));   // 先生が選んだ色は左端の帯
+      if (!/#900D2A/i.test(bgw)) fails.push('teacher: 選んだ色が左端の帯にならない: ' + bgw);
       const colSaved = await p.evaluate(() => (JSON.parse(localStorage.getItem('lb-demo'))['3-1'].colors || {})['tamath-kuku']);
       if (colSaved !== 'wine') fails.push('teacher: 色が保存されない: ' + colSaved);
       const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('lb-demo'))['3-1'].publish['tamath-kuku']);
       if (saved !== false) fails.push('teacher: 公開の切り替えが保存されない');
       const nowColor = await p.goto(`http://localhost:${port}/web/demo.html?role=child3`).then(() => p.waitForTimeout(600)).then(() => p.$eval('.lb-nowcard .lb-title', e => getComputedStyle(e).color));
-      if (nowColor !== 'rgb(255, 255, 255)') fails.push('いまの学習の文字が白でない: ' + nowColor);
+      if (nowColor !== 'rgb(26, 26, 26)') fails.push('いまの学習の文字が黒でない（地は白→教科の淡い色）: ' + nowColor);
+      if (await p.locator('.lb-nowcard .lb-go').count()) fails.push('いまの学習に「はじめる」が残っている');
       if (await p.locator('[data-act=open][data-id=tamath-kuku]').count()) fails.push('かくしたページが児童に見える');
       await p.evaluate(() => localStorage.removeItem('lb-demo'));
     }
