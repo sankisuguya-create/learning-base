@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>学習BASE（見本）</title>
 <link rel="stylesheet" href="home.css">
-<style>body{margin:0;background:#fff}.demo-bar{font:14px sans-serif;padding:4px 16px;background:#eee;display:flex;gap:8px;flex-wrap:wrap;align-items:center}.demo-bar a{display:inline-flex;align-items:center;min-height:56px;min-width:120px;padding:0 8px}</style>
+<style>body{margin:0;background:#E9EDF2}.demo-bar{font:14px sans-serif;padding:4px 16px;background:#eee;display:flex;gap:8px;flex-wrap:wrap;align-items:center}.demo-bar a{display:inline-flex;align-items:center;min-height:56px;min-width:120px;padding:0 8px}</style>
 </head>
 <body>
 <div class="demo-bar">見本（GAS なし・この端末だけ）：
@@ -88,7 +88,7 @@
       var have = {}; c.pages.forEach(function (p) { have[p.subject] = true; });
       LbPages.SUBJECTS.forEach(function (s, i) { if (!have[s.id]) c.pages.push({ id: 'demo-' + s.id, subject: s.id, grades: [1, 2, 3, 4, 5, 6], unit: '見本', title: s.label + 'の見本ページ', ruby: s.ruby + 'の みほん', kind: 'app', app: 'demo', order: 99 }); });
       return c; }); },
-    open: function (u) { alert('開く：' + u); }
+    open: function (u, nt) { alert((nt ? '別のタブで開く：' : '開く：') + u); }
   };
   window.LB_DEMO_API = api;
 })();

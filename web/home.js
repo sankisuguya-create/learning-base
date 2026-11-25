@@ -5,7 +5,7 @@
  * サーバーとのやりとりは window.LB_PLATFORM に任せる（本番は GAS、見本は web/demo.html の模擬）。
  *   LB_PLATFORM.call(home＋名前, 引数…) → Promise … サーバーの LbHome.API の同じ名前（例：homeSetNow → setNow）（呼べるのは Home.gs の API の表にあるものだけ）
  *   LB_PLATFORM.fetchJson(url)       → Promise   … ページの目録（jsDelivr）
- *   LB_PLATFORM.open(url)                       … ページを開く
+ *   LB_PLATFORM.open(url, newTab)               … ページを開く（newTab：別のタブ。学習BASE のタブは残る）
  *   LB_PLATFORM.baseUrl                         … 学習BASE の URL（…/exec）
  *
  * 児童の画面：いまの学習（教師が選んだ最大3件）を最上部に大きく、その下に教科。教科を押すと単元ごとのページ。
@@ -60,6 +60,18 @@
    * タイルの色（算数TA のハブ apps/hub/Code.gs の COLORS と同じ30色）。どのページを何色にするかは、
    * 先生が選んだもの（学級ごとの色 → 学習BASE のデータの pages → 移る間は算数TA の links）（児童が見慣れた色のまま探せる）。色だけで見分けさせない（題を必ず出す）
    */
+  /** アイコン（web/icons/）の置き場：この home.js と同じ版の jsDelivr（見本ではこのフォルダ） */
+  var ICON_BASE = (function () { var c = document.currentScript; return c && c.src ? c.src.replace(/[^\/]*$/, '') + 'icons/' : 'icons/'; })();
+  /**
+   * 右下に固定するテレビ。どのページでも同じ位置で、画面だけがページに替わる（メニュー＝学習BASE、教科のページ＝その教科）。
+   * root の外に1つだけ置く（render で作り直さない＝画像を読み直さない）。押しても何も起きない飾り
+   */
+  var TV = null;
+  function tv() {
+    var src = ICON_BASE + (S.view === 'subject' && S.subject ? 'subjects/' + S.subject + '.svg' : 'adopted/base-app.svg');
+    if (!TV) { TV = document.createElement('img'); TV.className = 'lb-tv'; TV.alt = ''; TV.setAttribute('aria-hidden', 'true'); document.body.appendChild(TV); }
+    if (TV.getAttribute('src') !== src) TV.setAttribute('src', src);
+  }
   var TILE = window.LbPages.TILE_COLORS;   // 30色（Pages.gs の1か所）
   var COLOR_JA = { mint: 'ミント', blue: 'あお', amber: 'こはく', red: 'あか', purple: 'むらさき', gray: 'はいいろ', lavender: 'ラベンダー', olive: 'オリーブ',
     wine: 'ワイン', cyan: 'シアン', rose: 'ローズ', teal: 'ふかみどり', brown: 'ちゃいろ', peach: 'もも', lime: 'ライム', aqua: 'みずいろ', plum: 'プラム',
@@ -108,6 +120,7 @@
     root.classList.toggle('lb-edit', !!S.edit);
     root.classList.toggle('lb-docked', S.boot.role === 'teacher' && (S.edit || S.shot));   // 下の帯の分だけ、ページの下に余白（上の部分は動かない）
     root.innerHTML = top() + teacherBar() + (S.view === 'subject' ? subjectView() : S.view === 'tuning' ? tuningView() : homeView()) + dock();
+    tv();
     if (S.view === 'subject') {
       loadMincho(Array.prototype.map.call(root.querySelectorAll('.lb-mincho'), function (e) { return e.textContent; }).join(''));
       fitTiles();
@@ -372,8 +385,9 @@
     if (h.now.length) {
       html += '<div class="lb-now">' + h.now.map(function (p) {
         var s = subjectInfo(p.subject);
-        return '<button class="lb-nowcard" data-act="open" data-id="' + esc(p.id) + '"><span class="lb-badge" data-subject="' + esc(p.subject) + '">' + icon(p.subject) + '</span>' +
-          '<span><span class="lb-sub">' + subjectName(s) + '</span><br>' + pageTitle(p) + '</span><span class="lb-go">▶ はじめる</span></button>';
+        // カード全体が1つのボタン（どこを押しても開く）。地は白→その教科の淡い色
+        return '<button class="lb-nowcard" data-act="open" data-id="' + esc(p.id) + '" data-subject="' + esc(p.subject) + '"><span class="lb-badge">' + icon(p.subject) + '</span>' +
+          '<span><span class="lb-sub">' + subjectName(s) + '</span><br>' + pageTitle(p) + '</span></button>';
       }).join('') + '</div>';
     } else html += '<div class="lb-nownone">' + (S.boot.role === 'teacher' ? '先生モードで ★ を押すと、ここに出ます（3件まで）' : 'きょうは ありません') + '</div>';
     html += '<h2 class="lb-h">' + (S.grade <= 2 ? 'きょうか' : '教科') + '</h2>';
@@ -408,12 +422,12 @@
     pages = LbPagesView.sortByOrder(pages, ord);                    // 先生が並べた順（学級ごと）。無ければ目録の順
     if (!pages.length) return html + '<div class="lb-msg">いまは ありません</div></div>';
     html += linkPanel(pages);
-    html += '<div class="lb-hgrid">' + pages.map(function (p) {
-      var c = tileColor(p), h = hubLink(p), sub = (h && h.subtitle) || '', title = S.grade <= 2 && p.ruby ? p.ruby : p.title;
+    html += '<div class="lb-hgrid" data-subject="' + esc(S.subject) + '">' + pages.map(function (p) {
+      var c = tileColor(p), picked = !!(settings().colors || {})[p.id], h = hubLink(p), sub = (h && h.subtitle) || '', title = S.grade <= 2 && p.ruby ? p.ruby : p.title;
       var sel = S.edit && S.sel === p.id;
       return '<div class="lb-cell' + (sel ? ' is-sel' : '') + '" data-id="' + esc(p.id) + '"><button class="lb-htile' + (isOn(p) ? '' : ' is-off') + '" data-tier="main" data-act="open" data-id="' + esc(p.id) + '"' +
-        (S.edit ? ' aria-pressed="' + sel + '"' : '') + ' style="background:' + c[0] + ';color:' + c[1] + '">' +
-        '<span class="t lb-mincho">' + esc(title) + '</span>' + (sub ? '<span class="s">' + esc(sub) + '</span>' : '') +
+        (S.edit ? ' aria-pressed="' + sel + '"' : '') + (picked ? ' style="--pick:' + c[0] + '"' : '') + '>' +   // 地は教科の淡い色。先生が色を選んだページだけ左端に帯
+        '<span class="t">' + esc(title) + '</span>' + (sub ? '<span class="s">' + esc(sub) + '</span>' : '') +
         '</button>' + (S.edit ? '<button class="lb-drag" data-tier="small" data-drag="' + esc(p.id) + '" aria-label="並べかえ：' + esc(title) + '（つかんで動かす・矢印キーでも動く）">' + GRIP + '</button>' : '') + badges(p) + '</div>';
     }).join('') + '</div></div>';
     return html;
@@ -746,8 +760,8 @@
     d.className = 'lb-opening'; d.setAttribute('role', 'status');
     d.innerHTML = '<div class="lb-opening-box">' + (S.grade && S.grade <= 2 ? 'ひらいているよ…' : 'ひらいています…') + '</div>';
     document.body.appendChild(d);
-    setTimeout(function () { d.remove(); }, 20000);                 // 開けなかった時に画面をふさいだままにしない
-    P.open(url);
+    setTimeout(function () { d.remove(); }, 1500);                  // 別のタブで開くので、学習BASE のタブはすぐ元に戻す
+    P.open(url, true);
   }
   window.addEventListener('pageshow', function (e) {                // 戻るボタンで戻った時（前の画面が残っている）は消す
     Array.prototype.forEach.call(document.querySelectorAll('.lb-opening'), function (el) { el.remove(); });
