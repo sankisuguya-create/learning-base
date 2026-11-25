@@ -223,6 +223,28 @@
    "actAs": true
   },
   {
+   "id": "tamath-factor",
+   "subject": "sansu",
+   "grades": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "unit": "とくべつ",
+   "title": "素因数分解",
+   "ruby": "そいんすうぶんかい",
+   "kind": "app",
+   "app": "tamath",
+   "params": {
+    "unit": "factor"
+   },
+   "order": 900,
+   "actAs": true
+  },
+  {
    "id": "kanzi",
    "subject": "kokugo",
    "grades": [
