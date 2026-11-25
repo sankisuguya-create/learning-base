@@ -32,7 +32,7 @@ t('ホーム：その学年の・公開のページだけ。教科は中身の�
   const sansu = h.bySubject.sansu;
   assert.strictEqual(sansu[0].unit, 'かけ算');
   assert.ok(sansu.every(u => u.pages.every(p => p.grades.includes(3))));
-  assert.strictEqual(h.subjects.find(s => s.id === 'sansu').count, 10);   // 3年の算数＝目録の tamath の3年（分数で10）
+  assert.strictEqual(h.subjects.find(s => s.id === 'sansu').count, 11);   // 3年の算数＝目録の tamath の3年（分数で10）＋素因数分解（学年に属さない特殊枠＝全学年）
   assert.strictEqual(J(LbPages.home(CAT, 5, {}, '2026-11-10').subjects.map(s => s.id)), J(['kokugo', 'sansu']));
 });
 t('ページが1つだけの教科は only にそのページ（タイルから直接開く）。2つ以上なら only なし', () => {
