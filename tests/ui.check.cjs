@@ -251,7 +251,14 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       const tySaved = await p.evaluate(() => JSON.stringify((JSON.parse(localStorage.getItem('lb-demo'))['3-1'].styles || {})['tamath-kuku']));
       if (tySaved !== '{"size":"l","br":[1]}') fails.push('teacher: 文字が保存されない: ' + tySaved);
       await p.click('[data-act=treset]'); await p.waitForTimeout(300);
-      if (/<br>|sz-/.test(await p.$eval('.lb-htile[data-id=tamath-kuku] .t', e => e.className + e.innerHTML))) fails.push('teacher: 文字をもとにもどせない');
+      if (/<br>|sz-l/.test(await p.$eval('.lb-htile[data-id=tamath-kuku] .t', e => e.className + e.innerHTML))) fails.push('teacher: 文字をもとにもどせない');
+      if (!/sz-s/.test(await p.$eval('.lb-htile[data-id=tamath-kuku] .t', e => e.className))) fails.push('teacher: 単元の文字の既定が小でない');
+      // 一括：タイルを選んでいない時の「単元の文字（一括）」で特大 → 全部の単元が特大。単元ごとに決めたものが先
+      await p.click('[data-act=sel-close]'); await p.click('.lb-chip[data-act=tsize-all][data-size=xl]'); await p.waitForTimeout(300);
+      const allXl = await p.$$eval('.lb-htile .t', es => es.every(e => /sz-xl/.test(e.className)));
+      if (!allXl) fails.push('teacher: 一括の大きさが全部の単元に効かない');
+      await p.click('.lb-chip[data-act=tsize-all][data-size=s]'); await p.waitForTimeout(300);
+      await p.click('.lb-htile[data-id=tamath-kuku]');
       // 色：選んで「色をえらぶ」→ 色を押す → タイルの色が変わり、学級ごとに保存。もとの色に戻せる
       await p.click('[data-act=sel-color]'); await p.click('.lb-pal[data-color=wine]'); await p.waitForTimeout(400);
       const bgw = await p.$eval('.lb-htile[data-id=tamath-kuku]', e => e.style.getPropertyValue('--pick'));   // 先生が選んだ色は左端の帯

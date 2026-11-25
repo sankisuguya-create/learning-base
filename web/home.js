@@ -88,7 +88,11 @@
   function tileColor(p) { return TILE[colorKey(p)]; }
   /** 単元ボタンの文字（先生が学級で決めたもの）：{ size: ''|'s'|'l'|'xl', br: [何文字目の後ろで改行] } */
   function textStyle(p) { var s = (settings().styles || {})[p.id]; return s ? { size: s.size || '', br: s.br || [] } : { size: '', br: [] }; }
-  var TEXT_SIZE_JA = { s: '小', m: '自動', l: '大', xl: '特大' };   // 自動＝枠に収まる大きさを選ぶ（今まで通り）
+  /** 学級の一括の大きさ（先生モードで決める。決めていなければ小） */
+  function allSize() { var s = (settings().styles || {})['*']; return (s && s.size) || 's'; }
+  /** そのページで使う大きさ：ページで決めたもの → 学級の一括 */
+  function sizeOf(p) { return textStyle(p).size || allSize(); }
+  var TEXT_SIZE_JA = { '': '一括', s: '小', m: '自動', l: '大', xl: '特大' };   // 自動＝枠に収まる大きさを選ぶ（今まで通り）
   /** 題に改行を入れて HTML にする（文字は1つずつ数える：サロゲートペアも1文字） */
   function brTitle(t, br) {
     var ch = Array.from(String(t)), out = '';
@@ -177,8 +181,8 @@
         }
         if (S.typo) {
           var ts = textStyle(p), chars = Array.from(p.title);
-          html += '<div class="lb-typo" role="group" aria-label="文字の大きさと改行"><span class="lb-typo-h">大きさ</span>' + ['m', 's', 'l', 'xl'].map(function (k) {
-            return '<button class="lb-chip" data-tier="std" role="radio" aria-checked="' + ((ts.size || 'm') === k) + '" data-act="tsize" data-size="' + k + '">' + TEXT_SIZE_JA[k] + '</button>';
+          html += '<div class="lb-typo" role="group" aria-label="文字の大きさと改行"><span class="lb-typo-h">大きさ</span>' + ['', 's', 'm', 'l', 'xl'].map(function (k) {
+            return '<button class="lb-chip" data-tier="std" role="radio" aria-checked="' + (ts.size === k) + '" data-act="tsize" data-size="' + k + '">' + TEXT_SIZE_JA[k] + (k ? '' : '（' + TEXT_SIZE_JA[allSize()] + '）') + '</button>';
           }).join('') + '<span class="lb-typo-h">改行</span><span class="lb-brpick">' + chars.map(function (c, i) {
             if (i === chars.length - 1) return '<span class="lb-brch">' + esc(c) + '</span>';
             var on = ts.br.indexOf(i + 1) >= 0;
@@ -192,6 +196,11 @@
           ((settings().colors || {})[p.id] ? '<button class="lb-link" data-tier="small" data-act="color-reset">もとの色</button>' : '') +
           '<button class="lb-link" data-tier="small" data-act="sel-close">閉じる</button></div>';
       } else {
+        if (S.view === 'subject') {   // 単元ボタンの文字の大きさを一括で（この学級のすべての単元。単元ごとに決めたものが先）
+          html += '<div class="lb-typo" role="group" aria-label="単元の文字の大きさ（一括）"><span class="lb-typo-h">単元の文字（一括）</span>' + ['s', 'm', 'l', 'xl'].map(function (k) {
+            return '<button class="lb-chip" data-tier="std" role="radio" aria-checked="' + (allSize() === k) + '" data-act="tsize-all" data-size="' + k + '">' + TEXT_SIZE_JA[k] + '</button>';
+          }).join('') + '</div>';
+        }
         var off = S.cat ? S.cat.pages.filter(function (q) { return q.grades.indexOf(S.grade) >= 0 && !isOn(q); }).length : 0;
         var ord = S.view === 'subject' && ((settings().order || {})[S.subject] || []).length;
         html += '<div class="lb-dock-row"><span class="lb-dock-tag">先生モード</span><span class="lb-dock-text">' +
@@ -449,7 +458,7 @@
       var sel = S.edit && S.sel === p.id;
       return '<div class="lb-cell' + (sel ? ' is-sel' : '') + '" data-id="' + esc(p.id) + '"><button class="lb-htile' + (isOn(p) ? '' : ' is-off') + '" data-tier="main" data-act="open" data-id="' + esc(p.id) + '"' +
         (S.edit ? ' aria-pressed="' + sel + '"' : '') + (picked ? ' style="--pick:' + c[0] + '"' : '') + '>' +   // 地は教科の淡い色。先生が色を選んだページだけ左端に帯
-        '<span class="t' + (st.size ? ' sz-' + st.size : '') + (tHtml.indexOf('<br>') >= 0 ? ' has-br' : '') + '">' + tHtml + '</span>' + (sub ? '<span class="s">' + esc(sub) + '</span>' : '') +
+        '<span class="t' + (sizeOf(p) !== 'm' ? ' sz-' + sizeOf(p) : '') + (tHtml.indexOf('<br>') >= 0 ? ' has-br' : '') + '">' + tHtml + '</span>' + (sub ? '<span class="s">' + esc(sub) + '</span>' : '') +
         '</button>' + (S.edit ? '<button class="lb-drag" data-tier="small" data-drag="' + esc(p.id) + '" aria-label="並べかえ：' + esc(title) + '（つかんで動かす・矢印キーでも動く）">' + GRIP + '</button>' : '') + badges(p) + '</div>';
     }).join('') + '</div></div>';
     return html;
@@ -535,9 +544,16 @@
     if (act === 'sel-close') { S.sel = ''; S.palette = false; S.typo = false; render(); return; }
     if (act === 'sel-color') { S.palette = !S.palette; S.typo = false; render(); return; }
     if (act === 'sel-typo') { S.typo = !S.typo; S.palette = false; render(); return; }
+    if (act === 'tsize-all') {
+      var stA = settings(), sz = b.getAttribute('data-size');
+      stA.styles = stA.styles || {}; if (sz === 's') delete stA.styles['*']; else stA.styles['*'] = { size: sz, br: [] };
+      render();
+      save('homeSetStyle', [S.boot.classKey, '*', sz === 's' ? '' : sz, []], '単元の文字を「' + TEXT_SIZE_JA[sz] + '」にしました（単元ごとに決めたものはそのまま）');
+      return;
+    }
     if (act === 'tsize' || act === 'tbr' || act === 'treset') {         // 単元ボタンの文字：押すたびに画面に返して保存
       var pidT = S.sel, stT = settings(), cur = textStyle(pageById(pidT)), size = cur.size, br = cur.br.slice();
-      if (act === 'tsize') size = b.getAttribute('data-size') === 'm' ? '' : b.getAttribute('data-size');
+      if (act === 'tsize') size = b.getAttribute('data-size') || '';
       if (act === 'tbr') { var at = Number(b.getAttribute('data-at')), k = br.indexOf(at); if (k >= 0) br.splice(k, 1); else if (br.length < 3) br.push(at); else { toast('改行は3か所までです'); return; } br.sort(function (x, y) { return x - y; }); }
       if (act === 'treset') { size = ''; br = []; }
       stT.styles = stT.styles || {}; if (size || br.length) stT.styles[pidT] = { size: size, br: br }; else delete stT.styles[pidT];

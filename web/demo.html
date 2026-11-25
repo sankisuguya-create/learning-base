@@ -63,7 +63,7 @@
     homeSetPublish: function (k, id, on) { var s = settings(k); s.publish[id] = on; return setSettings(k, s); },
     homeSetLink: function (id, url) { var s = store(); s.links = s.links || {}; s.links[id] = url; put(s); return api.homeBoot().links; },
     homeBeat: function (o) { var s = store(); (s.beats = s.beats || []).push(o); put(s); return true; },
-    homeSetStyle: function (k, id, size, br) { var s = settings(k); s.styles = s.styles || {}; size = size === 'm' ? '' : (size || ''); br = (br || []).slice(0, 3);
+    homeSetStyle: function (k, id, size, br) { var s = settings(k); s.styles = s.styles || {}; size = size || ''; br = (br || []).slice(0, 3);
       if (size || br.length) s.styles[id] = { size: size, br: br }; else delete s.styles[id]; return setSettings(k, s); },
     homeSetColor: function (k, id, color) { var s = settings(k); s.colors = s.colors || {}; if (color) s.colors[id] = color; else delete s.colors[id]; return setSettings(k, s); },
     homeSetOrder: function (k, sub, ids) { var s = settings(k); s.order = s.order || {}; if (ids.length) s.order[sub] = ids; else delete s.order[sub]; return setSettings(k, s); },

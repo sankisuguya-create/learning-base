@@ -1,29 +1,29 @@
 {
- "server": "ef4f85bab741170a8f40ddacbd3895e822b1d96f43b4db139fa0d6900401cc94",
+ "server": "9f388ed15f2baa46b415dc28bf64bcf4d7b239fc6c8ee865f56651c73c1e6478",
  "html": "e68a04b0aecbf95426141c7def32d1939cc4d86f258606dec82c4b14240658f8",
- "serverChars": 568491,
+ "serverChars": 568550,
  "htmlChars": 662488,
  "files": {
   "app-kanzi.js": "cdadb7a3905d1baddae841c90ef1bdc8b909bdac7cef5d1520b3e66c5844071d",
   "app-taiiku.js": "4b634ff183fabf421a91b4c342e246d85920e0ef60426a48a76360d3ef675a1c",
   "app-tamath.js": "2a8b7ce9fb27daa46fb3d06140063992b68e0d786d3e1b189d7e75d6f123e436",
-  "core.js": "3c0e6c7b6f748532d9ca715dc6ee17843d5f48d1a3707bfaaa017cdbf2dd3ee1",
+  "core.js": "4680696faffd551e91d0f150e02d39f1a37e6bffe8d68f89001c44e289506947",
   "html-kanzi.json": "92092a8147dd858c52f1998e8ac96b6cd0e24ca7632fad4844fff77df03cfb4a",
   "html-taiiku.json": "cf50f3f5447de59c99b9f6f8fc411e0e3d4af45d32b265d7e6253e35dce85575",
   "html-tamath.json": "cef0f5f2f33c43eb3a95804a123d6d5496404446dc90af473bf0d51aae1c628a",
   "html.json": "e68a04b0aecbf95426141c7def32d1939cc4d86f258606dec82c4b14240658f8",
-  "server.js": "ef4f85bab741170a8f40ddacbd3895e822b1d96f43b4db139fa0d6900401cc94"
+  "server.js": "9f388ed15f2baa46b415dc28bf64bcf4d7b239fc6c8ee865f56651c73c1e6478"
  },
  "chars": {
   "app-kanzi.js": 91841,
   "app-taiiku.js": 1542,
   "app-tamath.js": 311739,
-  "core.js": 163572,
+  "core.js": 163631,
   "html-kanzi.json": 68149,
   "html-taiiku.json": 69637,
   "html-tamath.json": 524704,
   "html.json": 662488,
-  "server.js": 568491
+  "server.js": 568550
  },
  "apps": {
   "tamath": {
