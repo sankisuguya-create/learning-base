@@ -2442,6 +2442,16 @@ var LbPages = (function () {
   var NOW_SHEET = 'now_learning', NOW_HEAD = ['学級', 'ページ', '順', 'から', 'まで', '更新', '教師'];
   var ORDER_SHEET = 'class_order', ORDER_HEAD = ['学級', '教科', '並び', '更新', '教師'];   // 先生モードでドラッグした教科の中の並び
   var COLOR_SHEET = 'class_colors', COLOR_HEAD = ['学級', 'ページ', '色', '更新', '教師'];   // 先生モードで選んだタイルの色
+  /** 単元ボタンの文字（学級ごと）：大きさ（m 自動＝既定・枠に収まる大きさ／s 小／l 大／xl 特大）と、改行する位置（題の何文字目の後ろか。3か所まで） */
+  var STYLE_SHEET = 'class_styles', STYLE_HEAD = ['学級', 'ページ', '大きさ', '改行', '更新', '教師'];
+  var TEXT_SIZES = ['s', 'm', 'l', 'xl'];
+  /** 改行の位置を整える（1〜60 の整数・重ならない・小さい順・3か所まで） */
+  function cleanBreaks(br) {
+    var seen = {};
+    return (Array.isArray(br) ? br : String(br || '').split(',')).map(Number)
+      .filter(function (n) { if (!(n >= 1 && n <= 60) || n !== Math.floor(n) || seen[n]) return false; seen[n] = 1; return true; })
+      .sort(function (a, b) { return a - b; }).slice(0, 3);
+  }
   /**
    * タイルの色（算数TA のハブ apps/hub/Code.gs の COLORS と同じ30色）：名前 → [地の色, 文字の色]。
    * 先生が学級ごとに選べる（無ければ学習BASE のデータの pages、移る間は算数TA の links の色）。色だけで見分けさせない（題を必ず出す）
@@ -2560,7 +2570,7 @@ var LbPages = (function () {
   }
 
   function readSettings(hubSs, classKey) {
-    var out = { publish: {}, now: [], order: {}, colors: {} };
+    var out = { publish: {}, now: [], order: {}, colors: {}, styles: {} };
     var ps = hubSs.getSheetByName(PUB_SHEET);
     if (ps && ps.getLastRow() > 1) ps.getRange(2, 1, ps.getLastRow() - 1, 3).getValues().forEach(function (r) {
       if (clsCell(r[0]) === classKey && r[1]) out.publish[String(r[1])] = r[2] === true || String(r[2]).toUpperCase() === 'TRUE';
@@ -2576,6 +2586,12 @@ var LbPages = (function () {
     var cs = hubSs.getSheetByName(COLOR_SHEET);
     if (cs && cs.getLastRow() > 1) cs.getRange(2, 1, cs.getLastRow() - 1, 3).getValues().forEach(function (r) {
       if (clsCell(r[0]) === classKey && r[1] && TILE_COLORS[String(r[2])]) out.colors[String(r[1])] = String(r[2]);
+    });
+    var ss = hubSs.getSheetByName(STYLE_SHEET);
+    if (ss && ss.getLastRow() > 1) ss.getRange(2, 1, ss.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      if (clsCell(r[0]) !== classKey || !r[1]) return;
+      var size = TEXT_SIZES.indexOf(String(r[2])) >= 0 ? String(r[2]) : '', br = cleanBreaks(r[3]);
+      if (size || br.length) out.styles[String(r[1])] = { size: size, br: br };
     });
     return out;
   }
@@ -2622,6 +2638,22 @@ var LbPages = (function () {
     sh.getRange(1, 1, keep.length, COLOR_HEAD.length).setValues(keep);
   }
 
+  /** 単元ボタンの文字（その学級・そのページ）。大きさが空（＝中）で改行も無ければ行を消す（目録のまま） */
+  function setStyle(hubSs, classKey, pageId, size, br, by) {
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(String(pageId))) throw new Error('ページの名前が不正です');
+    size = String(size || ''); if (size === 'm') size = '';
+    if (size && TEXT_SIZES.indexOf(size) < 0) throw new Error('知らない大きさです: ' + size);
+    br = cleanBreaks(br);
+    var sh = sheet(hubSs, STYLE_SHEET, STYLE_HEAD), v = sh.getDataRange().getValues(), keep = [v[0]];
+    for (var i = 1; i < v.length; i++) {
+      if (clsCell(v[i][0]) === classKey && String(v[i][1]) === pageId) continue;
+      var row = v[i].slice(0, STYLE_HEAD.length); row[0] = clsCell(row[0]); row[3] = String(row[3] == null ? '' : row[3]); while (row.length < STYLE_HEAD.length) row.push(''); keep.push(row);
+    }
+    if (size || br.length) keep.push([classKey, pageId, size, br.join(','), new Date(), by || '']);
+    sh.clearContents();
+    sh.getRange(1, 1, keep.length, STYLE_HEAD.length).setValues(keep);
+  }
+
   /** その学級の公開を全部、目録の既定に戻す */
   function resetPublish(hubSs, classKey) {
     if (!hubSs.getSheetByName(PUB_SHEET)) return 0;
@@ -2652,11 +2684,11 @@ var LbPages = (function () {
   /** 表を用意する。学級と日付の列は毎回文字の書式にする（「3-1」が日付に化けないように） */
   function sheet(ss, name, head) {
     var cols = [];
-    head.forEach(function (h, i) { if (h === '学級' || h === 'から' || h === 'まで') cols.push(i + 1); });
+    head.forEach(function (h, i) { if (h === '学級' || h === 'から' || h === 'まで' || h === '改行') cols.push(i + 1); });   // 改行（3,5）も数に化けないように
     return LbSheets.sheet(ss, name, head, cols, { always: true });
   }
 
-  return { SUBJECTS: SUBJECTS, NOW_MAX: NOW_MAX, TILE_COLORS: TILE_COLORS, setColor: setColor, validate: validate, isOn: isOn, inPeriod: inPeriod, home: home, teacherView: teacherView, sortByOrder: sortByOrder, setOrder: setOrder,
+  return { SUBJECTS: SUBJECTS, NOW_MAX: NOW_MAX, TILE_COLORS: TILE_COLORS, setColor: setColor, setStyle: setStyle, TEXT_SIZES: TEXT_SIZES, cleanBreaks: cleanBreaks, validate: validate, isOn: isOn, inPeriod: inPeriod, home: home, teacherView: teacherView, sortByOrder: sortByOrder, setOrder: setOrder,
     readSettings: readSettings, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow };
 })();
 
@@ -2891,6 +2923,12 @@ var LbHome = (function () {
     LbPages.setColor(Base.hub(), classKey, String(pageId), String(color || ''), m.email);
     return LbPages.readSettings(Base.hub(), classKey);
   }
+  /** 単元ボタンの文字（学級ごと）：大きさ（s／m／l／xl）と改行の位置（題の何文字目の後ろか） */
+  function setStyle(classKey, pageId, size, br) {
+    var m = requireClass(classKey);
+    LbPages.setStyle(Base.hub(), classKey, String(pageId), String(size || ''), br, m.email);
+    return LbPages.readSettings(Base.hub(), classKey);
+  }
   function resetPublish(classKey) {
     requireClass(classKey);
     LbPages.resetPublish(Base.hub(), classKey);
@@ -2986,7 +3024,7 @@ var LbHome = (function () {
    * 画面は LB_PLATFORM.call('homeXxx', …) で呼ぶ（'home' を外して頭を小文字にした名前でこの表を引く）。
    * 中で必ず「誰が開いたか」と「その学級・その操作をしてよいか」を確かめる関数だけを置く
    */
-  var API = { boot: boot, beat: beat, setLink: setLink, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, setOrder: setOrder, setColor: setColor,
+  var API = { boot: boot, beat: beat, setLink: setLink, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, setOrder: setOrder, setColor: setColor, setStyle: setStyle,
     feedback: feedback, report: report, 'export': exportForTuning, tuning: tuning, tryRules: tryRules, saveRules: saveRules,
     direct: direct, endDirective: endDirective, seeResult: seeResult };
 

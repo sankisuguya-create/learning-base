@@ -266,3 +266,16 @@
 .lb .lb-htile{color:var(--ink)}
 .lb-htile .t{flex:0 0 auto;font-weight:700;font-size:22px;letter-spacing:.02em;line-height:1.3;max-height:none}
 .lb-htile .s{margin:0;font-size:13px;color:var(--ink-sub-on-tint);opacity:1}
+/* 単元ボタンの文字の大きさ（先生モードの「文字」で学級ごとに選ぶ。中＝既定）。改行を入れた題は3行まで */
+.lb-htile .t{-webkit-line-clamp:3;max-height:none}
+.lb-htile .t.sz-s{font-size:18px}.lb-htile .t.sz-l{font-size:28px}.lb-htile .t.sz-xl{font-size:34px}
+.lb-typo{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0}
+.lb-typo-h{font-size:13px;font-weight:700;color:var(--ink-sub);margin-left:8px}
+.lb-chip{min-width:52px;height:40px;padding:0 12px;border:2px solid var(--line);border-radius:20px;background:#fff;font-weight:700;cursor:pointer}
+.lb-chip[aria-checked=true]{border-color:var(--ink-link);background:var(--fill-a)}
+.lb-brpick{display:inline-flex;align-items:center;flex-wrap:wrap;font-size:20px;font-weight:700;padding:2px 6px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.lb-brgap{width:18px;height:32px;margin:0 1px;padding:0;border:0;border-radius:4px;background:repeating-linear-gradient(transparent 0 4px,#C9CED4 4px 8px) center/2px 100% no-repeat;cursor:pointer;font-size:14px;color:var(--ink-link)}
+.lb-brgap.on{background:var(--fill-a)}
+.lb-edit .lb-htile{padding-right:60px}   /* 先生モード：右の ⠿（並べかえ）と題を重ねない */
+.lb-htile .t.has-br{white-space:nowrap}   /* 先生が改行を決めた題は、その位置でだけ改行する（はみ出す時は「自動」で縮む・大きさを小さくする） */
+.lb-htile .t.sz-l{font-size:26px}.lb-htile .t.sz-xl{font-size:31px}

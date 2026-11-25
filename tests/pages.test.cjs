@@ -328,6 +328,19 @@ t('ページの設定：学習BASE のデータの pages シートが持ち主�
   assert.strictEqual(own.ctx.LbHome.API.boot({}).links.kuku.color, 'wine', 'pages の色が links の色より先');
 });
 
+t('単元ボタンの文字：大きさと改行を学級・ページごとに保存。中・改行なしなら行を消す。改行は1〜60・重ならない・3か所まで', () => {
+  const hub = makeSS('hub');
+  LbPages.setStyle(hub, '3-1', 'tamath-divmod', 'l', [5, 3, 3, 99], 't@x'); LbPages.setStyle(hub, '3-2', 'tamath-divmod', 's', [], 't@x');
+  assert.strictEqual(J(LbPages.readSettings(hub, '3-1').styles), J({ 'tamath-divmod': { size: 'l', br: [3, 5] } }));
+  assert.strictEqual(J(LbPages.readSettings(hub, '3-2').styles), J({ 'tamath-divmod': { size: 's', br: [] } }), 'ほかの学級は別');
+  LbPages.setStyle(hub, '3-1', 'tamath-divmod', 'm', [1, 2, 3, 4], 't@x');
+  assert.strictEqual(J(LbPages.readSettings(hub, '3-1').styles['tamath-divmod']), J({ size: '', br: [1, 2, 3] }), '中は空・改行は3か所まで');
+  LbPages.setStyle(hub, '3-1', 'tamath-divmod', '', [], 't@x');
+  assert.strictEqual(LbPages.readSettings(hub, '3-1').styles['tamath-divmod'], undefined, 'もとにもどす＝行を消す');
+  assert.ok(!hub.sheets.class_styles.v.some(r => r[0] === '3-1'));
+  assert.throws(() => LbPages.setStyle(hub, '3-1', 'tamath-kuku', 'huge', []), /知らない大きさ/);
+  assert.throws(() => LbPages.setStyle(hub, '3-1', '<p>', 's', []), /ページの名前/);
+});
 t('色：学級・ページごとに保存し、空ならハブの links の色に戻る。知らない色・ページの名前の形でないものは保存しない。先生だけ', () => {
   const hub = makeSS('hub');
   assert.strictEqual(Object.keys(LbPages.TILE_COLORS).length, 30);

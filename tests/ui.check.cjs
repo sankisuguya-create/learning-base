@@ -244,6 +244,14 @@ const srv = http.createServer((q, r) => { const f = path.join(root, decodeURICom
       if ((await p.locator('.lb-cell.is-sel').getAttribute('data-id')) !== 'tamath-kuku') fails.push('teacher: 先生モードでタイルを押しても選ばれない');
       await p.click('.lb-dock [data-act=sel-pub]'); await p.waitForTimeout(400);
       if (!/かくしている/.test(await p.locator('.lb-cell[data-id=tamath-kuku] .lb-badges').textContent())) fails.push('teacher: かくしたタイルに印が出ない');
+      // 文字：選んで「文字」→ 大きさ「大」・1文字目の後ろで改行（九｜九）→ タイルに出て学級ごとに保存。もとにもどせる
+      await p.click('[data-act=sel-typo]'); await p.click('.lb-chip[data-size=l]'); await p.click('.lb-brgap[data-at="1"]'); await p.waitForTimeout(400);
+      const ty = await p.$eval('.lb-htile[data-id=tamath-kuku] .t', e => e.className + '|' + e.innerHTML);
+      if (!/sz-l/.test(ty) || !/<br>/.test(ty)) fails.push('teacher: 文字の大きさ・改行がタイルに出ない: ' + ty);
+      const tySaved = await p.evaluate(() => JSON.stringify((JSON.parse(localStorage.getItem('lb-demo'))['3-1'].styles || {})['tamath-kuku']));
+      if (tySaved !== '{"size":"l","br":[1]}') fails.push('teacher: 文字が保存されない: ' + tySaved);
+      await p.click('[data-act=treset]'); await p.waitForTimeout(300);
+      if (/<br>|sz-/.test(await p.$eval('.lb-htile[data-id=tamath-kuku] .t', e => e.className + e.innerHTML))) fails.push('teacher: 文字をもとにもどせない');
       // 色：選んで「色をえらぶ」→ 色を押す → タイルの色が変わり、学級ごとに保存。もとの色に戻せる
       await p.click('[data-act=sel-color]'); await p.click('.lb-pal[data-color=wine]'); await p.waitForTimeout(400);
       const bgw = await p.$eval('.lb-htile[data-id=tamath-kuku]', e => e.style.getPropertyValue('--pick'));   // 先生が選んだ色は左端の帯

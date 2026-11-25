@@ -228,6 +228,12 @@ var LbHome = (function () {
     LbPages.setColor(Base.hub(), classKey, String(pageId), String(color || ''), m.email);
     return LbPages.readSettings(Base.hub(), classKey);
   }
+  /** 単元ボタンの文字（学級ごと）：大きさ（s／m／l／xl）と改行の位置（題の何文字目の後ろか） */
+  function setStyle(classKey, pageId, size, br) {
+    var m = requireClass(classKey);
+    LbPages.setStyle(Base.hub(), classKey, String(pageId), String(size || ''), br, m.email);
+    return LbPages.readSettings(Base.hub(), classKey);
+  }
   function resetPublish(classKey) {
     requireClass(classKey);
     LbPages.resetPublish(Base.hub(), classKey);
@@ -323,7 +329,7 @@ var LbHome = (function () {
    * 画面は LB_PLATFORM.call('homeXxx', …) で呼ぶ（'home' を外して頭を小文字にした名前でこの表を引く）。
    * 中で必ず「誰が開いたか」と「その学級・その操作をしてよいか」を確かめる関数だけを置く
    */
-  var API = { boot: boot, beat: beat, setLink: setLink, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, setOrder: setOrder, setColor: setColor,
+  var API = { boot: boot, beat: beat, setLink: setLink, decide: decide, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, setOrder: setOrder, setColor: setColor, setStyle: setStyle,
     feedback: feedback, report: report, 'export': exportForTuning, tuning: tuning, tryRules: tryRules, saveRules: saveRules,
     direct: direct, endDirective: endDirective, seeResult: seeResult };
 
