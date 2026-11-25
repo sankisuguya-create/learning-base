@@ -279,3 +279,18 @@
 .lb-edit .lb-htile{padding-right:60px}   /* 先生モード：右の ⠿（並べかえ）と題を重ねない */
 .lb-htile .t.has-br{white-space:nowrap}   /* 先生が改行を決めた題は、その位置でだけ改行する（はみ出す時は「自動」で縮む・大きさを小さくする） */
 .lb-htile .t.sz-l{font-size:26px}.lb-htile .t.sz-xl{font-size:31px}
+/* 教科のページの見出しの帯：テレビの教科アイコンの帯と同じ色（淡い色→鮮やかな色→深い色）。web/icons/subjects/*.svg の帯の色 */
+.lb-shead[data-subject=dotoku]{background:linear-gradient(90deg,#F9DCE5 0%,#F9DCE5 22%,#F1B1C4 68%,#EA869E 100%)}
+.lb-shead[data-subject=gaikokugo]{background:linear-gradient(90deg,#A3B2FF 0%,#A3B2FF 22%,#0029FF 68%,#0400C2 100%)}
+.lb-shead[data-subject=katei]{background:linear-gradient(90deg,#D6B39A 0%,#D6B39A 22%,#98643E 68%,#654A29 100%)}
+.lb-shead[data-subject=kokugo]{background:linear-gradient(90deg,#FFCDA3 0%,#FFCDA3 22%,#FF780A 68%,#CC7400 100%)}
+.lb-shead[data-subject=ongaku]{background:linear-gradient(90deg,#FFA3CC 0%,#FFA3CC 22%,#FF0071 68%,#C20033 100%)}
+.lb-shead[data-subject=other]{background:linear-gradient(90deg,#CCD1D7 0%,#CCD1D7 22%,#707F8F 68%,#555D6D 100%)}
+.lb-shead[data-subject=rika]{background:linear-gradient(90deg,#A3FFA3 0%,#A3FFA3 22%,#00FF00 68%,#00C223 100%)}
+.lb-shead[data-subject=sansu]{background:linear-gradient(90deg,#A3DFFF 0%,#A3DFFF 22%,#00A5FF 68%,#005BC2 100%)}
+.lb-shead[data-subject=seikatsu]{background:linear-gradient(90deg,#C5A3FF 0%,#C5A3FF 22%,#5E00FF 68%,#6A00C2 100%)}
+.lb-shead[data-subject=shakai]{background:linear-gradient(90deg,#FFEFA3 0%,#FFEFA3 22%,#FFD200 68%,#C1C200 100%)}
+.lb-shead[data-subject=sogo]{background:linear-gradient(90deg,#C5A3FF 0%,#C5A3FF 22%,#5E00FF 68%,#6A00C2 100%)}
+.lb-shead[data-subject=taiiku]{background:linear-gradient(90deg,#FFABA3 0%,#FFABA3 22%,#FF1500 68%,#C23300 100%)}
+.lb-shead[data-subject=zuko]{background:linear-gradient(90deg,#E5FFA3 0%,#E5FFA3 22%,#B8FF00 68%,#69C200 100%)}
+.lb-shead{box-shadow:inset 0 1.5px 0 rgba(255,255,255,.5),0 2px 8px rgba(28,36,48,.10)}

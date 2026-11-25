@@ -2442,7 +2442,8 @@ var LbPages = (function () {
   var NOW_SHEET = 'now_learning', NOW_HEAD = ['学級', 'ページ', '順', 'から', 'まで', '更新', '教師'];
   var ORDER_SHEET = 'class_order', ORDER_HEAD = ['学級', '教科', '並び', '更新', '教師'];   // 先生モードでドラッグした教科の中の並び
   var COLOR_SHEET = 'class_colors', COLOR_HEAD = ['学級', 'ページ', '色', '更新', '教師'];   // 先生モードで選んだタイルの色
-  /** 単元ボタンの文字（学級ごと）：大きさ（m 自動＝既定・枠に収まる大きさ／s 小／l 大／xl 特大）と、改行する位置（題の何文字目の後ろか。3か所まで） */
+  /** 単元ボタンの文字（学級ごと）：大きさ（m 自動＝枠に収まる大きさ／s 小／l 大／xl 特大。空＝一括の大きさに従う）と、改行する位置（題の何文字目の後ろか。3か所まで）。
+   *  ページ '*' の行は学級の一括の大きさ（無ければ小） */
   var STYLE_SHEET = 'class_styles', STYLE_HEAD = ['学級', 'ページ', '大きさ', '改行', '更新', '教師'];
   var TEXT_SIZES = ['s', 'm', 'l', 'xl'];
   /** 改行の位置を整える（1〜60 の整数・重ならない・小さい順・3か所まで） */
@@ -2638,10 +2639,10 @@ var LbPages = (function () {
     sh.getRange(1, 1, keep.length, COLOR_HEAD.length).setValues(keep);
   }
 
-  /** 単元ボタンの文字（その学級・そのページ）。大きさが空（＝中）で改行も無ければ行を消す（目録のまま） */
+  /** 単元ボタンの文字（その学級・そのページ。'*' は学級の一括）。大きさが空（＝一括に従う）で改行も無ければ行を消す */
   function setStyle(hubSs, classKey, pageId, size, br, by) {
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(String(pageId))) throw new Error('ページの名前が不正です');
-    size = String(size || ''); if (size === 'm') size = '';
+    if (pageId !== '*' && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(String(pageId))) throw new Error('ページの名前が不正です');
+    size = String(size || '');
     if (size && TEXT_SIZES.indexOf(size) < 0) throw new Error('知らない大きさです: ' + size);
     br = cleanBreaks(br);
     var sh = sheet(hubSs, STYLE_SHEET, STYLE_HEAD), v = sh.getDataRange().getValues(), keep = [v[0]];
@@ -2923,7 +2924,7 @@ var LbHome = (function () {
     LbPages.setColor(Base.hub(), classKey, String(pageId), String(color || ''), m.email);
     return LbPages.readSettings(Base.hub(), classKey);
   }
-  /** 単元ボタンの文字（学級ごと）：大きさ（s／m／l／xl）と改行の位置（題の何文字目の後ろか） */
+  /** 単元ボタンの文字（学級ごと）：大きさ（s／m／l／xl、空＝一括に従う）と改行の位置。pageId '*' は学級の一括の大きさ */
   function setStyle(classKey, pageId, size, br) {
     var m = requireClass(classKey);
     LbPages.setStyle(Base.hub(), classKey, String(pageId), String(size || ''), br, m.email);
@@ -3050,6 +3051,18 @@ var LbHome = (function () {
 var LbPlatform = (function () {
   /** 学習BASE の画面から呼べる関数（lbCall の mod・name）。ここに無いものは呼べない。表の中身は各窓口が持つ（LbHome.API） */
   var API = { home: LbHome.API };
+  /**
+   * タブアイコン（web/icons/favicon/*.png。学習BASE と同じ版の jsDelivr）。GAS の setFaviconUrl は URL の末尾が .png などでないと受け付けない。
+   * 付けられなくてもページは返す（アイコンが出ないだけ）
+   */
+  var FAVICON = { tamath: 'tamath', kanzi: 'kanzi' };
+  function withIcon(out, app) {
+    try {
+      if (out && typeof out.setFaviconUrl === 'function' && typeof LB_LOADER !== 'undefined')
+        out.setFaviconUrl('https://cdn.jsdelivr.net/gh/' + LB_LOADER.repo + '@' + LB_LOADER.ver() + '/web/icons/favicon/' + (FAVICON[app] || 'base') + '.png');
+    } catch (e) { console.error('タブアイコンを付けられません: ' + (e && e.message || e)); }
+    return out;
+  }
   function roleNow() { try { return Base.me().role; } catch (e) { return '-'; } }
 
   /**
@@ -3077,7 +3090,7 @@ var LbPlatform = (function () {
       if (!m) return message('アプリが見つかりません: ' + app);
       if (m.broken) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.load', m.broken)); return message('いまは ひらけません。すこし まってから、ひらきなおしてね'); }
       LB_LOADER.files(app);                   // そのアプリの画面のファイルを読む（LB_FILES。古い読み込み係は全アプリ分）
-      try { return m.doGet(e); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
+      try { return withIcon(m.doGet(e), app); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
   }
@@ -3256,7 +3269,7 @@ var LbPlatform = (function () {
       '<script>' + platformScript(url) + (boot ? 'window.LB_BOOT=' + safeJson(boot) + ';' : '') + '<\/script>' +
       '<script src="' + base + 'pages.js" onerror="lbLoadFail()"><\/script>' +
       '<script src="' + base + 'home.js" onerror="lbLoadFail()"><\/script></body></html>';
-    return HtmlService.createHtmlOutput(html).setTitle('学習BASE').addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    return withIcon(HtmlService.createHtmlOutput(html).setTitle('学習BASE').addMetaTag('viewport', 'width=device-width, initial-scale=1'), '');
   }
   /** <script> の中に置く JSON（名前などに </script> や行区切りの文字があっても、そこで終わらないように） */
   function safeJson(o) { return JSON.stringify(o).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029'); }
@@ -3278,11 +3291,11 @@ var LbPlatform = (function () {
       '学習BASE は あたらしい ばしょに ひっこしました。<br>' +
       (url ? '<a href="' + url + '" style="display:inline-block;margin-top:12px;padding:12px 20px;border-radius:10px;background:#1f6f5c;color:#fff;text-decoration:none">あたらしい 学習BASE を ひらく</a>' +
         '<br><small style="color:#616870">（先生へ：ブックマーク・Classroom のリンクを、この新しい URL に差し替えてください）</small>'
-        : '先生に あたらしい URL を きいてね。') + '</div>').setTitle('学習BASE');
+        : '先生に あたらしい URL を きいてね。') + '</div>').setTitle('学習BASE');   // 旧GAS：タブアイコンは付けない（前の版のまま）
   }
   function message(text) {
     return HtmlService.createHtmlOutput('<meta name="viewport" content="width=device-width, initial-scale=1"><div lang="ja" style="font-family:\'BIZ UDPGothic\',\'Noto Sans CJK JP\',sans-serif;font-size:20px;padding:24px">' +
-      String(text).replace(/[<>&]/g, '') + '</div>').setTitle('学習BASE');
+      String(text).replace(/[<>&]/g, '') + '</div>').setTitle('学習BASE');   // 案内だけのページ
   }
 
   /** アプリが使える状態か（{ id: true/false }）。ready を持たないアプリは使える扱い。読み込めなかったアプリは false */
