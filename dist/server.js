@@ -12621,6 +12621,18 @@ return {
 var LbPlatform = (function () {
   /** 学習BASE の画面から呼べる関数（lbCall の mod・name）。ここに無いものは呼べない。表の中身は各窓口が持つ（LbHome.API） */
   var API = { home: LbHome.API };
+  /**
+   * タブアイコン（web/icons/favicon/*.png。学習BASE と同じ版の jsDelivr）。GAS の setFaviconUrl は URL の末尾が .png などでないと受け付けない。
+   * 付けられなくてもページは返す（アイコンが出ないだけ）
+   */
+  var FAVICON = { tamath: 'tamath', kanzi: 'kanzi' };
+  function withIcon(out, app) {
+    try {
+      if (out && typeof out.setFaviconUrl === 'function' && typeof LB_LOADER !== 'undefined')
+        out.setFaviconUrl('https://cdn.jsdelivr.net/gh/' + LB_LOADER.repo + '@' + LB_LOADER.ver() + '/web/icons/favicon/' + (FAVICON[app] || 'base') + '.png');
+    } catch (e) { console.error('タブアイコンを付けられません: ' + (e && e.message || e)); }
+    return out;
+  }
   function roleNow() { try { return Base.me().role; } catch (e) { return '-'; } }
 
   /**
@@ -12648,7 +12660,7 @@ var LbPlatform = (function () {
       if (!m) return message('アプリが見つかりません: ' + app);
       if (m.broken) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.load', m.broken)); return message('いまは ひらけません。すこし まってから、ひらきなおしてね'); }
       LB_LOADER.files(app);                   // そのアプリの画面のファイルを読む（LB_FILES。古い読み込み係は全アプリ分）
-      try { return m.doGet(e); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
+      try { return withIcon(m.doGet(e), app); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
   }
@@ -12827,7 +12839,7 @@ var LbPlatform = (function () {
       '<script>' + platformScript(url) + (boot ? 'window.LB_BOOT=' + safeJson(boot) + ';' : '') + '<\/script>' +
       '<script src="' + base + 'pages.js" onerror="lbLoadFail()"><\/script>' +
       '<script src="' + base + 'home.js" onerror="lbLoadFail()"><\/script></body></html>';
-    return HtmlService.createHtmlOutput(html).setTitle('学習BASE').addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    return withIcon(HtmlService.createHtmlOutput(html).setTitle('学習BASE').addMetaTag('viewport', 'width=device-width, initial-scale=1'), '');
   }
   /** <script> の中に置く JSON（名前などに </script> や行区切りの文字があっても、そこで終わらないように） */
   function safeJson(o) { return JSON.stringify(o).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029'); }
@@ -12849,11 +12861,11 @@ var LbPlatform = (function () {
       '学習BASE は あたらしい ばしょに ひっこしました。<br>' +
       (url ? '<a href="' + url + '" style="display:inline-block;margin-top:12px;padding:12px 20px;border-radius:10px;background:#1f6f5c;color:#fff;text-decoration:none">あたらしい 学習BASE を ひらく</a>' +
         '<br><small style="color:#616870">（先生へ：ブックマーク・Classroom のリンクを、この新しい URL に差し替えてください）</small>'
-        : '先生に あたらしい URL を きいてね。') + '</div>').setTitle('学習BASE');
+        : '先生に あたらしい URL を きいてね。') + '</div>').setTitle('学習BASE');   // 旧GAS：タブアイコンは付けない（前の版のまま）
   }
   function message(text) {
     return HtmlService.createHtmlOutput('<meta name="viewport" content="width=device-width, initial-scale=1"><div lang="ja" style="font-family:\'BIZ UDPGothic\',\'Noto Sans CJK JP\',sans-serif;font-size:20px;padding:24px">' +
-      String(text).replace(/[<>&]/g, '') + '</div>').setTitle('学習BASE');
+      String(text).replace(/[<>&]/g, '') + '</div>').setTitle('学習BASE');   // 案内だけのページ
   }
 
   /** アプリが使える状態か（{ id: true/false }）。ready を持たないアプリは使える扱い。読み込めなかったアプリは false */

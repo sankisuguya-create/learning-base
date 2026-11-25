@@ -57,7 +57,7 @@ function run(S, user = 'owner@edu.nishi.or.jp', loader = LOADER) {
         onWeekDay: () => ({ atHour: () => ({ nearMinute: () => ({ create: () => S.triggers.push(fn) }) }) }) }) }) },
     MailApp: { sendEmail: m => { (S.mails = S.mails || []).push(m); }, getRemainingDailyQuota: () => 100 },
     HtmlService: {
-      createHtmlOutput: h => ({ html: h, setTitle() { return this; }, addMetaTag() { return this; } }),
+      createHtmlOutput: h => ({ html: h, setTitle() { return this; }, addMetaTag() { return this; }, setFaviconUrl(u) { this.icon = u; return this; } }),
       // 本物の GAS と同じく、<?!= ?> の中で見えるのはテンプレートに渡した名前と組み込みだけ（関数の中に包んだアプリの名前は見えない）
       createTemplate: src => { const t = { evaluate() {
         const names = Object.keys(t).filter(k => k !== 'evaluate'), vals = names.map(k => t[k]);
@@ -616,6 +616,15 @@ t('移転：旧GAS で lbMoveOut → 新しいBASEシート（GAS が付いて�
   assert.match(run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: {} }).html, /href="https:\/\/script\.google\.com\/a\/macros\/edu\.nishi\.or\.jp\/s\/LB\/exec"/);
   assert.match(run(N, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: {} }).html, /LB_BOOT/, '新しい GAS はふつうに開く');
   assert.match(run(N).lbStatus(), /中身: ○/);
+});
+
+t('タブアイコン：ホーム＝学習BASE、算数TA・漢字の森＝それぞれ。学習BASE と同じ版の jsDelivr の .png', () => {
+  const S = school(), kid = '11111111@kyoiku.edu.nishi.or.jp';
+  assert.strictEqual(run(S, kid).doGet({ parameter: {} }).icon, `https://cdn.jsdelivr.net/gh/sankisuguya-create/learning-base@${VER}/web/icons/favicon/base.png`);
+  const ta = run(S, kid).doGet({ parameter: { app: 'tamath', unit: 'kuku' } });
+  assert.ok(!ta.icon || /favicon\/tamath\.png$/.test(ta.icon), String(ta.icon));
+  const fs2 = require('fs');
+  ['base', 'tamath', 'kanzi'].forEach(n => assert.ok(fs2.existsSync(path.join(R, 'web/icons/favicon', n + '.png')), n + '.png がある'));
 });
 
 (async () => {
