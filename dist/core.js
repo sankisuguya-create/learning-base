@@ -608,7 +608,45 @@ var LbStores = (function () {
     return n;
   }
 
-  return { SHEET: SHEET, HEAD: HEAD, LEGACY: LEGACY, list: list, find: find, id: id, open: open, ofApp: ofApp, add: add,
+  /**
+   * 算数TA のハブ（links シートの sheet 列＝単元ごとの記録のスプレッドシート）から、台帳の tamath の行を一括でつなぎ直す（1回だけ。印 LB_HUB_LINKED）。
+   * 学習BASE に入る前に単元ごとの GAS で貯めた記録（図形の育ち・記録・ランキング）を引き継ぐため。
+   * ハブ：移転した後は旧ハブ（LB_MOVED_FROM）、移転前は今のハブ。台帳に同じ単元の行があり、別のシートなら置き換える（学習BASE が作った空のシート）。
+   * 返す：報告の文（何もしなければ ''）
+   */
+  function linkFromHub() {
+    var P = PropertiesService.getScriptProperties();
+    if (P.getProperty('LB_HUB_LINKED')) return '';
+    var from = String(P.getProperty('LB_MOVED_FROM') || ''), hub;
+    try { hub = from ? SpreadsheetApp.openById(from) : Base.hub(); } catch (e) { return 'ハブから単元のシートをつなぐ：× 旧ハブを開けません（' + e.message + '）'; }
+    var lk = hub.getSheetByName('links');
+    if (!lk || lk.getLastRow() < 2) { P.setProperty('LB_HUB_LINKED', LbSheets.day()); return ''; }
+    var v = lk.getDataRange().getValues(), head = v[0].map(function (h) { return String(h).trim().toLowerCase(); });
+    var ci = head.indexOf('id'), cs = head.indexOf('sheet');
+    if (ci < 0 || cs < 0) { P.setProperty('LB_HUB_LINKED', LbSheets.day()); return 'ハブから単元のシートをつなぐ：links に id・sheet の列がありません'; }
+    var sh = LbSheets.sheet(Base.hub(), SHEET, HEAD, [1, 2, 5]), rows = sh.getLastRow() >= 2 ? sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues() : [];
+    var added = [], replaced = [], same = 0;
+    for (var i = 1; i < v.length; i++) {
+      var unit = String(v[i][ci] || '').trim(), sid = idOf(v[i][cs]);
+      if (!/^[a-z0-9_-]+$/.test(unit) || !sid) continue;
+      var at = -1;
+      for (var j = 0; j < rows.length; j++) if (String(rows[j][0]).trim() === 'tamath' && String(rows[j][1]).trim() === unit) { at = j; break; }
+      if (at < 0) { sh.appendRow(['tamath', unit, urlOf(sid), '', 'ハブから ' + LbSheets.day()]); added.push(unit); continue; }
+      var cur = idOf(rows[at][2]);
+      if (cur === sid) { same++; continue; }
+      sh.getRange(at + 2, 3).setValue(urlOf(sid));
+      sh.getRange(at + 2, 5).setValue('ハブから ' + LbSheets.day() + '（前：' + cur + '）');
+      replaced.push(unit);
+    }
+    forget();
+    P.setProperty('LB_HUB_LINKED', LbSheets.day());
+    if (!added.length && !replaced.length) return '';
+    return 'ハブから単元のシートをつないだ：置き換え ' + replaced.length + ' 件' + (replaced.length ? '（' + replaced.join('・') + '）' : '') +
+      '・足した ' + added.length + ' 件' + (added.length ? '（' + added.join('・') + '）' : '') + (same ? '・同じ ' + same + ' 件' : '') +
+      (replaced.length ? '\n  置き換えた単元で学習BASE に入ってから解いた分は、前のシート（作成の欄の「前：」の ID）に残っています' : '');
+  }
+
+  return { SHEET: SHEET, linkFromHub: linkFromHub, HEAD: HEAD, LEGACY: LEGACY, list: list, find: find, id: id, open: open, ofApp: ofApp, add: add,
     syncLegacy: syncLegacy, ensure: ensure, forget: forget, idOf: idOf, urlOf: urlOf };
 })();
 
@@ -1973,6 +2011,7 @@ var LbTelemetry = (function () {
   var USAGE = 'usage', USAGE_HEAD = ['日付', '区分', '出来事', '回数'];
   var SPEED = { srv: [[1000, '1秒未満'], [2000, '1〜2秒'], [4000, '2〜4秒'], [Infinity, '4秒以上']],
     rt: [[2000, '2秒未満'], [4000, '2〜4秒'], [8000, '4〜8秒'], [Infinity, '8秒以上']],
+    page: [[300, '0.3秒未満'], [700, '0.3〜0.7秒'], [1500, '0.7〜1.5秒'], [3000, '1.5〜3秒'], [Infinity, '3秒以上']],   // アプリのページを作る（GAS の中）
     start: [[5000, '5秒未満'], [10000, '5〜10秒'], [20000, '10〜20秒'], [Infinity, '20秒以上']] };
   var PATHS = { now: 'いまの学習', tile: '教科のタイル', subject: '教科の中' };
   var MAX_KEYS = 80;   // 1つのプロパティに置く出来事の種類の上限（エラー文が大量に違う時、9KB を越えないように）
@@ -2009,6 +2048,7 @@ var LbTelemetry = (function () {
       p.setProperty(key, JSON.stringify(o));
     } catch (e) { /* 数えられなくても動く */ }
   }
+  function bucketOf(kind, ms) { return bucket(Number(ms) || 0, SPEED[kind]); }
   function speed(kind, ms) { return kind + ':' + bucket(Number(ms) || 0, SPEED[kind]); }
   /** 失敗の出来事の名前：err:どこで:エラー文 */
   function err(where, e) { return 'err:' + cleanName(where).slice(0, 40) + ':' + errText(e); }
@@ -2076,7 +2116,7 @@ var LbTelemetry = (function () {
     return n;
   }
 
-  return { cleanName: cleanName, count: count, speed: speed, err: err, errText: errText, memClass: memClass, bootEvents: bootEvents, errorCount: errorCount,
+  return { cleanName: cleanName, count: count, speed: speed, bucketOf: bucketOf, err: err, errText: errText, memClass: memClass, bootEvents: bootEvents, errorCount: errorCount,
     pending: pending, flush: flush, usage: usage };
 })();
 
@@ -3086,11 +3126,16 @@ var LbPlatform = (function () {
     if (mv) return movedPage(mv);
     if (p.doc && !app) return message('このページは じゅんび中です');
     if (app) {
-      var m = appMod(app);
+      var t0 = Date.now(), m = appMod(app), t1 = Date.now();
       if (!m) return message('アプリが見つかりません: ' + app);
       if (m.broken) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.load', m.broken)); return message('いまは ひらけません。すこし まってから、ひらきなおしてね'); }
-      LB_LOADER.files(app);                   // そのアプリの画面のファイルを読む（LB_FILES。古い読み込み係は全アプリ分）
-      try { return withIcon(m.doGet(e), app); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
+      if (typeof m.filesLazy !== 'function') LB_LOADER.files(app);   // そのアプリの画面のファイルを読む（LB_FILES）。要る時だけ読むアプリ（filesLazy）は先に読まない
+      try {
+        var out = withIcon(m.doGet(e), app), t2 = Date.now();
+        // 速さ（どこに時間がかかるか）：アプリのコードを読む・ページを作る（GAS の中だけ。起動と通信は入らない）。usage に区分ごとの回数で。役割は調べない（名簿を読む往復を増やさない）
+        try { LbTelemetry.count('-', ['page:' + app + ':読込:' + LbTelemetry.bucketOf('page', t1 - t0), 'page:' + app + ':作成:' + LbTelemetry.bucketOf('page', t2 - t1)]); } catch (eT) {}
+        return out;
+      } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
   }
@@ -3241,6 +3286,7 @@ var LbPlatform = (function () {
       Base.clearCache();
       pre.push('先生の担当 teachers：' + Math.max(tsh.getLastRow() - 1, 0) + ' 行');
     } catch (e) { pre.push('先生の担当 teachers：× ' + e.message); }
+    try { var lh = LbStores.linkFromHub(); if (lh) pre.push(lh); } catch (e) { pre.push('ハブから単元のシートをつなぐ：× ' + e.message); }
     try { LbStores.forget(); LbStores.ensure(); pre.push('台帳 app_sheets：前の形から写した ' + LbStores.syncLegacy() + ' 件・登録 ' + LbStores.list().length + ' 件'); } catch (e) { pre.push('台帳 app_sheets：× ' + e.message); }
     try { var po = LbMove.pointOld(); if (po) pre.push(po); } catch (e) { pre.push('旧URL の案内：× ' + e.message); }
     return pre.concat(appIds().map(function (k) {

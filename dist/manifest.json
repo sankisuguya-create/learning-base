@@ -1,34 +1,34 @@
 {
- "server": "632b7a64723c743c7c81b5c262e837996f86fa79a464af503b1f886250c3c72f",
- "html": "e68a04b0aecbf95426141c7def32d1939cc4d86f258606dec82c4b14240658f8",
- "serverChars": 569225,
- "htmlChars": 662488,
+ "server": "09d34a7e8a0f91d18ff4fa21ed783981ebbe87e1b791e8070bc104a507a99037",
+ "html": "2251df516d3582419ea1d0363c9620792771fa3e2990dc274610e3c55f4483ae",
+ "serverChars": 574217,
+ "htmlChars": 664169,
  "files": {
   "app-kanzi.js": "cdadb7a3905d1baddae841c90ef1bdc8b909bdac7cef5d1520b3e66c5844071d",
   "app-taiiku.js": "4b634ff183fabf421a91b4c342e246d85920e0ef60426a48a76360d3ef675a1c",
-  "app-tamath.js": "2a8b7ce9fb27daa46fb3d06140063992b68e0d786d3e1b189d7e75d6f123e436",
-  "core.js": "0340e256f506f91357431b6b4fa851b805356ec06f303b278053e506594d3db4",
+  "app-tamath.js": "71a35788e30f6e957909f982bf802282a8b4f24f1127b46cc2648925ec8bd875",
+  "core.js": "6fff8804b3a0b15b366fd52a2ba7d0a147d936456050ccee61785d77facbef18",
   "html-kanzi.json": "92092a8147dd858c52f1998e8ac96b6cd0e24ca7632fad4844fff77df03cfb4a",
   "html-taiiku.json": "cf50f3f5447de59c99b9f6f8fc411e0e3d4af45d32b265d7e6253e35dce85575",
-  "html-tamath.json": "cef0f5f2f33c43eb3a95804a123d6d5496404446dc90af473bf0d51aae1c628a",
-  "html.json": "e68a04b0aecbf95426141c7def32d1939cc4d86f258606dec82c4b14240658f8",
-  "server.js": "632b7a64723c743c7c81b5c262e837996f86fa79a464af503b1f886250c3c72f"
+  "html-tamath.json": "e1065a5b87d447d87c46ef511d54645f88d22796ef95f642a8ad91260f4b52b0",
+  "html.json": "2251df516d3582419ea1d0363c9620792771fa3e2990dc274610e3c55f4483ae",
+  "server.js": "09d34a7e8a0f91d18ff4fa21ed783981ebbe87e1b791e8070bc104a507a99037"
  },
  "chars": {
   "app-kanzi.js": 91841,
   "app-taiiku.js": 1542,
-  "app-tamath.js": 311739,
-  "core.js": 164306,
+  "app-tamath.js": 313503,
+  "core.js": 167534,
   "html-kanzi.json": 68149,
   "html-taiiku.json": 69637,
-  "html-tamath.json": 524704,
-  "html.json": 662488,
-  "server.js": 569225
+  "html-tamath.json": 526385,
+  "html.json": 664169,
+  "server.js": 574217
  },
  "apps": {
   "tamath": {
    "repo": "sankisuguya-create/arithmetic-timeattack",
-   "commit": "a0484f3448881c9a4fc37c5cf8265fd645b401f1"
+   "commit": "c74bc74f98cb1f159115cfe65ee4edf76cf0f5d4"
   },
   "kanzi": {
    "repo": "sankisuguya-create/kanzi",

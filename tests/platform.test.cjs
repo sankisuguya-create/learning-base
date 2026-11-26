@@ -83,11 +83,17 @@ t('ホーム：初回は jsDelivr から取り、版で固定した画面のプ�
   assert.strictEqual(JSON.stringify(jsd(S).map(u => u.split('/dist/')[1])), JSON.stringify(['manifest.json', 'core.js']), 'ホームでは教科のコードを読まない');
   assert.ok(S.hub.sheets.platform_code.v.some(r => r[0] === 'core.js' && r[1] === VER));
 });
-t('教科は使う時だけ読む：算数のページで app-tamath.js と html-tamath.json だけ。国語のコードは読まない。教科を足しても毎回読む量は増えない', () => {
+t('教科は使う時だけ読む：算数の児童のページで app-tamath.js だけ（画面は jsDelivr の算数TA から読むので html-tamath.json も読まない）。国語のコードは読まない', () => {
   const S = school();
-  run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: { app: 'tamath', unit: 'kuku' } });
+  const page = run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: { app: 'tamath', unit: 'kuku' } }).html;
   const got = jsd(S).map(u => u.split('/dist/')[1]);
-  assert.ok(got.includes('app-tamath.js') && got.includes('html-tamath.json'), got.join());
+  assert.ok(got.includes('app-tamath.js') && !got.includes('html-tamath.json'), got.join());
+  const lock = JSON.parse(fs.readFileSync(path.join(R, 'apps.lock.json'), 'utf8')).tamath;
+  assert.ok(page.includes(`https://cdn.jsdelivr.net/gh/${lock.repo}@${lock.commit}/dist/multi/web/index.js`), '画面のプログラムは算数TA の版で固定した jsDelivr');
+  assert.match(page, /window\.LB_APP_ID="kuku"/); assert.match(page, /r\.apiCall\(KEY/, '差し替え（画面からサーバーを呼ぶ）が入っている');
+  assert.ok(page.length < 6000, '枠は小さい（' + page.length + '字）');
+  assert.ok(Object.keys(S.props).some(k => /^tel/.test(k) || /page:tamath:読込:/.test(S.props[k])) && Object.values(S.props).some(v => /page:tamath:読込:.*page:tamath:作成:|page:tamath:作成:.*page:tamath:読込:/.test(String(v))), '速さ（読込・作成）を記録する');
+  assert.match(run(S, '11111111@kyoiku.edu.nishi.or.jp').doGet({ parameter: { app: 'tamath', unit: 'kuku', full: '1' } }).html, /var APP_ID = "kuku";/, '?full=1 は今まで通りの画面（jsDelivr が読めない時の行き先）');
   assert.ok(!got.some(f => /kanzi|server\.js|html\.json$/.test(f) && f !== 'html-tamath.json'), '他の教科・全部入りは読まない: ' + got.join());
   const m = JSON.parse(DIST('manifest.json'));
   assert.ok(m.chars['core.js'] < m.chars['server.js'] * 0.4, '毎回読むのは全部入りの4割未満（' + m.chars['core.js'] + '／' + m.chars['server.js'] + '字）');
@@ -105,7 +111,7 @@ t('前の形の版（manifest に files が無い。戻した時など）は、�
   const old = JSON.parse(S.files['manifest.json']); delete old.files; delete old.chars;
   S.files['manifest.json'] = JSON.stringify(old);
   const c = run(S, '11111111@kyoiku.edu.nishi.or.jp');
-  assert.match(c.doGet({ parameter: { app: 'tamath', unit: 'kuku' } }).html, /var APP_ID = "kuku";/);
+  assert.match(c.doGet({ parameter: { app: 'tamath', unit: 'kuku', full: '1' } }).html, /var APP_ID = "kuku";/);
   assert.ok(jsd(S).some(u => u.endsWith('/dist/server.js')) && jsd(S).some(u => u.endsWith('/dist/html.json')));
 });
 t('2回目からは一時保存から読む（jsDelivr に行かない）。版はハブを開かずに一時保存から', () => {
@@ -128,12 +134,12 @@ t('算数TA：?app=tamath は単元の一覧（リンクに app=tamath）。?uni
   assert.ok(!jsd(S).some(u => /html.*\.json$/.test(u)), 'ホームでは画面のファイルを読まない');
   const p = run(S).doGet({ parameter: { app: 'tamath' } });
   assert.match(p.html, /exec\?app=tamath&unit=kuku/);
-  assert.ok(jsd(S).some(u => u.endsWith('html-tamath.json')));
+  assert.ok(!jsd(S).some(u => u.endsWith('html-tamath.json')), '単元の一覧では画面のファイルを読まない');
   assert.match(run(S).doGet({ parameter: { unit: 'zzz' } }).html, /app=tamath&unit=/, '知らない単元は一覧へ');
   assert.match(run(S).doGet({ parameter: { app: 'nope' } }).html, /アプリが見つかりません/);
   assert.match(run(S).doGet({ parameter: { doc: 'x' } }).html, /じゅんび中/, '教材ページは doc=');
   // 単元の画面（児童・教師）：テンプレートを評価でき、画面の呼び出しを apiCall につなぐ差し替えが入っている
-  const kid = run(S).doGet({ parameter: { app: 'tamath', unit: 'kuku' } }).html;
+  const kid = run(S).doGet({ parameter: { app: 'tamath', unit: 'kuku', full: '1' } }).html;
   assert.match(kid, /var APP_ID = "kuku";/);
   assert.match(kid, /r\.apiCall\(KEY/, '差し替えが無い（画面からサーバーを呼べない）');
   assert.match(run(S).doGet({ parameter: { app: 'tamath', unit: 'kuku', page: 'teacher' } }).html, /r\.apiCall\(KEY/);
@@ -495,7 +501,7 @@ t('貼り直す前の読み込み係（前の形）でも、新しい dist/ で�
   assert.ok(!OLD.includes('lbApp_'), '前の形の読み込み係');
   const S = school({ sha: MANIFEST.server }), kid = '11111111@kyoiku.edu.nishi.or.jp';
   assert.match(run(S, kid, OLD).doGet({ parameter: {} }).html, /home\.js/);
-  assert.match(run(S, kid, OLD).doGet({ parameter: { app: 'tamath', unit: 'kuku' } }).html, /var APP_ID = "kuku";/);
+  assert.match(run(S, kid, OLD).doGet({ parameter: { app: 'tamath', unit: 'kuku', full: '1' } }).html, /var APP_ID = "kuku";/);
   assert.ok(run(S, kid, OLD).apiCall('kuku', 'unitIdsForTest', []).length >= 14);
   assert.strictEqual(run(S, kid, OLD).lbCall('home', 'boot', [{}]).apps.kanzi, false);
   assert.strictEqual(JSON.stringify(run(S, 'owner@edu.nishi.or.jp', OLD).lbNightly()), '[]');
@@ -541,6 +547,25 @@ t('台帳 app_sheets：写し終えた後（lbSetup の後）は前の形のプ�
   assert.ok(made && made !== ID_A, '新しく作る');
   run(S).lbSetup();
   assert.strictEqual(S.hub.sheets.app_sheets.v.filter(r => r[1] === 'kuku').length, 1, 'lbSetup をもう一度実行しても、消した行は戻らない');
+});
+t('台帳 app_sheets：lbSetup で旧ハブの links（sheet 列）から単元のシートを一括でつなぎ直す（1回だけ）', () => {
+  const OLD = makeSS('OLDHUBxxxxxxxxxxxxxxxxxxx');
+  OLD.insertSheet('links').v.push(['id', 'title', 'subtitle', 'url', 'grades', 'color', 'visible', 'order', 'sheet', 'place'],
+    ['kuku', '九九', '', '', '3', '', true, 1, 'https://docs.google.com/spreadsheets/d/' + ID_A + '/edit', ''],
+    ['factor', '素因数分解', '', '', '', '', true, 2, ID_K, 'special'], ['toi', 'といボード', '', '', '', '', true, 3, '', '']);
+  const S = school(); S.props.LB_MOVED_FROM = OLD.getId(); (S.units = S.units || {})[OLD.getId()] = OLD;
+  const NEWID = 'NEWAUTOxxxxxxxxxxxxxxxxxx';
+  S.hub.insertSheet('app_sheets').v.push(['アプリ', '単元', 'スプレッドシート', '状態', '作成'], ['tamath', 'kuku', 'https://docs.google.com/spreadsheets/d/' + NEWID + '/edit', '', '2026-11-20']);
+  const msg = run(S).lbSetup();
+  assert.match(msg, /ハブから単元のシートをつないだ：置き換え 1 件（kuku）・足した 1 件（factor）/);
+  const rows = S.hub.sheets.app_sheets.v.slice(1);
+  assert.ok(rows.find(r => r[1] === 'kuku')[2].includes(ID_A), '九九は旧ハブのシートに');
+  assert.ok(rows.find(r => r[1] === 'kuku')[4].includes(NEWID), '前のシートの ID を残す');
+  assert.ok(rows.find(r => r[1] === 'factor')[2].includes(ID_K), '素因数分解を足す');
+  assert.ok(S.props.LB_HUB_LINKED, '1回だけの印');
+  S.hub.sheets.app_sheets.v.find(r => r[1] === 'kuku')[2] = 'https://docs.google.com/spreadsheets/d/' + NEWID + '/edit';   // 先生が手で戻した
+  run(S).lbSetup();
+  assert.ok(S.hub.sheets.app_sheets.v.find(r => r[1] === 'kuku')[2].includes(NEWID), '2回目からは手で直したものを変えない');
 });
 t('台帳 app_sheets：紐付けが0件でも、lbSetup・移転で見出しだけのシートを置く', () => {
   const S = school();
