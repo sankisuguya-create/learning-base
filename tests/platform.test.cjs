@@ -542,6 +542,25 @@ t('台帳 app_sheets：写し終えた後（lbSetup の後）は前の形のプ�
   run(S).lbSetup();
   assert.strictEqual(S.hub.sheets.app_sheets.v.filter(r => r[1] === 'kuku').length, 1, 'lbSetup をもう一度実行しても、消した行は戻らない');
 });
+t('台帳 app_sheets：lbSetup で旧ハブの links（sheet 列）から単元のシートを一括でつなぎ直す（1回だけ）', () => {
+  const OLD = makeSS('OLDHUBxxxxxxxxxxxxxxxxxxx');
+  OLD.insertSheet('links').v.push(['id', 'title', 'subtitle', 'url', 'grades', 'color', 'visible', 'order', 'sheet', 'place'],
+    ['kuku', '九九', '', '', '3', '', true, 1, 'https://docs.google.com/spreadsheets/d/' + ID_A + '/edit', ''],
+    ['factor', '素因数分解', '', '', '', '', true, 2, ID_K, 'special'], ['toi', 'といボード', '', '', '', '', true, 3, '', '']);
+  const S = school(); S.props.LB_MOVED_FROM = OLD.getId(); (S.units = S.units || {})[OLD.getId()] = OLD;
+  const NEWID = 'NEWAUTOxxxxxxxxxxxxxxxxxx';
+  S.hub.insertSheet('app_sheets').v.push(['アプリ', '単元', 'スプレッドシート', '状態', '作成'], ['tamath', 'kuku', 'https://docs.google.com/spreadsheets/d/' + NEWID + '/edit', '', '2026-11-20']);
+  const msg = run(S).lbSetup();
+  assert.match(msg, /ハブから単元のシートをつないだ：置き換え 1 件（kuku）・足した 1 件（factor）/);
+  const rows = S.hub.sheets.app_sheets.v.slice(1);
+  assert.ok(rows.find(r => r[1] === 'kuku')[2].includes(ID_A), '九九は旧ハブのシートに');
+  assert.ok(rows.find(r => r[1] === 'kuku')[4].includes(NEWID), '前のシートの ID を残す');
+  assert.ok(rows.find(r => r[1] === 'factor')[2].includes(ID_K), '素因数分解を足す');
+  assert.ok(S.props.LB_HUB_LINKED, '1回だけの印');
+  S.hub.sheets.app_sheets.v.find(r => r[1] === 'kuku')[2] = 'https://docs.google.com/spreadsheets/d/' + NEWID + '/edit';   // 先生が手で戻した
+  run(S).lbSetup();
+  assert.ok(S.hub.sheets.app_sheets.v.find(r => r[1] === 'kuku')[2].includes(NEWID), '2回目からは手で直したものを変えない');
+});
 t('台帳 app_sheets：紐付けが0件でも、lbSetup・移転で見出しだけのシートを置く', () => {
   const S = school();
   run(S).lbSetup();

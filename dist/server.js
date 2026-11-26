@@ -608,7 +608,45 @@ var LbStores = (function () {
     return n;
   }
 
-  return { SHEET: SHEET, HEAD: HEAD, LEGACY: LEGACY, list: list, find: find, id: id, open: open, ofApp: ofApp, add: add,
+  /**
+   * 算数TA のハブ（links シートの sheet 列＝単元ごとの記録のスプレッドシート）から、台帳の tamath の行を一括でつなぎ直す（1回だけ。印 LB_HUB_LINKED）。
+   * 学習BASE に入る前に単元ごとの GAS で貯めた記録（図形の育ち・記録・ランキング）を引き継ぐため。
+   * ハブ：移転した後は旧ハブ（LB_MOVED_FROM）、移転前は今のハブ。台帳に同じ単元の行があり、別のシートなら置き換える（学習BASE が作った空のシート）。
+   * 返す：報告の文（何もしなければ ''）
+   */
+  function linkFromHub() {
+    var P = PropertiesService.getScriptProperties();
+    if (P.getProperty('LB_HUB_LINKED')) return '';
+    var from = String(P.getProperty('LB_MOVED_FROM') || ''), hub;
+    try { hub = from ? SpreadsheetApp.openById(from) : Base.hub(); } catch (e) { return 'ハブから単元のシートをつなぐ：× 旧ハブを開けません（' + e.message + '）'; }
+    var lk = hub.getSheetByName('links');
+    if (!lk || lk.getLastRow() < 2) { P.setProperty('LB_HUB_LINKED', LbSheets.day()); return ''; }
+    var v = lk.getDataRange().getValues(), head = v[0].map(function (h) { return String(h).trim().toLowerCase(); });
+    var ci = head.indexOf('id'), cs = head.indexOf('sheet');
+    if (ci < 0 || cs < 0) { P.setProperty('LB_HUB_LINKED', LbSheets.day()); return 'ハブから単元のシートをつなぐ：links に id・sheet の列がありません'; }
+    var sh = LbSheets.sheet(Base.hub(), SHEET, HEAD, [1, 2, 5]), rows = sh.getLastRow() >= 2 ? sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues() : [];
+    var added = [], replaced = [], same = 0;
+    for (var i = 1; i < v.length; i++) {
+      var unit = String(v[i][ci] || '').trim(), sid = idOf(v[i][cs]);
+      if (!/^[a-z0-9_-]+$/.test(unit) || !sid) continue;
+      var at = -1;
+      for (var j = 0; j < rows.length; j++) if (String(rows[j][0]).trim() === 'tamath' && String(rows[j][1]).trim() === unit) { at = j; break; }
+      if (at < 0) { sh.appendRow(['tamath', unit, urlOf(sid), '', 'ハブから ' + LbSheets.day()]); added.push(unit); continue; }
+      var cur = idOf(rows[at][2]);
+      if (cur === sid) { same++; continue; }
+      sh.getRange(at + 2, 3).setValue(urlOf(sid));
+      sh.getRange(at + 2, 5).setValue('ハブから ' + LbSheets.day() + '（前：' + cur + '）');
+      replaced.push(unit);
+    }
+    forget();
+    P.setProperty('LB_HUB_LINKED', LbSheets.day());
+    if (!added.length && !replaced.length) return '';
+    return 'ハブから単元のシートをつないだ：置き換え ' + replaced.length + ' 件' + (replaced.length ? '（' + replaced.join('・') + '）' : '') +
+      '・足した ' + added.length + ' 件' + (added.length ? '（' + added.join('・') + '）' : '') + (same ? '・同じ ' + same + ' 件' : '') +
+      (replaced.length ? '\n  置き換えた単元で学習BASE に入ってから解いた分は、前のシート（作成の欄の「前：」の ID）に残っています' : '');
+  }
+
+  return { SHEET: SHEET, linkFromHub: linkFromHub, HEAD: HEAD, LEGACY: LEGACY, list: list, find: find, id: id, open: open, ofApp: ofApp, add: add,
     syncLegacy: syncLegacy, ensure: ensure, forget: forget, idOf: idOf, urlOf: urlOf };
 })();
 
@@ -12811,6 +12849,7 @@ var LbPlatform = (function () {
       Base.clearCache();
       pre.push('先生の担当 teachers：' + Math.max(tsh.getLastRow() - 1, 0) + ' 行');
     } catch (e) { pre.push('先生の担当 teachers：× ' + e.message); }
+    try { var lh = LbStores.linkFromHub(); if (lh) pre.push(lh); } catch (e) { pre.push('ハブから単元のシートをつなぐ：× ' + e.message); }
     try { LbStores.forget(); LbStores.ensure(); pre.push('台帳 app_sheets：前の形から写した ' + LbStores.syncLegacy() + ' 件・登録 ' + LbStores.list().length + ' 件'); } catch (e) { pre.push('台帳 app_sheets：× ' + e.message); }
     try { var po = LbMove.pointOld(); if (po) pre.push(po); } catch (e) { pre.push('旧URL の案内：× ' + e.message); }
     return pre.concat(appIds().map(function (k) {

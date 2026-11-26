@@ -206,6 +206,7 @@ var LbPlatform = (function () {
       Base.clearCache();
       pre.push('先生の担当 teachers：' + Math.max(tsh.getLastRow() - 1, 0) + ' 行');
     } catch (e) { pre.push('先生の担当 teachers：× ' + e.message); }
+    try { var lh = LbStores.linkFromHub(); if (lh) pre.push(lh); } catch (e) { pre.push('ハブから単元のシートをつなぐ：× ' + e.message); }
     try { LbStores.forget(); LbStores.ensure(); pre.push('台帳 app_sheets：前の形から写した ' + LbStores.syncLegacy() + ' 件・登録 ' + LbStores.list().length + ' 件'); } catch (e) { pre.push('台帳 app_sheets：× ' + e.message); }
     try { var po = LbMove.pointOld(); if (po) pre.push(po); } catch (e) { pre.push('旧URL の案内：× ' + e.message); }
     return pre.concat(appIds().map(function (k) {
