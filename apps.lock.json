@@ -2,7 +2,7 @@
   "_": "学習BASE に載せるアプリと、その版（コミット）。tools/bundle.cjs がこの版のファイルを取り込んで dist/ を作る。アプリを更新する時はここの commit を書き換えて npm run bundle",
   "tamath": {
     "repo": "sankisuguya-create/arithmetic-timeattack",
-    "commit": "a0484f3448881c9a4fc37c5cf8265fd645b401f1",
+    "commit": "c74bc74f98cb1f159115cfe65ee4edf76cf0f5d4",
     "server": [
       "dist/multi/Core.gs",
       "dist/multi/AllUnits.gs"
@@ -23,7 +23,8 @@
       "sessionSources": "lbSessionSources_",
       "writeForUnit": "lbWriteForUnit_",
       "legacySources": "lbLegacySources_",
-      "legacySessions": "lbLegacySessions_"
+      "legacySessions": "lbLegacySessions_",
+      "filesLazy": "lbFilesLazy_"
     },
     "locals": {
       "LB_APP_QUERY": "app=tamath"

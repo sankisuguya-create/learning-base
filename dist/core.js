@@ -2011,6 +2011,7 @@ var LbTelemetry = (function () {
   var USAGE = 'usage', USAGE_HEAD = ['日付', '区分', '出来事', '回数'];
   var SPEED = { srv: [[1000, '1秒未満'], [2000, '1〜2秒'], [4000, '2〜4秒'], [Infinity, '4秒以上']],
     rt: [[2000, '2秒未満'], [4000, '2〜4秒'], [8000, '4〜8秒'], [Infinity, '8秒以上']],
+    page: [[300, '0.3秒未満'], [700, '0.3〜0.7秒'], [1500, '0.7〜1.5秒'], [3000, '1.5〜3秒'], [Infinity, '3秒以上']],   // アプリのページを作る（GAS の中）
     start: [[5000, '5秒未満'], [10000, '5〜10秒'], [20000, '10〜20秒'], [Infinity, '20秒以上']] };
   var PATHS = { now: 'いまの学習', tile: '教科のタイル', subject: '教科の中' };
   var MAX_KEYS = 80;   // 1つのプロパティに置く出来事の種類の上限（エラー文が大量に違う時、9KB を越えないように）
@@ -2047,6 +2048,7 @@ var LbTelemetry = (function () {
       p.setProperty(key, JSON.stringify(o));
     } catch (e) { /* 数えられなくても動く */ }
   }
+  function bucketOf(kind, ms) { return bucket(Number(ms) || 0, SPEED[kind]); }
   function speed(kind, ms) { return kind + ':' + bucket(Number(ms) || 0, SPEED[kind]); }
   /** 失敗の出来事の名前：err:どこで:エラー文 */
   function err(where, e) { return 'err:' + cleanName(where).slice(0, 40) + ':' + errText(e); }
@@ -2114,7 +2116,7 @@ var LbTelemetry = (function () {
     return n;
   }
 
-  return { cleanName: cleanName, count: count, speed: speed, err: err, errText: errText, memClass: memClass, bootEvents: bootEvents, errorCount: errorCount,
+  return { cleanName: cleanName, count: count, speed: speed, bucketOf: bucketOf, err: err, errText: errText, memClass: memClass, bootEvents: bootEvents, errorCount: errorCount,
     pending: pending, flush: flush, usage: usage };
 })();
 
@@ -3124,11 +3126,16 @@ var LbPlatform = (function () {
     if (mv) return movedPage(mv);
     if (p.doc && !app) return message('このページは じゅんび中です');
     if (app) {
-      var m = appMod(app);
+      var t0 = Date.now(), m = appMod(app), t1 = Date.now();
       if (!m) return message('アプリが見つかりません: ' + app);
       if (m.broken) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.load', m.broken)); return message('いまは ひらけません。すこし まってから、ひらきなおしてね'); }
-      LB_LOADER.files(app);                   // そのアプリの画面のファイルを読む（LB_FILES。古い読み込み係は全アプリ分）
-      try { return withIcon(m.doGet(e), app); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
+      if (typeof m.filesLazy !== 'function') LB_LOADER.files(app);   // そのアプリの画面のファイルを読む（LB_FILES）。要る時だけ読むアプリ（filesLazy）は先に読まない
+      try {
+        var out = withIcon(m.doGet(e), app), t2 = Date.now();
+        // 速さ（どこに時間がかかるか）：アプリのコードを読む・ページを作る（GAS の中だけ。起動と通信は入らない）。usage に区分ごとの回数で。役割は調べない（名簿を読む往復を増やさない）
+        try { LbTelemetry.count('-', ['page:' + app + ':読込:' + LbTelemetry.bucketOf('page', t1 - t0), 'page:' + app + ':作成:' + LbTelemetry.bucketOf('page', t2 - t1)]); } catch (eT) {}
+        return out;
+      } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
   }

@@ -51,11 +51,16 @@ var LbPlatform = (function () {
     if (mv) return movedPage(mv);
     if (p.doc && !app) return message('このページは じゅんび中です');
     if (app) {
-      var m = appMod(app);
+      var t0 = Date.now(), m = appMod(app), t1 = Date.now();
       if (!m) return message('アプリが見つかりません: ' + app);
       if (m.broken) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.load', m.broken)); return message('いまは ひらけません。すこし まってから、ひらきなおしてね'); }
-      LB_LOADER.files(app);                   // そのアプリの画面のファイルを読む（LB_FILES。古い読み込み係は全アプリ分）
-      try { return withIcon(m.doGet(e), app); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
+      if (typeof m.filesLazy !== 'function') LB_LOADER.files(app);   // そのアプリの画面のファイルを読む（LB_FILES）。要る時だけ読むアプリ（filesLazy）は先に読まない
+      try {
+        var out = withIcon(m.doGet(e), app), t2 = Date.now();
+        // 速さ（どこに時間がかかるか）：アプリのコードを読む・ページを作る（GAS の中だけ。起動と通信は入らない）。usage に区分ごとの回数で。役割は調べない（名簿を読む往復を増やさない）
+        try { LbTelemetry.count('-', ['page:' + app + ':読込:' + LbTelemetry.bucketOf('page', t1 - t0), 'page:' + app + ':作成:' + LbTelemetry.bucketOf('page', t2 - t1)]); } catch (eT) {}
+        return out;
+      } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
   }

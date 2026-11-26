@@ -2011,6 +2011,7 @@ var LbTelemetry = (function () {
   var USAGE = 'usage', USAGE_HEAD = ['日付', '区分', '出来事', '回数'];
   var SPEED = { srv: [[1000, '1秒未満'], [2000, '1〜2秒'], [4000, '2〜4秒'], [Infinity, '4秒以上']],
     rt: [[2000, '2秒未満'], [4000, '2〜4秒'], [8000, '4〜8秒'], [Infinity, '8秒以上']],
+    page: [[300, '0.3秒未満'], [700, '0.3〜0.7秒'], [1500, '0.7〜1.5秒'], [3000, '1.5〜3秒'], [Infinity, '3秒以上']],   // アプリのページを作る（GAS の中）
     start: [[5000, '5秒未満'], [10000, '5〜10秒'], [20000, '10〜20秒'], [Infinity, '20秒以上']] };
   var PATHS = { now: 'いまの学習', tile: '教科のタイル', subject: '教科の中' };
   var MAX_KEYS = 80;   // 1つのプロパティに置く出来事の種類の上限（エラー文が大量に違う時、9KB を越えないように）
@@ -2047,6 +2048,7 @@ var LbTelemetry = (function () {
       p.setProperty(key, JSON.stringify(o));
     } catch (e) { /* 数えられなくても動く */ }
   }
+  function bucketOf(kind, ms) { return bucket(Number(ms) || 0, SPEED[kind]); }
   function speed(kind, ms) { return kind + ':' + bucket(Number(ms) || 0, SPEED[kind]); }
   /** 失敗の出来事の名前：err:どこで:エラー文 */
   function err(where, e) { return 'err:' + cleanName(where).slice(0, 40) + ':' + errText(e); }
@@ -2114,7 +2116,7 @@ var LbTelemetry = (function () {
     return n;
   }
 
-  return { cleanName: cleanName, count: count, speed: speed, err: err, errText: errText, memClass: memClass, bootEvents: bootEvents, errorCount: errorCount,
+  return { cleanName: cleanName, count: count, speed: speed, bucketOf: bucketOf, err: err, errText: errText, memClass: memClass, bootEvents: bootEvents, errorCount: errorCount,
     pending: pending, flush: flush, usage: usage };
 })();
 
@@ -3070,10 +3072,10 @@ var LbHome = (function () {
   return { API: API, boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@a0484f3） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@c74bc74） =====
 LB_MODULES["tamath"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/arithmetic-timeattack";
-var LB_APP_COMMIT = "a0484f3448881c9a4fc37c5cf8265fd645b401f1";
+var LB_APP_COMMIT = "c74bc74f98cb1f159115cfe65ee4edf76cf0f5d4";
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- dist/multi/Core.gs ---
@@ -3421,7 +3423,28 @@ function clearUnitReady_(id) {
  *  包んだ関数の中の LB_RESOLVE_ は、画面から呼ぶ関数を名前で探す（包むと関数が globalThis に載らないため）
  * ------------------------------------------------------------ */
 function lbFile_(name) {
+  // 画面のファイルは要る時だけ読む（児童の画面は jsDelivr から読むので、ふだんは読まない。学習BASE の Platform が lbFilesLazy_ を見て先に読まない）
+  if ((typeof LB_FILES === 'undefined' || !LB_FILES || LB_FILES['tamath/' + name] == null) && typeof LB_LOADER !== 'undefined' && LB_LOADER && typeof LB_LOADER.files === 'function') {
+    try { LB_LOADER.files('tamath'); } catch (e) { console.error('画面のファイルを読めません: ' + (e && e.message || e)); }
+  }
   return (typeof LB_FILES !== 'undefined' && LB_FILES && LB_FILES['tamath/' + name] != null) ? LB_FILES['tamath/' + name] : null;
+}
+/** 学習BASE に「画面のファイルは先に読まなくてよい」と伝える（apps.lock.json の exports の filesLazy） */
+function lbFilesLazy_() { return true; }
+/**
+ * 学習BASE の中の児童の画面：小さな枠だけを返し、プログラム（dist/multi/web/index.js）は jsDelivr から版（コミット）で固定して読む。
+ * 2回目からは端末に保存した分を使う。jsDelivr が読めない時は、今まで通りの画面（?full=1）へ切り替える
+ */
+function webShell_() {
+  var src = 'https://cdn.jsdelivr.net/gh/' + LB_APP_REPO + '@' + LB_APP_COMMIT + '/dist/multi/web/index.js';
+  var full = unitUrl_('full=1');
+  var fail = 'var m=document.getElementById("lbBootMsg");if(m)m.textContent="いま ひらけません。すこし まってから、ひらきなおしてね。";' +
+    (full ? 'try{window.open(' + JSON.stringify(full) + ',"_top");}catch(e){}' : '');
+  var html = '<!DOCTYPE html><html lang="ja"><head>' + multiShim_() + '<base target="_top"><meta charset="utf-8"></head><body>' +
+    '<script>window.LB_APP_ID=' + JSON.stringify(String(UNIT.id)) + ';<\/script>' +
+    '<div id="lbBootMsg" style="font:20px/1.7 \'BIZ UDPGothic\',sans-serif;padding:24px;color:#616870">よみこみ中…</div>' +
+    '<script src="' + src + '" onerror=\'' + fail.replace(/'/g, '&#39;') + '\'><\/script></body></html>';
+  return HtmlService.createHtmlOutput(html);
 }
 function tplFromFile_(name) {
   var src = lbFile_(name);
@@ -4183,7 +4206,8 @@ function doGet(e) {
       .setTitle(UNIT.teacherTitle)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1');
   }
-  return tplFromFile_('index').evaluate()
+  var useShell = typeof LB_APP_COMMIT !== 'undefined' && typeof LB_APP_REPO !== 'undefined' && !(e && e.parameter && e.parameter.full);
+  return (useShell ? webShell_() : tplFromFile_('index').evaluate())
     .setTitle(UNIT.title)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
@@ -10867,7 +10891,8 @@ return {
   "sessionSources": (typeof lbSessionSources_ === 'function' ? lbSessionSources_ : undefined),
   "writeForUnit": (typeof lbWriteForUnit_ === 'function' ? lbWriteForUnit_ : undefined),
   "legacySources": (typeof lbLegacySources_ === 'function' ? lbLegacySources_ : undefined),
-  "legacySessions": (typeof lbLegacySessions_ === 'function' ? lbLegacySessions_ : undefined)
+  "legacySessions": (typeof lbLegacySessions_ === 'function' ? lbLegacySessions_ : undefined),
+  "filesLazy": (typeof lbFilesLazy_ === 'function' ? lbFilesLazy_ : undefined)
 };
 })(); } catch (e) { console.error("アプリ tamath を読み込めません: " + (e && e.message || e)); return { broken: String(e && e.message || e) }; } })();
 
@@ -12694,11 +12719,16 @@ var LbPlatform = (function () {
     if (mv) return movedPage(mv);
     if (p.doc && !app) return message('このページは じゅんび中です');
     if (app) {
-      var m = appMod(app);
+      var t0 = Date.now(), m = appMod(app), t1 = Date.now();
       if (!m) return message('アプリが見つかりません: ' + app);
       if (m.broken) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.load', m.broken)); return message('いまは ひらけません。すこし まってから、ひらきなおしてね'); }
-      LB_LOADER.files(app);                   // そのアプリの画面のファイルを読む（LB_FILES。古い読み込み係は全アプリ分）
-      try { return withIcon(m.doGet(e), app); } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
+      if (typeof m.filesLazy !== 'function') LB_LOADER.files(app);   // そのアプリの画面のファイルを読む（LB_FILES）。要る時だけ読むアプリ（filesLazy）は先に読まない
+      try {
+        var out = withIcon(m.doGet(e), app), t2 = Date.now();
+        // 速さ（どこに時間がかかるか）：アプリのコードを読む・ページを作る（GAS の中だけ。起動と通信は入らない）。usage に区分ごとの回数で。役割は調べない（名簿を読む往復を増やさない）
+        try { LbTelemetry.count('-', ['page:' + app + ':読込:' + LbTelemetry.bucketOf('page', t1 - t0), 'page:' + app + ':作成:' + LbTelemetry.bucketOf('page', t2 - t1)]); } catch (eT) {}
+        return out;
+      } catch (err) { LbTelemetry.count(roleNow(), LbTelemetry.err(app + '.doGet', err)); throw err; }
     }
     return homePage();
   }
