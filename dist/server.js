@@ -3072,10 +3072,10 @@ var LbHome = (function () {
   return { API: API, boot: boot, feedback: feedback, report: report, exportForTuning: exportForTuning, isOwnerView: isOwnerView, tuning: tuning, tryRules: tryRules, saveRules: saveRules, decide: decide, now3: now3, setPublish: setPublish, resetPublish: resetPublish, setNow: setNow, classesFor: classesFor, pagesUrl: pagesUrl };
 })();
 
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@c74bc74） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@ec570b5） =====
 LB_MODULES["tamath"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/arithmetic-timeattack";
-var LB_APP_COMMIT = "c74bc74f98cb1f159115cfe65ee4edf76cf0f5d4";
+var LB_APP_COMMIT = "ec570b56a1008e79aa0d119357eb68dcf5b93f92";
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- dist/multi/Core.gs ---
@@ -10896,10 +10896,10 @@ return {
 };
 })(); } catch (e) { console.error("アプリ tamath を読み込めません: " + (e && e.message || e)); return { broken: String(e && e.message || e) }; } })();
 
-// ===== アプリ kanzi（sankisuguya-create/kanzi@2efbfdb） =====
+// ===== アプリ kanzi（sankisuguya-create/kanzi@8de0aee） =====
 LB_MODULES["kanzi"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/kanzi";
-var LB_APP_COMMIT = "2efbfdb6f7b7cca72cbdf1b345d8b8d68ea8c726";
+var LB_APP_COMMIT = "8de0aee0f86112f64d4d34e1dac45f0e1a6d9c27";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- gas/Scheduler.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/scheduler.js
@@ -11383,7 +11383,7 @@ var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval(
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 // GAS 版ずれ検知の版（tools/build-gas.mjs が埋め込む）
-Sched.VER = "e4f4aab";
+Sched.VER = "2efbfdb";
 
 // --- gas/Genko.js ---
 // 自動生成（tools/build-gas.mjs）。正本は src/genko.js（作文の形をそろえる normWork をサーバーでも使う）
@@ -12635,10 +12635,10 @@ return {
 };
 })(); } catch (e) { console.error("アプリ kanzi を読み込めません: " + (e && e.message || e)); return { broken: String(e && e.message || e) }; } })();
 
-// ===== アプリ taiiku（sankisuguya-create/taiiku@27c694a） =====
+// ===== アプリ taiiku（sankisuguya-create/taiiku@96d9356） =====
 LB_MODULES["taiiku"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/taiiku";
-var LB_APP_COMMIT = "27c694aa076035c81179a35bdee86dcf6bf37e31";
+var LB_APP_COMMIT = "96d93560c830fa1b3918bcf225cb25b213d67568";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- gas/Taiiku.js ---
 // 体育のページ（学習BASE の中で動く）。learning-base の tools/bundle.cjs がこのファイルを関数に包み、

@@ -1,8 +1,8 @@
 // dist/app-tamath.js — 教科 tamath のサーバーのコード（tools/bundle.cjs が作る。直接直さない）
-// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@c74bc74） =====
+// ===== アプリ tamath（sankisuguya-create/arithmetic-timeattack@ec570b5） =====
 LB_MODULES["tamath"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/arithmetic-timeattack";
-var LB_APP_COMMIT = "c74bc74f98cb1f159115cfe65ee4edf76cf0f5d4";
+var LB_APP_COMMIT = "ec570b56a1008e79aa0d119357eb68dcf5b93f92";
 var LB_APP_QUERY = "app=tamath";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- dist/multi/Core.gs ---

@@ -1,8 +1,8 @@
 // dist/app-taiiku.js — 教科 taiiku のサーバーのコード（tools/bundle.cjs が作る。直接直さない）
-// ===== アプリ taiiku（sankisuguya-create/taiiku@27c694a） =====
+// ===== アプリ taiiku（sankisuguya-create/taiiku@96d9356） =====
 LB_MODULES["taiiku"] = (function () { try { return (function () {
 var LB_APP_REPO = "sankisuguya-create/taiiku";
-var LB_APP_COMMIT = "27c694aa076035c81179a35bdee86dcf6bf37e31";
+var LB_APP_COMMIT = "96d93560c830fa1b3918bcf225cb25b213d67568";
 var LB_RESOLVE_ = function (n) { return /^[A-Za-z][A-Za-z0-9]*$/.test(n) ? eval('typeof ' + n + " === 'function' ? " + n + ' : undefined') : undefined; };
 // --- gas/Taiiku.js ---
 // 体育のページ（学習BASE の中で動く）。learning-base の tools/bundle.cjs がこのファイルを関数に包み、
