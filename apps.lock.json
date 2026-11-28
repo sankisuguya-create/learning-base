@@ -2,7 +2,7 @@
   "_": "学習BASE に載せるアプリと、その版（コミット）。tools/bundle.cjs がこの版のファイルを取り込んで dist/ を作る。アプリを更新する時はここの commit を書き換えて npm run bundle",
   "tamath": {
     "repo": "sankisuguya-create/arithmetic-timeattack",
-    "commit": "c74bc74f98cb1f159115cfe65ee4edf76cf0f5d4",
+    "commit": "ec570b56a1008e79aa0d119357eb68dcf5b93f92",
     "server": [
       "dist/multi/Core.gs",
       "dist/multi/AllUnits.gs"
@@ -32,7 +32,7 @@
   },
   "kanzi": {
     "repo": "sankisuguya-create/kanzi",
-    "commit": "2efbfdb6f7b7cca72cbdf1b345d8b8d68ea8c726",
+    "commit": "8de0aee0f86112f64d4d34e1dac45f0e1a6d9c27",
     "server": [
       "gas/Scheduler.js",
       "gas/Genko.js",
@@ -55,7 +55,7 @@
   },
   "taiiku": {
     "repo": "sankisuguya-create/taiiku",
-    "commit": "27c694aa076035c81179a35bdee86dcf6bf37e31",
+    "commit": "96d93560c830fa1b3918bcf225cb25b213d67568",
     "server": [
       "gas/Taiiku.js"
     ],
